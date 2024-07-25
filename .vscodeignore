@@ -1,0 +1,10 @@
+src/**
+out/test/**
+resources/**
+!resources/logo.png
+
+tsconfig.json
+!file.ts
+.github
+.vscode
+
