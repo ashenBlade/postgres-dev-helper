@@ -12,6 +12,11 @@
     "icon": "./resources/logo.png",
     "activationEvents": [],
     "main": "./out/extension.js",
+    "publisher": "ash-blade",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/ashenBlade/postgres-dev-helper.git"
+    },
     "contributes": {
         "commands": [
             {
@@ -50,7 +55,7 @@
         "test": "vscode-test"
     },
     "devDependencies": {
-        "@types/vscode": "^1.91.0",
+        "@types/vscode": "^1.0.0",
         "@types/mocha": "^10.0.7",
         "@types/node": "20.x",
         "@typescript-eslint/eslint-plugin": "^7.14.1",
