@@ -240,7 +240,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             /* Some types may have intrinsics */
 
-            /* Список */
+            /* List* */
             if (element.type === 'ListCell *' &&
                 element.parent?.type === 'List *' &&
                 isValidNodeValue(element.value)
@@ -253,9 +253,10 @@ export function activate(context: vscode.ExtensionContext) {
                     const listTag = (await evaluate(session, `(${element.parent.evaluateName})->type`, element.parent.frameId)).result;
                     if (listTag === 'T_List') {
                         /* 
-                            * Для эффективности сразу весь массив скастуем к Node**, 
-                            * чтобы не итерироваться по каждому значению
-                            */
+                         * Most `List`s are of Node type, so
+                         * small performance optimization - treat `elements`
+                         * as Node* array (pointer has compatible size)
+                         */
                         const expression = `(Node **)(${element.evaluateName}), ${listLength}`;
 
                         const response = await evaluate(session, expression, element.frameId);
@@ -268,11 +269,11 @@ export function activate(context: vscode.ExtensionContext) {
                         } as IVariable;
                     } else {
                         /* 
-                            * T_IntList или T_OidList - из-за паддинга внутри ListCell
-                            * нельзя просто скастовать.
-                            * Поэтому проходимся по всему массиву `ListCell *elements`
-                            * и читаем значение каждой переменной
-                            */
+                         * We can not just cast `elements` to int* or Oid* 
+                         * due to padding in `union`.
+                         * For these we iterate each element and evaluate each 
+                         * item independently
+                         */
                         let fieldName;
                         let realType;
                         if (listTag === 'T_IntList') {
@@ -303,7 +304,7 @@ export function activate(context: vscode.ExtensionContext) {
                 }
             }
             
-            /* Планировщик */
+            /* PlannerInfo* */
             if ((element.name === 'simple_rel_array' || element.name === 'simple_rte_array')
                  && element.parent?.type === 'PlannerInfo *') {
                 const memberExpression = `(${element.parent.evaluateName})->simple_rel_array_size`;
@@ -366,7 +367,7 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        /* Простой вызов 'call pprint(node)' как из gdb */
+        /* Simple `pprint(Node*) call, just like in gdb */
         await evaluate(session, `-exec call pprint(${variable.evaluateName})`, frameId);
     });
     
@@ -379,5 +380,4 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(log);
 }
 
-// This method is called when your extension is deactivated
 export function deactivate() {}
