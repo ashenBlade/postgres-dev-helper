@@ -64,13 +64,20 @@ export function activate(context: vscode.ExtensionContext) {
         return nodeTypes.has(getStructNameFromType(variable.type));
     }
 
-    function isValidNodeValue(value: string) {
+    function isValidPointer(value: string) {
         /* Looks like memory address but not NULL */
         return /^0x[0-9abcdef]+$/i.test(value) && value !== '0x0';
     }
 
     function isValidNodeVar(variable: IVariable) {
-        return isNodeVar(variable) && isValidNodeValue(variable.value);
+        return isNodeVar(variable) && isValidPointer(variable.value);
+    }
+
+    function isRawStruct(variable: IVariable) {
+        /* Check that variable is plain struct - not pointer */
+        return variable.parent
+            ? variable.value === ''
+            : variable.value === '{...}';
     }
 
     async function evaluate(session: vscode.DebugSession, expression: string, frameId: number, context?: string): Promise<EvaluateResponse> {
@@ -139,27 +146,32 @@ export function activate(context: vscode.ExtensionContext) {
             this._onDidChangeTreeData.fire();
         }
 
-        async getTreeItem(element: IVariable) {
-            const isNodeType = isNodeVar(element);
+        async getTreeItem(variable: IVariable) {
+            const validPointer = isValidPointer(variable.value);
             
             let collapsibleState = vscode.TreeItemCollapsibleState.None;
-            if (isNodeType || element.value === '') {
+
+            /* 
+             * We expand Node variable or plain struct (not pointer).
+             */
+            if (validPointer || isRawStruct(variable)) {
                 collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
             }
             
             /* ListCell is not Node, but we can expand this array */
-            if (element.type === 'ListCell *' &&
-                element.name === 'elements' &&
-                element.parent?.type === 'List *') {
+            if (validPointer &&
+                variable.type === 'ListCell *' &&
+                variable.name === 'elements' &&
+                variable.parent?.type === 'List *') {
                 collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
             }
             
             return { 
-                label: `${element.name}: ${element.type} = `,
-                description: element.value,
+                label: `${variable.name}: ${variable.type} = `,
+                description: variable.value,
                 collapsibleState,
-                tooltip: element.declaredType
-                    ? `Declared type: ${element.declaredType}`
+                tooltip: variable.declaredType
+                    ? `Declared type: ${variable.declaredType}`
                     : undefined,
             } as vscode.TreeItem;
         }
@@ -243,7 +255,7 @@ export function activate(context: vscode.ExtensionContext) {
             /* List* */
             if (element.type === 'ListCell *' &&
                 element.parent?.type === 'List *' &&
-                isValidNodeValue(element.value)
+                isValidPointer(element.value)
             ) {
                 const listLength = Number((await evaluate(session, `(${element.parent.evaluateName})->length`, element.parent.frameId)).result);
                 if (Number.isNaN(listLength)) {
