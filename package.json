@@ -43,6 +43,19 @@
                     "visibility": "visible"
                 }
             ]
+        },
+        "configuration": {
+            "title": "PostgreSQL Hacker Helper",
+            "properties": {
+                "postgresql-hacker-helper.nodeTagFiles": {
+                    "type": "array",
+                    "default": [
+                        "src/include/nodes/nodes.h",
+                        "src/include/nodes/nodetags.h"
+                    ],
+                    "description": "Files, where NodeTag values defined. It will be used to check if variable can have NodeTag. Can be either relative or absolute path. Relative paths used within current workspace"
+                }
+            }
         }
     },
     "scripts": {

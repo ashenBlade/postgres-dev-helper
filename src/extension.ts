@@ -53,6 +53,16 @@ export class NodeVarFacade {
      */
     updateNodeTypesFromFile(file: vscode.TextDocument) {
         for (let lineNo = 0; lineNo < file.lineCount; lineNo++) {
+            /* 
+             * NodeTag has following representation:
+             * [spaces] T_*tag_name* [= *number*],
+             * 
+             * We must obtain only *tag_name* part, because 'T_' prefix
+             * is constant and not important and *number* also not 
+             * important because we must focus on words, not numbers - if
+             * there was garbage in structure, Node->type will be random numbers.
+             * That is how we find garbage.
+             */
             const line = file.lineAt(lineNo);
             if (line.isEmptyOrWhitespace) {
                 continue;
@@ -62,7 +72,7 @@ export class NodeVarFacade {
             if (!text.startsWith('T_')) {
                 continue;
             }
-
+            
             const tag = text.replaceAll(',', '').replace('T_', '').split(' ', 1)[0];
             if (tag.trim() === '') {
                 continue;
@@ -355,4 +365,19 @@ export async function dumpVariableToLogCommand(args: any, log: ILogger) {
 
     /* Simple `pprint(Node*) call, just like in gdb */
     await evaluate(session, `-exec call pprint(${variable.evaluateName})`, frameId);
+}
+
+export class Configuration {
+    static ExtensionName = 'postgresql-hacker-helper';
+    static ExtensionPrettyName = 'PostgreSQL Hacker Helper';
+    static ConfigSections = {
+        TopLevelSection: `${this.ExtensionName}`,
+        NodeTagFiles: 'nodeTagFiles',
+    };
+    static Commands = {
+        DumpNodeToLog: `${this.ExtensionName}.dumpNodeToLog`,
+    };
+    static Views = {
+        NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`
+    }
 }
