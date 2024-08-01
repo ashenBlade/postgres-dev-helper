@@ -11,7 +11,7 @@
     ],
     "icon": "./resources/logo.png",
     "activationEvents": [],
-    "main": "./out/extension.js",
+    "main": "./out/entrypoint.js",
     "publisher": "ash-blade",
     "repository": {
         "type": "git",
