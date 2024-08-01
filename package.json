@@ -40,8 +40,7 @@
                     "id": "postgresql-hacker-helper.node-tree-view",
                     "name": "Node* preview",
                     "type": "tree",
-                    "visibility": "visible",
-                    "when": "inDebugMode && debugState == stopped"
+                    "visibility": "visible"
                 }
             ]
         }
