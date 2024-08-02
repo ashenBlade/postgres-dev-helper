@@ -1,6 +1,6 @@
-import { IVariable } from "./extension";
 import * as vscode from 'vscode';
 import * as dap from "./dap";
+import { IVariable } from './extension';
 
 const nullPointer = '0x0';
 const pointerRegex = /^0x[0-9abcdef]+$/i;
@@ -132,5 +132,69 @@ export class OutputChannelLogger implements ILogger {
     }
     warn(message: string) {
         this.logGeneric('WARN', message);
+    }
+}
+
+export interface IDebuggerFacade {
+    readonly isInDebug: boolean;
+    evaluate: (expression: string, frameId: number, context?: string) => Promise<dap.EvaluateResponse>;
+    getVariables: (variablesReference: number) => Promise<dap.DebugVariable[]>;
+    getScopes: (frameId: number) => Promise<dap.Scope[]>;
+}
+
+export class VsCodeDebuggerFacade implements IDebuggerFacade, vscode.Disposable {
+    private registrations: vscode.Disposable[];
+
+    isInDebug: boolean;
+    session: vscode.DebugSession | undefined;
+
+    constructor() {
+        this.registrations = [
+            vscode.debug.onDidStartDebugSession(s => {
+                this.session = s;
+                this.isInDebug = true;
+            }),
+            vscode.debug.onDidTerminateDebugSession(s => {
+                this.session = undefined;
+                this.isInDebug = false;
+            }),
+        ];
+        
+        this.session = vscode.debug.activeDebugSession;
+        this.isInDebug = vscode.debug.activeDebugSession !== undefined;
+    }
+    
+    getSession(): vscode.DebugSession {
+        if (this.session !== undefined) {
+            return this.session;
+        }
+        
+        this.session = vscode.debug.activeDebugSession;
+        if (this.session === undefined) {
+            this.isInDebug = false;
+            throw new Error('No active debug session');
+        }
+        
+        return this.session;
+    }
+    
+    async evaluate(expression: string, frameId: number, context?: string): Promise<dap.EvaluateResponse> {
+        context ??= 'repl';
+        return await this.getSession().customRequest('evaluate', { expression, context, frameId } as dap.EvaluateArguments);
+    }
+    
+    async getVariables(variablesReference: number): Promise<dap.DebugVariable[]> {
+        const response: dap.VariablesResponse = await this.getSession().customRequest('variables', { variablesReference } as dap.VariablesArguments);
+        return response.variables;
+    }
+    
+    async getScopes(frameId: number): Promise<dap.Scope[]> {
+        const response: dap.ScopesResponse = await this.getSession().customRequest('scopes', { frameId } as dap.ScopesArguments);
+        return response.scopes;
+    }
+
+    dispose() {
+        this.registrations.forEach(r => r.dispose());
+        this.registrations.length = 0;
     }
 }

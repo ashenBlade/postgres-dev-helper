@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { NodePreviewTreeViewProvider, dumpVariableToLogCommand, NodeVarFacade, Configuration as config } from './extension';
-import { ILogger, OutputChannelLogger } from './utils';
+import { ILogger, OutputChannelLogger, VsCodeDebuggerFacade } from './utils';
 
 function processNodeTagFiles(vars: NodeVarFacade, folders: readonly vscode.WorkspaceFolder[],
     log: ILogger, context: vscode.ExtensionContext) {
@@ -58,26 +58,31 @@ function processNodeTagFiles(vars: NodeVarFacade, folders: readonly vscode.Works
 export function activate(context: vscode.ExtensionContext) {
     const outputChannel = vscode.window.createOutputChannel(config.ExtensionPrettyName, 'log');
     const log = new OutputChannelLogger(outputChannel);
-
+    
     if (!vscode.workspace.workspaceFolders) {
         log.error('no workspaces found - not activating extension');
         return;
     }
-
     log.info('Extension is activating');
-
+    const debug = new VsCodeDebuggerFacade();
+    
+    
+    /* Read files with NodeTag and register watcher to track updates */
     const vars = new NodeVarFacade();
     processNodeTagFiles(vars, vscode.workspace.workspaceFolders, log, context);
-
+    
+    /* Register command to dump variable to log */
     const dumpVarsToLogCmd = vscode.commands.registerCommand(config.Commands.DumpNodeToLog, async (args) => {
         try {
-            await dumpVariableToLogCommand(args, log);
+            await dumpVariableToLogCommand(args, log, debug);
         } catch (err: any) {
-            log.error('could not dump node to log - ' + JSON.stringify(err));
+            const msg = err instanceof Error ? err.message : JSON.stringify(err);
+            log.error(`could not dump node to log - ${msg}`);
         }
     });
 
-    const dataProvider = new NodePreviewTreeViewProvider(log, vars);
+    /* Setup Node* view in debug view container */
+    const dataProvider = new NodePreviewTreeViewProvider(log, vars, debug);
     const treeDisposable = vscode.window.registerTreeDataProvider(config.Views.NodePreviewTreeView, dataProvider);
     const asiDisposable = vscode.debug.onDidChangeActiveStackItem(() => dataProvider.refresh());
 
@@ -85,7 +90,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(dumpVarsToLogCmd);
     context.subscriptions.push(treeDisposable);
     context.subscriptions.push(outputChannel);
-
+    context.subscriptions.push(debug);
     log.info('Extension activated successfully');
 }
 

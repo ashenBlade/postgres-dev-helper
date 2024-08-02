@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as dap from './dap';
-import { isRawStruct, substituteStructName, evaluate, getVariables, getScopes, getPointersCount, getStructNameFromType, ILogger, isValidPointer } from './utils';
+import * as utils from './utils';
 
 export interface IVariable {
     /* 
@@ -11,6 +11,10 @@ export interface IVariable {
     * Memory address of variable value
     */
     memoryReference: string;
+    /**
+     * Real tag of node without 'T_' prefix.
+     */
+    nodeTag: string | undefined;
     /* 
     * Raw variable name (variable/struct member)
     */
@@ -72,7 +76,7 @@ export class NodeVarFacade {
             if (!text.startsWith('T_')) {
                 continue;
             }
-            
+
             const tag = text.replaceAll(',', '').replace('T_', '').split(' ', 1)[0];
             if (tag.trim() === '') {
                 continue;
@@ -102,8 +106,8 @@ export class NodeVarFacade {
          *  - As for pointer - only single `*' creates valid Node* variable that we can 
          *      work with
          */
-        return getPointersCount(type) === 1
-            && this.nodeTypes.has(getStructNameFromType(type));
+        return utils.getPointersCount(type) === 1
+            && this.nodeTypes.has(utils.getStructNameFromType(type));
     }
 
     /**
@@ -113,13 +117,236 @@ export class NodeVarFacade {
      * @returns true if variable is of Node type with valid value
      */
     isValidNodeVar(variable: IVariable) {
-        return this.isNodeVar(variable.type) && isValidPointer(variable.value);
+        return this.isNodeVar(variable.type) && utils.isValidPointer(variable.value);
     }
 }
 
+/**
+ * Class wrapper to check that member has special meaning and must 
+ * be treated in a special way.
+ */
+abstract class SpecialMember {
+    protected readonly logger: utils.ILogger;
+
+    /**
+     * Tag of type, that this member belongs.
+     * Stored without 'T_' prefix.
+     * Used as key for Map.
+     */
+
+    nodeTag: string;
+    /**
+     * Name of member with which we work
+     */
+    memberName: string;
+
+    constructor(parentTag: string, memberName: string, logger: utils.ILogger) {
+        this.nodeTag = parentTag.replace('T_', '');
+        this.memberName = memberName;
+        this.logger = logger;
+    }
+
+    /**
+     * Check that variable must be treated in special way.
+     * 
+     * @param variable Variable to test
+     */
+    isSpecialMember(variable: IVariable): boolean {
+        return variable.parent?.nodeTag === this.nodeTag && variable.name === this.memberName;
+    }
+
+    /**
+     * Check that variable can have subvariables in view.
+     * This is true for structs or arrays.
+     * 
+     * @param variable Variable to test
+     */
+    abstract isExpandable(variable: IVariable): boolean;
+
+    /**
+     * Process special variable and make necessary changes/evaluations.
+     * This is main method to manipulate members.
+     * This is called inside {@link NodePreviewTreeViewProvider.getChildren getChildren} to get
+     * members of struct.
+     * 
+     * @param member Variable to test
+     * @param debug Interface to debugger
+     * @returns Pair of result variable (may be the one that was passed) and array subvariables for this variable (if undefined - obtain as usual by evaluating) 
+     * or undefined if no changes performed
+     */
+    abstract visitMember(member: IVariable, debug: utils.IDebuggerFacade): Promise<[IVariable, dap.DebugVariable[] | undefined] | null>;
+}
+
+class ListSpecialMember extends SpecialMember {
+    constructor(logger: utils.ILogger) {
+        super('List', 'elements', logger);
+    }
+
+    isExpandable(_: IVariable): boolean {
+        return true;
+    }
+
+    async visitMember(variable: IVariable, debug: utils.IDebuggerFacade): Promise<[IVariable, dap.DebugVariable[] | undefined] | null> {
+        /* 
+         * Most `List`s are of Node type, so small performance optimization - 
+         * treat `elements` as Node* array (pointer has compatible size).
+         * Later we can observe each independently, but not now.
+         */
+        if (!variable.parent) {
+            return null;
+        }
+
+        const listLength = Number((await debug.evaluate(`(${variable.parent.evaluateName})->length`, variable.parent.frameId)).result);
+        if (Number.isNaN(listLength)) {
+            this.logger.warn(`fail to obtain list size for ${variable.parent.name}`);
+            return null;
+        }
+
+        const expression = `(Node **)(${variable.evaluateName}), ${listLength}`;
+        const response = await debug.evaluate(expression, variable.frameId);
+        variable = {
+            ...variable,
+            type: 'Node **',
+            declaredType: variable.type,
+            evaluateName: expression,
+            variablesReference: response.variablesReference,
+        } as IVariable;
+        return [variable, undefined];
+    }
+}
+
+class IntOidListSpecialMember extends SpecialMember {
+    private readonly fieldName: string;
+    private readonly realType: string;
+
+    private constructor(tag: string, fieldName: string, realType: string, logger: utils.ILogger) {
+        super(tag, 'elements', logger);
+        this.fieldName = fieldName;
+        this.realType = realType;
+    }
+
+    isExpandable(variable: IVariable): boolean {
+        return true;
+    }
+
+    async visitMember(variable: IVariable, debug: utils.IDebuggerFacade): Promise<[IVariable, dap.DebugVariable[] | undefined] | null> {
+        if (variable.parent === undefined) {
+            return null;
+        }
+
+        const listLength = Number((await debug.evaluate(`(${variable.parent.evaluateName})->length`, variable.parent.frameId)).result);
+        if (Number.isNaN(listLength)) {
+            this.logger.warn(`fail to obtain list size for ${variable.parent.name}`);
+            return null;
+        }
+
+        /* 
+         * We can not just cast `elements' to int* or Oid* 
+         * due to padding in `union'. For these we iterate 
+         * each element and evaluate each item independently
+         */
+        const arrayElements: dap.DebugVariable[] = [];
+        for (let i = 0; i < listLength; i++) {
+            const expression = `(${variable.evaluateName})[${i}].${this.fieldName}`;
+            const response = await debug.evaluate(expression, variable.frameId);
+            arrayElements.push({
+                name: `[${i}]`,
+                type: this.realType,
+                evaluateName: expression,
+                variablesReference: response.variablesReference,
+                value: response.result,
+                memoryReference: response.memoryReference,
+            });
+        }
+
+        return [variable, arrayElements];
+    }
+
+    static createIntList = (logger: utils.ILogger) => new IntOidListSpecialMember('IntList', 'int_value', 'int', logger);
+    static createOidList = (logger: utils.ILogger) => new IntOidListSpecialMember('OidList', 'oid_value', 'Oid', logger);
+}
+
+class ArraySpecialMember extends SpecialMember {
+    /**
+     * Field of parent that we use to obtain array length
+     */
+    private readonly lengthField: string;
+
+    constructor(lengthField: string, nodeTag: string, memberName: string, logger: utils.ILogger) {
+        super(nodeTag, memberName, logger);
+        this.lengthField = lengthField;
+    }
+
+    isSpecialMember(variable: IVariable): boolean {
+        return super.isSpecialMember(variable) && variable.parent !== undefined;
+    }
+
+    isExpandable(_: IVariable): boolean {
+        /* 
+         * All arrays will be marked as expandable.
+         * Whether we can or not is up to us to decide later.
+         */
+        return true;
+    }
+
+    async visitMember(variable: IVariable, debug: utils.IDebuggerFacade): Promise<[IVariable, dap.DebugVariable[] | undefined] | null> {
+        if (variable.parent === undefined) {
+            return null;
+        }
+
+        const lengthExpression = `(${variable.parent.evaluateName})->${this.lengthField}`;
+        const arrayLength = Number((await debug.evaluate(lengthExpression, variable.parent.frameId)).result);
+        if (Number.isNaN(arrayLength)) {
+            this.logger.warn(`fail to obtain array size for ${variable.parent.name}->${this.lengthField}`);
+            return [variable, undefined];
+        }
+
+        if (arrayLength === 0) {
+            return null;
+        }
+
+        const response = await debug.evaluate(`${variable.evaluateName}, ${arrayLength}`, variable.frameId);
+        variable = {
+            ...variable,
+            variablesReference: response.variablesReference,
+        };
+        return [variable, undefined];
+    }
+}
 
 export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<IVariable> {
-    constructor(private log: ILogger, private nodeVars: NodeVarFacade) { }
+    /**
+     * Double map: NodeTag -> (Member Name -> SpecialMember object).
+     */
+    private readonly specialMembers: Map<string, Map<string, SpecialMember>>;
+
+    constructor(
+        private log: utils.ILogger,
+        private nodeVars: NodeVarFacade,
+        private debug: utils.IDebuggerFacade) {
+        this.specialMembers = new Map();
+        this.initializeSpecialMembers();
+    }
+
+    initializeSpecialMembers() {
+        const listSm = new ListSpecialMember(this.log);
+        const intListSm = IntOidListSpecialMember.createIntList(this.log);
+        const oidListSm = IntOidListSpecialMember.createIntList(this.log);
+        /* if ((element.name === 'simple_rel_array' || element.name === 'simple_rte_array')
+            && element.parent?.type === 'PlannerInfo *') {
+            const memberExpression = `(${element.parent.evaluateName})->simple_rel_array_size`; */
+        const plannerRelArraySm = new ArraySpecialMember('simple_rel_array_size', 'PlannerInfo', 'simple_rel_array', this.log);
+        const plannerRteArraySm = new ArraySpecialMember('simple_rel_array_size', 'PlannerInfo', 'simple_rte_array', this.log);
+        const members: SpecialMember[] = [listSm, intListSm, oidListSm, plannerRelArraySm, plannerRteArraySm];
+        members.forEach(member => {
+            const memberMap = this.specialMembers.get(member.nodeTag);
+            if (memberMap === undefined) {
+                this.specialMembers.set(member.nodeTag, new Map([[member.memberName, member]]));
+            } else {
+                memberMap.set(member.memberName, member);
+            }
+        })
+    }
 
     /* https://code.visualstudio.com/api/extension-guides/tree-view#updating-tree-view-content */
     private _onDidChangeTreeData = new vscode.EventEmitter<IVariable | undefined | null | void>();
@@ -128,36 +355,76 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<IVar
         this._onDidChangeTreeData.fire();
     }
 
-    async getTreeItem(variable: IVariable) {
-        const validPointer = isValidPointer(variable.value);
+    getSpecialMember(variable: IVariable): SpecialMember | undefined {
+        if (!variable.parent?.nodeTag) {
+            return;
+        }
 
+        const typeMembers = this.specialMembers.get(variable.parent.nodeTag);
+        if (!typeMembers?.size) {
+            return;
+        }
+        if (!typeMembers?.size) {
+            return;
+        }
+
+        const specialMember = typeMembers.get(variable.name);
+        if (!specialMember) {
+            return;
+        }
+
+        if (!specialMember.isSpecialMember(variable)) {
+            return;
+        }
+
+        return specialMember;
+    }
+
+    async getTreeItem(variable: IVariable) {
+        const validPointer = utils.isValidPointer(variable.value);
         let collapsibleState = vscode.TreeItemCollapsibleState.None;
 
-        /* 
-         * We expand Node variable or plain struct (not pointer).
-         */
-        if (validPointer || isRawStruct(variable)) {
+        if (utils.isRawStruct(variable)) {
+            /* Raw structs must have members and can not have 'inheritance' */
             collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
+        } else if (validPointer) {
+            if (this.nodeVars.isNodeVar(variable.type)) {
+                /* All Node variables can be expanded - they have members */
+                collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
+            } else {
+                /* Also treat special variables */
+                const specialVariable = this.getSpecialMember(variable);
+                if (specialVariable) {
+                    if (specialVariable.isExpandable(variable)) {
+                        collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
+                    }
+                }
+            }
         }
 
-        /* ListCell is not Node, but we should expand this array */
-        if (validPointer &&
-            variable.type === 'ListCell *' &&
-            variable.name === 'elements' &&
-            variable.parent?.type.indexOf('List *') !== -1) {
-            collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
+        let label = undefined;
+        if (variable.nodeTag) {
+            const declaredTag = utils.getStructNameFromType(variable.type);
+            if (declaredTag !== variable.nodeTag) {
+                label = `${variable.name}: ${variable.type} [${variable.nodeTag}] = `;
+            }
         }
-
-        /* TODO: проверить планировщик */
+        if (!label) {
+            label = `${variable.name}: ${variable.type} = `;
+        }
 
         return {
-            label: `${variable.name}: ${variable.type} = `,
+            label,
             description: variable.value,
             collapsibleState,
             tooltip: variable.declaredType
-                ? `Declared type: ${variable.declaredType}`
+                ? `Declared type: ${variable.declaredType}\nReal NodeTag: ${variable.nodeTag ?? "???"}`
                 : undefined,
         } as vscode.TreeItem;
+    }
+
+    getNodeTagFromType(type: string) {
+        return utils.getStructNameFromType(type);
     }
 
     getFrame(element?: IVariable | undefined): number | undefined {
@@ -169,64 +436,91 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<IVar
     }
 
     async getChildren(element?: IVariable | undefined) {
-        const session = vscode.debug.activeDebugSession;
-        if (!session) {
+        if (!this.debug.isInDebug) {
             return;
         }
 
-        if (element) {
-            return await this.getVariableMembers(element, session);
-        } else {
-            return await this.getTopLevelVariables(session);
+        const subvariables = element
+            ? await this.getVariableMembers(element)
+            : await this.getTopLevelVariables();
+
+        if (!subvariables) {
+            return subvariables;
         }
+
+        /* 
+         * Process all children and obtain real node tags where possible.
+         * Do not evaluate members right now, because it will help further.
+         */
+        for (const variable of subvariables.filter(v => this.nodeVars.isValidNodeVar(v))) {
+            const realNodeTag = await this.getRealNodeTag(variable);
+            if (!this.isValidNodeTag(realNodeTag)) {
+                /* Garbage */
+                variable.nodeTag = undefined;
+                continue;
+            }
+            variable.nodeTag = realNodeTag;
+        }
+
+        return subvariables;
     }
 
-    getParent(element: IVariable): vscode.ProviderResult<IVariable> {
-        return element.parent;
+    isValidNodeTag(nodeTag: string) {
+        /* 
+         * Valid NodeTag must contain only alphabetical characters.
+         * Note: it does not contain 'T_' prefix - we strip it always.
+         */
+        return /^[a-zA-Z]+$/.test(nodeTag);
     }
 
-    async getRealNodeTag(nodeVariable: IVariable, session: vscode.DebugSession) {
-        const response = await evaluate(session, `((Node*)(${nodeVariable.evaluateName}))->type`, nodeVariable.frameId);
+    async getRealNodeTag(nodeVariable: IVariable) {
+        const response = await this.debug.evaluate(`((Node*)(${nodeVariable.evaluateName}))->type`, nodeVariable.frameId);
+        if (response.result.startsWith('T_')) {
+            const nodeTag = response.result.substring(2);
+            return nodeTag;
+        }
         return response.result;
     }
 
-    async castToNode(nodeVariable: IVariable, nodeTag: string, session: vscode.DebugSession) {
-        let structName = nodeTag.replace('T_', '').trim();
+    async castToNode(variable: IVariable, targetNodeTag: string) {
+        let structName = targetNodeTag.trim();
 
-        /* T_IntList and T_OidList are T_List */
+        /* T_IntList and T_OidList are struct List */
         if (structName === 'IntList' || structName === 'OidList') {
             structName = 'List';
         }
 
         /* If real and declared types equal - return early */
-        if (nodeVariable.type.indexOf(structName) !== -1) {
-            return nodeVariable;
+        if (variable.type.indexOf(structName) !== -1) {
+            variable.nodeTag = targetNodeTag;
+            return variable;
         }
 
-        const resultType = substituteStructName(nodeVariable.type, structName);
-        const newVarExpression = `((${resultType})${nodeVariable.evaluateName})`;
-        const response = await evaluate(session, newVarExpression, nodeVariable.frameId);
+        const resultType = utils.substituteStructName(variable.type, structName);
+        const newVarExpression = `((${resultType})${variable.evaluateName})`;
+        const response = await this.debug.evaluate(newVarExpression, variable.frameId);
         return {
-            ...nodeVariable,
+            ...variable,
+            nodeTag: targetNodeTag,
             evaluateName: newVarExpression,
             type: resultType,
-            declaredType: nodeVariable.type,
+            declaredType: variable.type,
             memoryReference: response.memoryReference,
             value: response.result,
             variablesReference: response.variablesReference,
         } as IVariable;
     }
 
-    async getTopLevelVariables(session: vscode.DebugSession) {
+    async getTopLevelVariables() {
         const frame = vscode.debug.activeStackItem as vscode.DebugStackFrame | undefined;
         if (!frame || !frame.frameId) {
             return;
         }
 
-        const scopes = await getScopes(session, frame.frameId);
+        const scopes = await this.debug.getScopes(frame.frameId);
         const variables = (await Promise.all(scopes
             .filter(s => s.presentationHint === 'locals' || s.presentationHint === 'arguments')
-            .map(s => getVariables(session, s.variablesReference))))
+            .map(s => this.debug.getVariables(s.variablesReference))))
             .reduce((cur, acc) => [...acc, ...cur], [])
             .map(v => ({
                 ...v,
@@ -237,103 +531,24 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<IVar
         return variables;
     }
 
-    async getVariableMembers(element: IVariable, session: vscode.DebugSession) {
+    async getVariableMembers(element: IVariable) {
         let variable = element;
         let subvariables: dap.DebugVariable[] | undefined;
 
-        if (this.nodeVars.isValidNodeVar(element)) {
-            const nodeTag = await this.getRealNodeTag(element, session);
-
-            /* 
-             * Debugger can return random numbers for NodeTag if there was garbage
-             */
-            if (!/\d+/.test(nodeTag)) {
-                variable = await this.castToNode(element, nodeTag, session);
-            }
+        if (variable.nodeTag !== undefined) {
+            variable = await this.castToNode(element, variable.nodeTag);
         }
 
-        /* Some types may have intrinsics */
-
-        /* List */
-        if (element.type === 'ListCell *' &&
-            element.parent?.type === 'List *' &&
-            isValidPointer(element.value)) {
-            const listLength = Number((await evaluate(session, `(${element.parent.evaluateName})->length`, element.parent.frameId)).result);
-            if (Number.isNaN(listLength)) {
-                this.log.warn(`fail to obtain list size for ${element.parent.name}`);
-            }
-
-            if (0 < listLength) {
-                const listTag = (await evaluate(session, `(${element.parent.evaluateName})->type`, element.parent.frameId)).result;
-                if (listTag === 'T_List') {
-                    /* 
-                     * Most `List`s are of Node type, so small performance optimization - 
-                     * treat `elements` as Node* array (pointer has compatible size).
-                     * Later we can observe each independently, but not now.
-                     */
-                    const expression = `(Node **)(${element.evaluateName}), ${listLength}`;
-
-                    const response = await evaluate(session, expression, element.frameId);
-                    variable = {
-                        ...element,
-                        type: 'Node **',
-                        declaredType: element.type,
-                        evaluateName: expression,
-                        variablesReference: response.variablesReference,
-                    } as IVariable;
-                } else {
-                    /* 
-                     * We can not just cast `elements' to int* or Oid* 
-                     * due to padding in `union'. For these we iterate 
-                     * each element and evaluate each item independently
-                     */
-                    let fieldName;
-                    let realType;
-                    if (listTag === 'T_IntList') {
-                        fieldName = 'int_value';
-                        realType = 'int';
-                    } else {
-                        fieldName = 'oid_value';
-                        realType = 'Oid';
-                    }
-
-
-                    const variables: dap.DebugVariable[] = [];
-                    const frameId = element.frameId;
-                    for (let i = 0; i < listLength; i++) {
-                        const expression = `(${element.evaluateName})[${i}].${fieldName}`;
-                        const response = await evaluate(session, expression, frameId);
-                        variables.push({
-                            name: `[${i}]`,
-                            type: realType,
-                            evaluateName: expression,
-                            variablesReference: response.variablesReference,
-                            value: response.result,
-                            memoryReference: response.memoryReference,
-                        });
-                    }
-                    subvariables = variables;
-                }
-            }
-        }
-
-        /* PlannerInfo */
-
-        if ((element.name === 'simple_rel_array' || element.name === 'simple_rte_array')
-            && element.parent?.type === 'PlannerInfo *') {
-            const memberExpression = `(${element.parent.evaluateName})->simple_rel_array_size`;
-            const rteArrayLength = Number((await evaluate(session, memberExpression, element.parent.frameId)).result);
-            if (0 < rteArrayLength) {
-                const response = await evaluate(session, `${element.evaluateName}, ${rteArrayLength}`, element.frameId);
-                variable = {
-                    ...variable,
-                    variablesReference: response.variablesReference
-                };
+        const specialMember = this.getSpecialMember(variable);
+        if (specialMember) {
+            const processResult = await specialMember.visitMember(variable, this.debug);
+            if (processResult) {
+                [variable, subvariables] = processResult;
             }
         }
 
         if (!subvariables) {
-            subvariables = await getVariables(session, variable.variablesReference);
+            subvariables = await this.debug.getVariables(variable.variablesReference);
         }
 
         return subvariables!.map(v => ({
@@ -344,7 +559,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<IVar
     }
 }
 
-export async function dumpVariableToLogCommand(args: any, log: ILogger) {
+export async function dumpVariableToLogCommand(args: any, log: utils.ILogger, debug: utils.IDebuggerFacade) {
     const session = vscode.debug.activeDebugSession;
     if (!session) {
         vscode.window.showWarningMessage('Can not dump variable - no active debug session!');
@@ -363,8 +578,13 @@ export async function dumpVariableToLogCommand(args: any, log: ILogger) {
         return;
     }
 
-    /* Simple `pprint(Node*) call, just like in gdb */
-    await evaluate(session, `-exec call pprint(${variable.evaluateName})`, frameId);
+    try {
+        /* Simple `pprint(Node*) call, just like in gdb */
+        await debug.evaluate(`-exec call pprint(${variable.evaluateName})`, frameId);
+    } catch (err: any) {
+        const msg = err instanceof Error ? err.message : JSON.stringify(err);
+        log.error(`could not dump variable ${variable.name} to log - ${msg}`);
+    }
 }
 
 export class Configuration {
