@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as dap from "./dap";
 import { IVariable } from './extension';
+import { time } from 'console';
 
 const nullPointer = '0x0';
 const pointerRegex = /^0x[0-9abcdef]+$/i;
@@ -14,6 +15,19 @@ const pointerRegex = /^0x[0-9abcdef]+$/i;
  */
 export function isValidPointer(value: string) {
     return pointerRegex.test(value) && value !== nullPointer;
+}
+
+const identifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+/**
+ * Check that given string represents valid C identifier.
+ * Identifier can represent struct fields, type names, variable names etc...
+ * 
+ * @param value String to test
+ * @returns true if string represents valid C identifier
+ */
+export function isValidIdentifier(value: string) {
+    return identifierRegex.test(value);
 }
 
 export function getStructNameFromType(type: string) {
@@ -107,31 +121,47 @@ export async function getScopes(session: vscode.DebugSession, frameId: number): 
 }
 
 export interface ILogger {
-    info: (message: string) => void;
-    warn: (message: string) => void;
-    error: (message: string) => void;
+    debug: (message: string, error?: any) => void;
+    info: (message: string, error?: any) => void;
+    warn: (message: string, error?: any) => void;
+    error: (message: string, error?: any) => void;
 }
 
 export class OutputChannelLogger implements ILogger {
     constructor(private readonly channel: vscode.OutputChannel)
     { }
-    logGeneric(level: string, message: string) {
+    logGeneric(level: string, message: string, error?: any) {
+        /* TIMESTAMP [LEVEL]: MESSAGE: EXCEPTION */
         const timestamp = new Date().toISOString().replace('T', ' ').replace('Z', '');
-        this.channel.append(timestamp)
-        this.channel.append(' [')
-        this.channel.append(level);
-        this.channel.append(']')
-        this.channel.append(': ');
-        this.channel.appendLine(message);
+        let msg = `${timestamp} [${level}]: ${message}`;
+        if (error) {
+            let errMsg;
+            if (error instanceof Error) {
+                errMsg = error.message;
+            } else if (error instanceof String) {
+                errMsg = error;
+            } else if (error.message instanceof String && error.message) {
+                errMsg = error.message;
+            } else {
+                errMsg = JSON.stringify(error);
+            }
+
+            msg += `: ${errMsg}`;
+        }
+
+        this.channel.appendLine(msg);
     }
-    error(message: string) {
-        this.logGeneric('ERROR', message);
+    debug(message: string, error?: any) {
+        this.logGeneric('DEBUG', message, error);
     }
-    info(message: string) {
-        this.logGeneric('INFO', message);
+    error(message: string, error?: any) {
+        this.logGeneric('ERROR', message, error);
     }
-    warn(message: string) {
-        this.logGeneric('WARN', message);
+    info(message: string, error?: any) {
+        this.logGeneric('INFO', message, error);
+    }
+    warn(message: string, error?: any) {
+        this.logGeneric('WARN', message, error);
     }
 }
 
@@ -196,5 +226,23 @@ export class VsCodeDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
     dispose() {
         this.registrations.forEach(r => r.dispose());
         this.registrations.length = 0;
+    }
+}
+
+/**
+ * Check that file exists on given fs path
+ * 
+ * @param path Path to test for file
+ * @returns true if file exists, false if not
+ * @throws Error if {@link path} points to existing fs entry, but not file
+ * i.e. directory
+ */
+export async function fileExists(path: vscode.Uri): Promise<boolean> {
+    try {
+        /* Only directory we can not read - files, sym. links etc.. - can read */
+        const result = await vscode.workspace.fs.stat(path);
+        return result.type !== vscode.FileType.Directory;
+    } catch {
+        return false;
     }
 }
