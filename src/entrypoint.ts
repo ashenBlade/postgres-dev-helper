@@ -194,8 +194,8 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
     });
 
     /* TODO: 
-     * - command - create settings file
-     * - command - referesh variables view (+ button)
+     * - command - refresh contents in config file
+     * - move types to extension.d.ts ???
      */
 }
 
@@ -276,7 +276,11 @@ export function activate(context: vscode.ExtensionContext) {
 
     const treeDisposable = vscode.window.registerTreeDataProvider(config.Views.NodePreviewTreeView, dataProvider);
     const asiDisposable = vscode.debug.onDidChangeActiveStackItem(() => dataProvider.refresh());
+    const refreshVariablesCommand = vscode.commands.registerCommand(config.Commands.RefreshPostgresVariables, () => {
+        dataProvider.refresh();
+    });
 
+    context.subscriptions.push(refreshVariablesCommand);
     context.subscriptions.push(asiDisposable);
     context.subscriptions.push(dumpVarsToLogCmd);
     context.subscriptions.push(treeDisposable);

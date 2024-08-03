@@ -36,6 +36,13 @@
                 "title": "Open or create configuration file (JSON)",
                 "shortTitle": "Open configuration file",
                 "category": "PgSQL"
+            },
+            {
+                "command": "postgresql-hacker-helper.refreshPostgresVariablesView",
+                "title": "Refresh Postgres variables view",
+                "shortTitle": "Refresh variables view",
+                "category": "PgSQL",
+                "icon": "$(refresh)"
             }
         ],
         "menus": {
@@ -45,10 +52,22 @@
                     "when": "inDebugMode && debugState == stopped"
                 }
             ],
+            "view/title": [
+                {
+                    "command": "postgresql-hacker-helper.refreshPostgresVariablesView",
+                    "group": "navigation",
+                    "when": "inDebugMode && debugState == stopped"
+                }
+            ],
             "commandPalette": [
                 {
                     "command": "postgresql-hacker-helper.dumpNodeToLog",
                     "when": "false"
+                },
+                {
+                    "command": "postgresql-hacker-helper.refreshPostgresVariablesView",
+                    "group": "navigation",
+                    "when": "inDebugMode && debugState == stopped"
                 }
             ]
         },

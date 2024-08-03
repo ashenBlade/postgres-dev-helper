@@ -415,7 +415,8 @@ export class Configuration {
     };
     static Commands = {
         DumpNodeToLog: `${this.ExtensionName}.dumpNodeToLog`,
-        OpenConfigFile: `${this.ExtensionName}.openConfigurationFile`
+        OpenConfigFile: `${this.ExtensionName}.openConfigurationFile`,
+        RefreshPostgresVariables: `${this.ExtensionName}.refreshPostgresVariablesView`
     };
     static Views = {
         NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`
