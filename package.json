@@ -17,6 +17,12 @@
         "type": "git",
         "url": "https://github.com/ashenBlade/postgres-dev-helper.git"
     },
+    "keywords": [
+        "PostgreSQL",
+        "postgresql",
+        "postgres",
+        "pgsql"
+    ],
     "contributes": {
         "commands": [
             {
@@ -38,7 +44,7 @@
             "debug": [
                 {
                     "id": "postgresql-hacker-helper.node-tree-view",
-                    "name": "Node* preview",
+                    "name": "pg variables",
                     "type": "tree",
                     "visibility": "visible"
                 }
@@ -48,15 +54,35 @@
             "title": "PostgreSQL Hacker Helper",
             "properties": {
                 "postgresql-hacker-helper.nodeTagFiles": {
+                    "title": "Files with NodeTags",
                     "type": "array",
                     "default": [
                         "src/include/nodes/nodes.h",
                         "src/include/nodes/nodetags.h"
                     ],
                     "description": "Files, where NodeTag values defined. It will be used to check if variable can have NodeTag. Can be either relative or absolute path. Relative paths used within current workspace"
+                },
+                "postgresql-hacker-helper.logLevel": {
+                    "title": "Log level",
+                    "type": "string",
+                    "enum": [
+                        "DEBUG",
+                        "INFO",
+                        "WARNING",
+                        "ERROR",
+                        "DISABLE"
+                    ],
+                    "default": "INFO",
+                    "description": "Minimum level of log messages to display in Output view"
                 }
             }
-        }
+        },
+        "jsonValidation": [
+            {
+                "fileMatch": "pgsql_hacker_helper_properties.json",
+                "url": "./properties.schema.json"
+            }
+        ]
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",

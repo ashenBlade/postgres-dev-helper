@@ -1,0 +1,62 @@
+{
+    "$schema": "http://json-schema.org/draft-04/schema#",
+    "$id": "https://example.com/product.schema.json",
+    "title": "PostgreSQL Hacker Helper settings",
+    "description": "Settings for PostgreSQL Hacker Helper VS Code extension",
+    "type": "object",
+    "definitions": {
+        "specialMembers": {
+            "type": "object",
+            "description": "Configurations for special members",
+            "properties": {
+                "array": {
+                    "type": "array",
+                    "description": "Special members that represent arrays - separate fields for array and it's length",
+                    "items": {
+                        "$ref": "#/definitions/arraySpecialMember"
+                    }
+                }
+            }
+        },
+        "arraySpecialMember": {
+            "type": "object",
+            "required": [
+                "nodeTag",
+                "memberName",
+                "lengthMemberName"
+            ],
+            "properties": {
+                "nodeTag": {
+                    "type": "string",
+                    "description": "NodeTag value of Node. Either values with 'T_' prefix or without allowed",
+                    "pattern": "^(T_)?[a-zA-Z_][a-zA-Z0-9_]*$"
+                },
+                "memberName": {
+                    "type": "string",
+                    "description": "Member name that contains array",
+                    "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+                },
+                "lengthMemberName": {
+                    "type": "string",
+                    "description": "Member name that contains length of array",
+                    "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+                }
+            }
+        }
+    },
+    "properties": {
+        "specialMembers": {
+            "$ref": "#/definitions/specialMembers"
+        },
+        "version": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1,
+            "description": "Version of configuration file layout. Managed by extension"
+        }
+    },
+    "required": [
+        "version"
+    ],
+    "additionalProperties": false
+}

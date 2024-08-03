@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as dap from "./dap";
 import { IVariable } from './extension';
-import { time } from 'console';
 
 const nullPointer = '0x0';
 const pointerRegex = /^0x[0-9abcdef]+$/i;
@@ -37,7 +36,7 @@ export function getStructNameFromType(type: string) {
     if (typeParts[0] === 'const') {
         if (typeParts[1] === 'struct') {
             index = 2;
-        } 
+        }
         index = 1;
     } else if (typeParts[0] === 'struct') {
         index = 1;
@@ -79,7 +78,7 @@ export function substituteStructName(type: string, target: string) {
     if (typeParts[0] === 'const') {
         if (typeParts[1] === 'struct') {
             index = 2;
-        } 
+        }
         index = 1;
     } else if (typeParts[0] === 'struct') {
         index = 1;
@@ -127,13 +126,29 @@ export interface ILogger {
     error: (message: string, error?: any) => void;
 }
 
+export enum LogLevel {
+    Debug = 0,
+    Info = 1,
+    Warn = 2,
+    Error = 3,
+    Disable = 4,
+}
+
 export class OutputChannelLogger implements ILogger {
-    constructor(private readonly channel: vscode.OutputChannel)
-    { }
-    logGeneric(level: string, message: string, error?: any) {
+    minLogLevel: LogLevel;
+
+    constructor(private readonly channel: vscode.OutputChannel, minLogLevel: LogLevel) {
+        this.minLogLevel = minLogLevel;
+    }
+
+    logGeneric(level: LogLevel, levelStr: string, message: string, error?: any) {
+        if (level < this.minLogLevel) {
+            return;
+        }
+
         /* TIMESTAMP [LEVEL]: MESSAGE: EXCEPTION */
         const timestamp = new Date().toISOString().replace('T', ' ').replace('Z', '');
-        let msg = `${timestamp} [${level}]: ${message}`;
+        let msg = `${timestamp} [${levelStr}]: ${message}`;
         if (error) {
             let errMsg;
             if (error instanceof Error) {
@@ -152,16 +167,16 @@ export class OutputChannelLogger implements ILogger {
         this.channel.appendLine(msg);
     }
     debug(message: string, error?: any) {
-        this.logGeneric('DEBUG', message, error);
-    }
-    error(message: string, error?: any) {
-        this.logGeneric('ERROR', message, error);
+        this.logGeneric(LogLevel.Debug, 'DEBUG', message, error);
     }
     info(message: string, error?: any) {
-        this.logGeneric('INFO', message, error);
+        this.logGeneric(LogLevel.Info, 'INFO', message, error);
     }
     warn(message: string, error?: any) {
-        this.logGeneric('WARN', message, error);
+        this.logGeneric(LogLevel.Warn, 'WARN', message, error);
+    }
+    error(message: string, error?: any) {
+        this.logGeneric(LogLevel.Error, 'ERROR', message, error);
     }
 }
 
@@ -189,35 +204,35 @@ export class VsCodeDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
                 this.isInDebug = false;
             }),
         ];
-        
+
         this.session = vscode.debug.activeDebugSession;
         this.isInDebug = vscode.debug.activeDebugSession !== undefined;
     }
-    
+
     getSession(): vscode.DebugSession {
         if (this.session !== undefined) {
             return this.session;
         }
-        
+
         this.session = vscode.debug.activeDebugSession;
         if (this.session === undefined) {
             this.isInDebug = false;
             throw new Error('No active debug session');
         }
-        
+
         return this.session;
     }
-    
+
     async evaluate(expression: string, frameId: number, context?: string): Promise<dap.EvaluateResponse> {
         context ??= 'repl';
         return await this.getSession().customRequest('evaluate', { expression, context, frameId } as dap.EvaluateArguments);
     }
-    
+
     async getVariables(variablesReference: number): Promise<dap.DebugVariable[]> {
         const response: dap.VariablesResponse = await this.getSession().customRequest('variables', { variablesReference } as dap.VariablesArguments);
         return response.variables;
     }
-    
+
     async getScopes(frameId: number): Promise<dap.Scope[]> {
         const response: dap.ScopesResponse = await this.getSession().customRequest('scopes', { frameId } as dap.ScopesArguments);
         return response.scopes;

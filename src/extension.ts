@@ -112,6 +112,15 @@ export class NodeVarFacade {
     }
 
     /**
+     * Check if passed string is valid NodeTag and registered NodeTag
+     * 
+     * @param tag String to test
+     */
+    isNodeTag(tag: string) {
+        return this.nodeTypes.has(tag);
+    }
+
+    /**
      * Check variable can be casted to Node and it's value is valid
      * 
      * @param variable Variable to test
@@ -142,11 +151,11 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<IVar
      */
     addSpecialMembers(members: sm.SpecialMember[]) {
         for (const member of members) {
-            if (!this.nodeVars.isNodeVar(member.nodeTag)) {
+            if (!this.nodeVars.isNodeTag(member.nodeTag)) {
                 this.log.warn(`NodeTag ${member.nodeTag} does not exists`);
                 continue;
             }
-            
+
             const typeMembers = this.specialMembers.get(member.nodeTag);
             if (!typeMembers) {
                 this.specialMembers.set(member.nodeTag, new Map([[member.memberName, member]]));
@@ -401,6 +410,8 @@ export class Configuration {
     static ConfigSections = {
         TopLevelSection: `${this.ExtensionName}`,
         NodeTagFiles: 'nodeTagFiles',
+        LogLevel: 'logLevel',
+        fullSection: (section: string) => `${this.ExtensionName}.${section}`,
     };
     static Commands = {
         DumpNodeToLog: `${this.ExtensionName}.dumpNodeToLog`,
