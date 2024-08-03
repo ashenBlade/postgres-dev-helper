@@ -43,6 +43,12 @@
                 "shortTitle": "Refresh variables view",
                 "category": "PgSQL",
                 "icon": "$(refresh)"
+            },
+            {
+                "command": "postgresql-hacker-helper.refreshConfigFile",
+                "title": "Refresh configuration file",
+                "shortTitle": "Refresh config file",
+                "category": "PgSQL"
             }
         ],
         "menus": {

@@ -193,9 +193,30 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
         }, () => log.debug(`settings file ${pathToFile.fsPath} does not exist`));
     });
 
+    const refreshConfigCmdDisposable = vscode.commands.registerCommand(config.Commands.RefreshConfigFile, async () => {
+        if (!await utils.fileExists(propertiesFilePath)) {
+            const answer = await vscode.window.showWarningMessage(`Config file does not exist. Create?`, 'Yes', 'No');
+            if (answer !== 'Yes') {
+                return;
+            }
+
+            await vscode.commands.executeCommand(config.Commands.OpenConfigFile);
+            return;
+        }
+
+        log.info(`refreshing config file due to command execution`);
+        try {
+            await processSettingsFile(propertiesFilePath);
+        } catch (err: any) {
+            log.error(`failed to update config file`, err);
+        }
+    });
+
+    context.subscriptions.push(refreshConfigCmdDisposable);
+
     /* TODO: 
-     * - command - refresh contents in config file
      * - move types to extension.d.ts ???
+     * - add new wellknown members
      */
 }
 
@@ -254,6 +275,7 @@ function createLogger(context: vscode.ExtensionContext): utils.VsCodeLogger {
 
 export function activate(context: vscode.ExtensionContext) {
     if (!vscode.workspace.workspaceFolders) {
+        /* TODO: handle workspaces not exist */
         return;
     }
 

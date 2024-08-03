@@ -416,10 +416,11 @@ export class Configuration {
     static Commands = {
         DumpNodeToLog: `${this.ExtensionName}.dumpNodeToLog`,
         OpenConfigFile: `${this.ExtensionName}.openConfigurationFile`,
-        RefreshPostgresVariables: `${this.ExtensionName}.refreshPostgresVariablesView`
+        RefreshPostgresVariables: `${this.ExtensionName}.refreshPostgresVariablesView`,
+        RefreshConfigFile: `${this.ExtensionName}.refreshConfigFile`,
     };
     static Views = {
-        NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`
-    }
-    static ExtensionSettingsFileName = 'pgsql_hacker_helper_properties.json'
+        NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`,
+    };
+    static ExtensionSettingsFileName = 'pgsql_hacker_helper_properties.json';
 }
