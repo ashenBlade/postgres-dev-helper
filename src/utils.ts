@@ -134,7 +134,7 @@ export enum LogLevel {
     Disable = 4,
 }
 
-export class OutputChannelLogger implements ILogger {
+export class VsCodeLogger implements ILogger {
     minLogLevel: LogLevel;
 
     constructor(private readonly channel: vscode.OutputChannel, minLogLevel: LogLevel) {
@@ -257,6 +257,24 @@ export async function fileExists(path: vscode.Uri): Promise<boolean> {
         /* Only directory we can not read - files, sym. links etc.. - can read */
         const result = await vscode.workspace.fs.stat(path);
         return result.type !== vscode.FileType.Directory;
+    } catch {
+        return false;
+    }
+}
+
+export async function fsEntryExists(path: vscode.Uri): Promise<boolean> {
+    try {
+        await vscode.workspace.fs.stat(path);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export async function directoryExists(path: vscode.Uri) {
+    try {
+        const result = await vscode.workspace.fs.stat(path);
+        return result.type === vscode.FileType.Directory;
     } catch {
         return false;
     }

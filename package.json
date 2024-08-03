@@ -29,7 +29,13 @@
                 "command": "postgresql-hacker-helper.dumpNodeToLog",
                 "title": "Dump Node to stdout",
                 "shortTitle": "Dump Node to stdout",
-                "category": "debug"
+                "category": "PgSQL"
+            },
+            {
+                "command": "postgresql-hacker-helper.openConfigurationFile",
+                "title": "Open or create configuration file (JSON)",
+                "shortTitle": "Open configuration file",
+                "category": "PgSQL"
             }
         ],
         "menus": {
@@ -37,6 +43,12 @@
                 {
                     "command": "postgresql-hacker-helper.dumpNodeToLog",
                     "when": "inDebugMode && debugState == stopped"
+                }
+            ],
+            "commandPalette": [
+                {
+                    "command": "postgresql-hacker-helper.dumpNodeToLog",
+                    "when": "false"
                 }
             ]
         },

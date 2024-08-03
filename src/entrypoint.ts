@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
 import * as sm from './special_member';
+import * as utils from './utils';
+import * as fs from 'fs';
 import { NodePreviewTreeViewProvider, dumpVariableToLogCommand, NodeVarFacade, Configuration as config } from './extension';
-import { ILogger, OutputChannelLogger as VsCodeLogger, VsCodeDebuggerFacade, fileExists, LogLevel } from './utils';
 
-async function processNodeTagFiles(vars: NodeVarFacade, log: ILogger, context: vscode.ExtensionContext): Promise<undefined> {
+async function processNodeTagFiles(vars: NodeVarFacade, log: utils.ILogger, context: vscode.ExtensionContext): Promise<undefined> {
     const section = vscode.workspace.getConfiguration(config.ConfigSections.TopLevelSection);
     const nodeTagFiles = section.get<string[]>(config.ConfigSections.NodeTagFiles);
 
@@ -14,7 +15,7 @@ async function processNodeTagFiles(vars: NodeVarFacade, log: ILogger, context: v
     }
 
     const handleNodeTagFile = async (path: vscode.Uri) => {
-        if (!await fileExists(path)) {
+        if (!await utils.fileExists(path)) {
             return;
         }
 
@@ -57,7 +58,7 @@ async function processNodeTagFiles(vars: NodeVarFacade, log: ILogger, context: v
     );
 }
 
-function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvider, log: ILogger, context: vscode.ExtensionContext) {
+function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvider, log: utils.ILogger, context: vscode.ExtensionContext) {
     if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
         return;
     }
@@ -94,8 +95,8 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
         if (Array.isArray(specialMembers.array) && 0 < specialMembers.array.length) {
             try {
                 const members: sm.SpecialMember[] = [];
-                for (let index = 0; index < data.array.length; index++) {
-                    const element = data.array[index];
+                for (let index = 0; index < specialMembers.array.length; index++) {
+                    const element = specialMembers.array[index];
                     members.push(sm.createSpecialMember({
                         type: 'array',
                         ...element,
@@ -109,9 +110,68 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
         }
     }
 
+    /* Command to create configuration file */
+    const propertiesFilePath = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, '.vscode', config.ExtensionSettingsFileName);
+    const cmdDisposable = vscode.commands.registerCommand(config.Commands.OpenConfigFile, async () => {
+        if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+            vscode.window.showInformationMessage('No workspaces found - open directory first');
+            return;
+        }
+
+        const propertiesFileExists = await utils.fileExists(propertiesFilePath);
+        /* Create default configuration file if not exists */
+        if (!propertiesFileExists) {
+            if (await utils.fsEntryExists(propertiesFilePath)) {
+                vscode.window.showErrorMessage(`Can not create ${config.ExtensionSettingsFileName} - fs entry exists and not file`);
+                return;
+            }
+
+            log.debug(`creating ${propertiesFilePath} configuration file`);
+            const configDirectoryPath = vscode.Uri.joinPath(propertiesFilePath, '..');
+            if (!await utils.directoryExists(configDirectoryPath)) {
+                try {
+                    fs.mkdirSync(configDirectoryPath.fsPath);
+                } catch (err) {
+                    log.error(`failed to create config directory`, err);
+                    return;
+                }
+            }
+
+            try {
+                fs.writeFileSync(propertiesFilePath.fsPath, JSON.stringify({
+                    version: 1,
+                    specialMembers: {
+                        array: []
+                    }
+                }, undefined, '    '));
+            } catch (err: any) {
+                log.error(`Could not write default configuration file`, err);
+                vscode.window.showErrorMessage('Error creating configuration file');
+                return;
+            }
+        }
+
+        let doc;
+        try {
+            doc = await vscode.workspace.openTextDocument(propertiesFilePath)
+        } catch (err: any) {
+            log.error(`failed to open configuration file`, err);
+            return;
+        }
+
+        try {
+            await vscode.window.showTextDocument(doc);
+        } catch (err: any) {
+            log.error(`failed to show configuration file`, err);
+            return;
+        }
+    });
+
+    context.subscriptions.push(cmdDisposable);
+
     vscode.workspace.workspaceFolders.forEach((folder, i) => {
         const pathToFile = vscode.Uri.joinPath(folder.uri, '.vscode', config.ExtensionSettingsFileName);
-        fileExists(pathToFile).then(async exists => {
+        utils.fileExists(pathToFile).then(async exists => {
             /* 
              * Track change and create events, but not delete -
              * currently no mechanism to track deltas in files.
@@ -139,7 +199,7 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
      */
 }
 
-function createNodeVariablesDataProvider(logger: VsCodeLogger, debug: VsCodeDebuggerFacade, context: vscode.ExtensionContext) {
+function createNodeVariablesDataProvider(logger: utils.VsCodeLogger, debug: utils.VsCodeDebuggerFacade, context: vscode.ExtensionContext) {
     const vars = new NodeVarFacade();
     const dataProvider = new NodePreviewTreeViewProvider(logger, vars, debug);
     /* 
@@ -154,31 +214,31 @@ function createNodeVariablesDataProvider(logger: VsCodeLogger, debug: VsCodeDebu
     return dataProvider;
 }
 
-function createLogger(context: vscode.ExtensionContext): VsCodeLogger {
+function createLogger(context: vscode.ExtensionContext): utils.VsCodeLogger {
     const outputChannel = vscode.window.createOutputChannel(config.ExtensionPrettyName, 'log');
     const configuration = vscode.workspace.getConfiguration(config.ConfigSections.TopLevelSection);
     const getLogLevel = () => {
         const configValue = configuration.get(config.ConfigSections.LogLevel);
         if (typeof configValue !== 'string') {
-            return LogLevel.Info;
+            return utils.LogLevel.Info;
         }
         switch (configValue) {
             case 'INFO':
-                return LogLevel.Info;
+                return utils.LogLevel.Info;
             case 'DEBUG':
-                return LogLevel.Debug;
+                return utils.LogLevel.Debug;
             case 'WARNING':
-                return LogLevel.Warn;
+                return utils.LogLevel.Warn;
             case 'ERROR':
-                return LogLevel.Error;
+                return utils.LogLevel.Error;
             case 'DISABLE':
-                return LogLevel.Disable;
+                return utils.LogLevel.Disable;
             default:
                 outputChannel.appendLine(`Unknown log level '${configValue}' - setting to 'INFO'`);
-                return LogLevel.Info;
+                return utils.LogLevel.Info;
         }
     }
-    const logger = new VsCodeLogger(outputChannel, getLogLevel());
+    const logger = new utils.VsCodeLogger(outputChannel, getLogLevel());
     const fullConfigSectionName = config.ConfigSections.fullSection(config.ConfigSections.LogLevel);
     vscode.workspace.onDidChangeConfiguration(event => {
         if (!event.affectsConfiguration(fullConfigSectionName)) {
@@ -199,7 +259,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     const logger = createLogger(context);
     logger.info('Extension is activating');
-    const debug = new VsCodeDebuggerFacade();
+    const debug = new utils.VsCodeDebuggerFacade();
 
     /* Register command to dump variable to log */
     const dumpVarsToLogCmd = vscode.commands.registerCommand(config.Commands.DumpNodeToLog, async (args) => {

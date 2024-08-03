@@ -415,6 +415,7 @@ export class Configuration {
     };
     static Commands = {
         DumpNodeToLog: `${this.ExtensionName}.dumpNodeToLog`,
+        OpenConfigFile: `${this.ExtensionName}.openConfigurationFile`
     };
     static Views = {
         NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`
