@@ -6,9 +6,18 @@ jobs:
     steps:
     - name: Setup repository
       uses: actions/checkout@v4
+      
+      # https://stackoverflow.com/a/71758159
+    - name: Get package version
+      run: |
+        echo 'PACKAGE_JSON<<EOF' >>$PACKAGE_VERSION
+        cat ./package.json >> $PACKAGE_VERSION
+        echo 'EOF' >>$PACKAGE_VERSION
+        [[ "$PACKAGE_VERSION" ]]
     - name: Check version
       run: |
-        [[ "${{github.ref_name}}" && "$(jq -r '.version' package.json)" == *"${{ github.ref_name }}"* ]]
+        [[ "${{github.ref_name}}" && "${{ fromJson(env.PACKAGE_VERSION).version }}" == *"${{ github.ref_name }}"* ]]
+    
     - name: Setup NodeJS
       uses: actions/setup-node@v4
       with:
