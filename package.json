@@ -9,7 +9,7 @@
     "categories": [
         "Debuggers"
     ],
-    "icon": "./resources/logo.png",
+    "icon": "resources/logo.png",
     "activationEvents": [],
     "main": "./out/entrypoint.js",
     "publisher": "ash-blade",

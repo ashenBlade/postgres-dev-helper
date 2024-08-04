@@ -1,5 +1,7 @@
 # PostgreSQL Hacker Helper
 
+![Logo](logo.png)
+
 This is a Visual Studio Code extension to assist PostgreSQL source code developers.
 It allows to investigate `Node *` variables to obtain it's real type based on `NodeTag`
 and provide some other utilities.
@@ -24,7 +26,7 @@ Also, there are intrinsics for some types:
 
 ![List * expansion](resources/list.gif)
 
-- `PlannerInfo *` simple_rte/rel_array is displayed using it's length
+- Support for special members like `PlannerInfo->simple_rel_array` - array is displayed using it's length
 
 ![Planner expansion](resources/planner.gif)
 
