@@ -7,7 +7,7 @@ jobs:
     - name: Setup repository
       uses: actions/checkout@v4
     - name: Check version
-      run: '[[ "${{github.ref}}" && "$(jq -r ''.version'' package.json)" == *"${{ github.ref }}"* ]]'
+      run: '[[ "${{github.ref_name}}" && "$(jq -r ''.version'' package.json)" == *"${{ github.ref_name }}"* ]]'
     - name: Setup NodeJS
       uses: actions/setup-node@v4
       with:
