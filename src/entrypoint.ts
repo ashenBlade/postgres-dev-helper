@@ -215,8 +215,11 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
     context.subscriptions.push(refreshConfigCmdDisposable);
 
     /* TODO: 
-     * - move types to extension.d.ts ???
-     * - add new wellknown members
+     * - more logging
+     * - readme update
+     * - usage examples
+     * - changelog update
+     * - test on clang
      */
 }
 

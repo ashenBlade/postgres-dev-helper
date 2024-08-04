@@ -150,13 +150,16 @@ export class IntOidListSpecialMember extends SpecialMember {
 
 export class ArraySpecialMember extends SpecialMember {
     /**
-     * Field of parent that we use to obtain array length
+     * Expression to evaluate to obtain array length.
+     * Appended to target struct from right. 
+     * First element is length member name, but after
+     * can be correction expressions i.e. '+ 1'.
      */
-    private readonly lengthField: string;
+    private readonly lengthExpression: string;
 
-    constructor(nodeTag: string, memberName: string, lengthField: string, logger: utils.ILogger) {
+    constructor(nodeTag: string, memberName: string, lengthExpression: string, logger: utils.ILogger) {
         super(nodeTag, memberName, logger);
-        this.lengthField = lengthField;
+        this.lengthExpression = lengthExpression;
     }
 
     isSpecialMember(variable: IVariable): boolean {
@@ -176,10 +179,10 @@ export class ArraySpecialMember extends SpecialMember {
             return null;
         }
 
-        const lengthExpression = `(${variable.parent.evaluateName})->${this.lengthField}`;
+        const lengthExpression = `(${variable.parent.evaluateName})->${this.lengthExpression}`;
         const arrayLength = Number((await debug.evaluate(lengthExpression, variable.parent.frameId)).result);
         if (Number.isNaN(arrayLength)) {
-            this.logger.warn(`fail to obtain array size for ${variable.parent.name}->${this.lengthField}`);
+            this.logger.warn(`fail to obtain array size for ${variable.parent.name}->${this.lengthExpression}`);
             return [variable, undefined];
         }
 
@@ -197,17 +200,62 @@ export class ArraySpecialMember extends SpecialMember {
 }
 
 export function getWellKnownSpecialMembers(log: utils.ILogger): SpecialMember[] {
+    const arraySM = (nodeTag: string, memberName: string, lengthMemberName: string) => new ArraySpecialMember(nodeTag, memberName, lengthMemberName, log);
+
     return [
+        /* List */
         /* List->elements */
         new ListSpecialMember(log),
         /* IntList->elements */
         IntOidListSpecialMember.createIntList(log),
         /* OidList->elements */
         IntOidListSpecialMember.createIntList(log),
-        /* PlannerInfo->simple_rel_array */
-        new ArraySpecialMember('PlannerInfo', 'simple_rel_array', 'simple_rel_array_size', log),
-        /* PlannerInfo->simple_rte_array */
-        new ArraySpecialMember('PlannerInfo', 'simple_rte_array', 'simple_rel_array_size', log),
+        /* TODO: remove check for valid identifier in fields (or split)  */
+        /* Array */
+        arraySM('PlannerInfo', 'simple_rel_array', 'simple_rel_array_size'),
+        arraySM('PlannerInfo', 'simple_rte_array', 'simple_rel_array_size'),
+        arraySM('PlannerInfo', 'append_rel_array', 'simple_rel_array_size'),
+        
+        arraySM('ResultRelInfo', 'ri_IndexRelationInfo', 'ri_NumIndices'),
+        arraySM('ResultRelInfo', 'ri_TrigWhenExprs', 'ri_TrigDesc->numtriggers'),
+        arraySM('ResultRelInfo', 'ri_Slots', 'ri_NumSlots'),
+        arraySM('ResultRelInfo', 'ri_PlanSlots', 'ri_NumSlots'),
+        arraySM('ResultRelInfo', 'ri_ConstraintExprs', 'ri_RelationDesc->rd_att->natts'),
+
+        arraySM('EState', 'es_rowmarks', 'es_range_table_size'),
+        arraySM('EState', 'es_result_relations', 'es_range_table_size'),
+
+        arraySM('EPQState', 'relsubs_slot', 'parentestate->es_range_table_size'),
+        arraySM('EPQState', 'relsubs_rowmark', 'parentestate->es_range_table_size'),
+
+        arraySM('ProjectSetState', 'elems', 'nelems'),
+
+        arraySM('AppendState', 'appendplans', 'as_nplans'),
+        arraySM('AppendState', 'as_asyncrequests', 'as_nplans'),
+        arraySM('AppendState', 'as_asyncresults', 'as_nasyncresults'),
+
+        arraySM('MergeAppendState', 'mergeplans', 'ms_nplans'),
+        arraySM('MergeAppendState', 'ms_slots', 'ms_nplans'),
+
+        arraySM('BitmapAndState', 'bitmapplans', 'nplans'),
+
+        arraySM('BitmapOrState', 'bitmapplans', 'nplans'),
+
+        arraySM('ValuesScanState', 'exprlists', 'array_len'),
+        arraySM('ValuesScanState', 'exprstatelists', 'array_len'),
+
+        arraySM('MemoizeState', 'param_exprs', 'nkeys'),
+
+        arraySM('AggState', 'aggcontexts', 'maxsets'),
+
+        arraySM('GatherState', 'reader', 'nreaders'),
+
+        arraySM('GatherMergeState', 'gm_slots', 'nreaders + 1'),
+        arraySM('GatherMergeState', 'reader', 'nreaders'),
+
+        arraySM('RelOptInfo', 'part_rels', 'nparts'),
+        arraySM('RelOptInfo', 'partexprs', 'part_scheme->partnatts'),
+        arraySM('RelOptInfo', 'nullable_partexprs', 'part_scheme->partnatts'),
     ];
 }
 
@@ -256,19 +304,19 @@ export function createSpecialMember(object: any, log: utils.ILogger): SpecialMem
         throw new Error(`memberName field ${memberName} is not valid identifier - contains invalid characters`)
     }
     
-    let lengthMemberName = object.lengthMemberName;
-    if (!lengthMemberName) {
-        throw new Error(`lengthMemberName not provided for: ${object.nodeTag}->${memberName}`);
+    let lengthExpression = object.lengthExpression;
+    if (!lengthExpression) {
+        throw new Error(`lengthExpression not provided for: ${object.nodeTag}->${memberName}`);
     }
 
-    if (typeof lengthMemberName !== 'string') {
-        throw new Error(`lengthMemberName field must be string for: ${object.nodeTag}->${memberName}`);
+    if (typeof lengthExpression !== 'string') {
+        throw new Error(`lengthExpression field must be string for: ${object.nodeTag}->${memberName}`);
     }
     
-    lengthMemberName = lengthMemberName.trim();
-    if (!utils.isValidIdentifier(lengthMemberName)) {
-        throw new Error(`lengthMemberName field ${lengthMemberName} must be valid identifier: ${object.nodeTag}->${memberName}`);
+    lengthExpression = lengthExpression.trim();
+    if (!lengthExpression) {
+        throw new Error('lengthExpression can not be empty string');
     }
     
-    return new ArraySpecialMember(nodeTag, memberName, lengthMemberName, log);
+    return new ArraySpecialMember(nodeTag, memberName, lengthExpression, log);
 }
