@@ -1,0 +1,27 @@
+name: Publish package
+on: [release]
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Setup repository
+      uses: actions/checkout@v4
+    - name: Check version
+      run: '[[ "${{github.ref}}" && "$(jq -r ''.version'' package.json)" == *"${{ github.ref }}"* ]]'
+    - name: Setup NodeJS
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+    - name: Install vsce
+      run: npm install -g '@vscode/vsce'
+    - name: Login VSCE
+      run: echo ${{ secrets.VSCE_PAT }} | vsce login ${{ secrets.VSCE_PUBLISHER }}
+    - name: Verify publish access rights
+      run: vsce verify-pat --pat ${{ secrets.VSCE_PAT }}
+    - name: Publish package
+      run: vsce publish
+
+   
+            
+
