@@ -1,6 +1,6 @@
 # PostgreSQL Hacker Helper
 
-![Logo](logo.png)
+![Logo](resources/logo.png)
 
 This is a Visual Studio Code extension to assist PostgreSQL source code developers.
 It allows to investigate `Node *` variables to obtain it's real type based on `NodeTag`
