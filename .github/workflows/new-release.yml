@@ -27,7 +27,7 @@ jobs:
     - name: Login VSCE
       env:
         VSCE_PAT: ${{ secrets.VSCE_PAT }}
-      run: vsce login ${{ secrets.VSCE_PUBLISHER }}
+      run: npx vsce login ${{ secrets.VSCE_PUBLISHER }}
     - name: Verify publish access rights
       env:
         VSCE_PAT: ${{ secrets.VSCE_PAT }}
