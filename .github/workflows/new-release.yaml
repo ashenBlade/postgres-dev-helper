@@ -8,15 +8,12 @@ jobs:
       uses: actions/checkout@v4
       
       # https://stackoverflow.com/a/71758159
-    - name: Get package version
+    - name: Get package.json content
       run: |
-        echo 'PACKAGE_JSON<<EOF' >>$PACKAGE_VERSION
-        cat ./package.json >> $PACKAGE_VERSION
-        echo 'EOF' >>$PACKAGE_VERSION
-        [[ "$PACKAGE_VERSION" ]]
+        echo 'PACKAGE_JSON=$(jq -c . < package.json)' >>$GITHUB_ENV
     - name: Check version
       run: |
-        [[ "${{github.ref_name}}" && "${{ fromJson(env.PACKAGE_VERSION).version }}" == *"${{ github.ref_name }}"* ]]
+        [[ "${{github.ref_name}}" && "${{ fromJson(env.PACKAGE_JSON).version }}" == *"${{ github.ref_name }}"* ]]
     
     - name: Setup NodeJS
       uses: actions/setup-node@v4
