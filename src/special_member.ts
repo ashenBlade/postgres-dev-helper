@@ -210,17 +210,20 @@ export function getWellKnownSpecialMembers(log: utils.ILogger): SpecialMember[] 
         IntOidListSpecialMember.createIntList(log),
         /* OidList->elements */
         IntOidListSpecialMember.createIntList(log),
-        /* TODO: remove check for valid identifier in fields (or split)  */
+
         /* Array */
         arraySM('PlannerInfo', 'simple_rel_array', 'simple_rel_array_size'),
         arraySM('PlannerInfo', 'simple_rte_array', 'simple_rel_array_size'),
         arraySM('PlannerInfo', 'append_rel_array', 'simple_rel_array_size'),
+        arraySM('PlannerInfo', 'placeholder_array', 'placeholder_array_size'),
         
         arraySM('ResultRelInfo', 'ri_IndexRelationInfo', 'ri_NumIndices'),
         arraySM('ResultRelInfo', 'ri_TrigWhenExprs', 'ri_TrigDesc->numtriggers'),
         arraySM('ResultRelInfo', 'ri_Slots', 'ri_NumSlots'),
         arraySM('ResultRelInfo', 'ri_PlanSlots', 'ri_NumSlots'),
         arraySM('ResultRelInfo', 'ri_ConstraintExprs', 'ri_RelationDesc->rd_att->natts'),
+        arraySM('ResultRelInfo', 'ri_GeneratedExprsI', 'ri_NumGeneratedNeededI'),
+        arraySM('ResultRelInfo', 'ri_GeneratedExprsU', 'ri_NumGeneratedNeededU'),
 
         arraySM('EState', 'es_rowmarks', 'es_range_table_size'),
         arraySM('EState', 'es_result_relations', 'es_range_table_size'),
