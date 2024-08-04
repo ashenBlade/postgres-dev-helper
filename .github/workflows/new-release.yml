@@ -24,15 +24,9 @@ jobs:
         cache: 'npm'
     - name: Install vsce
       run: npm install '@vscode/vsce' --save-dev
-    - name: Login VSCE
-      env:
-        VSCE_PAT: ${{ secrets.VSCE_PAT }}
-      run: npx vsce login ${{ secrets.VSCE_PUBLISHER }}
-    - name: Verify publish access rights
-      env:
-        VSCE_PAT: ${{ secrets.VSCE_PAT }}
-      run: vsce verify-pat
     - name: Publish package
+      env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
       run: npm run deploy
 
    
