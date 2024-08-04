@@ -9,10 +9,10 @@ jobs:
     - name: Setup repository
       uses: actions/checkout@v4
       
-      # https://stackoverflow.com/a/71758159
+      # https://stackoverflow.com/a/73639034
     - name: Get package.json content
       run: |
-        echo 'PACKAGE_JSON=$(jq -c . < package.json)' >>$GITHUB_ENV
+        echo "PACKAGE_JSON=$(jq -c . < package.json)" >>$GITHUB_ENV
     - name: Check version
       run: |
         if [[ "${{github.ref_name}}" && "${{ fromJson(env.PACKAGE_JSON).version }}" == *"${{ github.ref_name }}"* ]]; then exit 0; else exit 1; fi
