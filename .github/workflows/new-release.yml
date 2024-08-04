@@ -15,7 +15,7 @@ jobs:
         echo "PACKAGE_JSON=$(jq -c . < package.json)" >>$GITHUB_ENV
     - name: Check version
       run: |
-        [[ "${{github.ref_name}}" && "${{ fromJson(env.PACKAGE_JSON).version }}" == *"${{ github.ref_name }}"* ]]
+        [[ "${{github.ref_name}}" && "${{ github.ref_name }}" == *"${{ fromJson(env.PACKAGE_JSON).version }}"* ]]
     
     - name: Setup NodeJS
       uses: actions/setup-node@v4
