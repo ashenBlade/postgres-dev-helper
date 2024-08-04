@@ -57,6 +57,7 @@ export class NodeVarFacade {
      * node tag file. i.e. `nodes.h' or `nodetags.h'.
      */
     updateNodeTypesFromFile(file: vscode.TextDocument) {
+        let added = 0;
         for (let lineNo = 0; lineNo < file.lineCount; lineNo++) {
             /* 
              * NodeTag has following representation:
@@ -84,7 +85,9 @@ export class NodeVarFacade {
             }
 
             this.nodeTypes.add(tag);
+            added++;
         }
+        return added;
     }
 
     /**
@@ -153,7 +156,6 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<IVar
         for (const member of members) {
             if (!this.nodeVars.isNodeTag(member.nodeTag)) {
                 this.log.warn(`NodeTag ${member.nodeTag} does not exists`);
-                continue;
             }
 
             const typeMembers = this.specialMembers.get(member.nodeTag);
@@ -179,9 +181,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<IVar
         }
 
         const typeMembers = this.specialMembers.get(variable.parent.nodeTag);
-        if (!typeMembers?.size) {
-            return;
-        }
+        
         if (!typeMembers?.size) {
             return;
         }
@@ -202,22 +202,11 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<IVar
         const validPointer = utils.isValidPointer(variable.value);
         let collapsibleState = vscode.TreeItemCollapsibleState.None;
 
+        /* We can expand raw structs and pointer types for non built-in (int*, double* etc..) */
         if (utils.isRawStruct(variable)) {
-            /* Raw structs must have members and can not have 'inheritance' */
             collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
-        } else if (validPointer) {
-            if (this.nodeVars.isNodeVar(variable.type)) {
-                /* All Node variables can be expanded - they have members */
-                collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
-            } else {
-                /* Also treat special variables */
-                const specialVariable = this.getSpecialMember(variable);
-                if (specialVariable) {
-                    if (specialVariable.isExpandable(variable)) {
-                        collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
-                    }
-                }
-            }
+        } else if (validPointer && !utils.isBuiltInType(variable.type)) {
+            collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
         }
 
         let label = undefined;
@@ -371,6 +360,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<IVar
 
         return subvariables!.map(v => ({
             ...v,
+            declaredType: variable.type,
             frameId: variable.frameId,
             parent: variable,
         }) as IVariable);
@@ -422,5 +412,5 @@ export class Configuration {
     static Views = {
         NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`,
     };
-    static ExtensionSettingsFileName = 'pgsql_hacker_helper_properties.json';
+    static ExtensionSettingsFileName = 'pgsql_hacker_helper.json';
 }

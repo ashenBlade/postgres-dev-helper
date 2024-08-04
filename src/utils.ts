@@ -279,3 +279,11 @@ export async function directoryExists(path: vscode.Uri) {
         return false;
     }
 }
+
+const builtInTypes = new Set<string>([
+    'char', 'short', 'int', 'long', 'double', 'float', '_Bool', 'void',
+])
+
+export function isBuiltInType(type: string) {
+    return builtInTypes.has(getStructNameFromType(type));
+}

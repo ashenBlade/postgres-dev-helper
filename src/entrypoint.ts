@@ -22,47 +22,55 @@ async function processNodeTagFiles(vars: NodeVarFacade, log: utils.ILogger, cont
         log.debug(`processing ${path.fsPath} NodeTags file`);
         const document = await vscode.workspace.openTextDocument(path)
         try {
-            vars.updateNodeTypesFromFile(document);
+            const added = vars.updateNodeTypesFromFile(document);
+            log.debug(`added ${added} NodeTags from ${path.fsPath} file`);
         } catch (err: any) {
             log.error(`could not initialize node tags array`, err);
         }
     }
-    await Promise.all(
-        vscode.workspace.workspaceFolders!.flatMap(folder => 
-            nodeTagFiles.map(async filePath => {
-                filePath = filePath.trim();
-                const fullPath = filePath.startsWith('/')
-                    ? filePath                              /* Absolute path - user defined global tag file (maybe) */
-                    : folder.uri.fsPath + '/' + filePath;   /* Relative path - search current workspace */
-                await handleNodeTagFile(vscode.Uri.file(fullPath));
 
-                /* 
-                 * Create watcher to handle file updates and creations, but not deletions.
-                 * This is required, because extension can be activated before running
-                 * of 'configure' script and NodeTags are not created at that moment.
-                 * We will handle them later
-                 */
-                const watcher = vscode.workspace.createFileSystemWatcher(filePath, false, false, true);
-                watcher.onDidChange(uri => {
-                    log.info(`detected change in NodeTag file: ${uri.fsPath}`);
-                    handleNodeTagFile(uri);
-                }, context.subscriptions);
-                watcher.onDidCreate(uri => {
-                    log.info(`detected creation of NodeTag file: ${uri.fsPath}`);
-                    handleNodeTagFile(uri);
-                }, context.subscriptions);
-                
-                context.subscriptions.push(watcher);
-            })
-        )
-    );
+    const processFolder = async (folder: vscode.WorkspaceFolder) => {
+        await Promise.all(nodeTagFiles.map(async filePath => {
+            await handleNodeTagFile(vscode.Uri.file(folder.uri.fsPath + '/' + filePath));
+
+            /* 
+            * Create watcher to handle file updates and creations, but not deletions.
+            * This is required, because extension can be activated before running
+            * of 'configure' script and NodeTags are not created at that moment.
+            * We will handle them later
+            */
+
+            const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, filePath), false, false, true);
+            watcher.onDidChange(uri => {
+                log.info(`detected change in NodeTag file: ${uri.fsPath}`);
+                handleNodeTagFile(uri);
+            }, context.subscriptions);
+            watcher.onDidCreate(uri => {
+                log.info(`detected creation of NodeTag file: ${uri.fsPath}`);
+                handleNodeTagFile(uri);
+            }, context.subscriptions);
+
+            context.subscriptions.push(watcher);
+        }));
+    }
+
+    if (vscode.workspace.workspaceFolders?.length) {
+        await Promise.all(
+            vscode.workspace.workspaceFolders.flatMap(async folder =>
+                await processFolder(folder)
+            )
+        );
+    }
+
+    vscode.workspace.onDidChangeWorkspaceFolders(async e => {
+        for (let i = 0; i < e.added.length; i++) {
+            const folder = e.added[i];
+            await processFolder(folder);
+        }
+    }, undefined, context.subscriptions);
 }
 
 function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvider, log: utils.ILogger, context: vscode.ExtensionContext) {
-    if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
-        return;
-    }
-
     const processSettingsFile = async (pathToFile: vscode.Uri) => {
         let doc = undefined;
         try {
@@ -109,129 +117,132 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
             }
         }
     }
-
-    /* Command to create configuration file */
-    const propertiesFilePath = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, '.vscode', config.ExtensionSettingsFileName);
-    const cmdDisposable = vscode.commands.registerCommand(config.Commands.OpenConfigFile, async () => {
-        if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
-            vscode.window.showInformationMessage('No workspaces found - open directory first');
-            return;
-        }
-
-        const propertiesFileExists = await utils.fileExists(propertiesFilePath);
-        /* Create default configuration file if not exists */
-        if (!propertiesFileExists) {
-            if (await utils.fsEntryExists(propertiesFilePath)) {
-                vscode.window.showErrorMessage(`Can not create ${config.ExtensionSettingsFileName} - fs entry exists and not file`);
+    
+    const processFolders = (folders: readonly vscode.WorkspaceFolder[]) => {
+        const propertiesFilePath = vscode.Uri.joinPath(folders[0].uri, '.vscode', config.ExtensionSettingsFileName);
+        const cmdDisposable = vscode.commands.registerCommand(config.Commands.OpenConfigFile, async () => {
+            if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+                vscode.window.showInformationMessage('No workspaces found - open directory first');
                 return;
             }
-
-            log.debug(`creating ${propertiesFilePath} configuration file`);
-            const configDirectoryPath = vscode.Uri.joinPath(propertiesFilePath, '..');
-            if (!await utils.directoryExists(configDirectoryPath)) {
+            
+            const propertiesFileExists = await utils.fileExists(propertiesFilePath);
+            /* Create default configuration file if not exists */
+            if (!propertiesFileExists) {
+                if (await utils.fsEntryExists(propertiesFilePath)) {
+                    vscode.window.showErrorMessage(`Can not create ${config.ExtensionSettingsFileName} - fs entry exists and not file`);
+                    return;
+                }
+                
+                log.debug(`creating ${propertiesFilePath} configuration file`);
+                const configDirectoryPath = vscode.Uri.joinPath(propertiesFilePath, '..');
+                if (!await utils.directoryExists(configDirectoryPath)) {
+                    try {
+                        fs.mkdirSync(configDirectoryPath.fsPath);
+                    } catch (err) {
+                        log.error(`failed to create config directory`, err);
+                        return;
+                    }
+                }
+                
                 try {
-                    fs.mkdirSync(configDirectoryPath.fsPath);
-                } catch (err) {
-                    log.error(`failed to create config directory`, err);
+                    fs.writeFileSync(propertiesFilePath.fsPath, JSON.stringify({
+                        version: 1,
+                        specialMembers: {
+                            array: []
+                        }
+                    }, undefined, '    '));
+                } catch (err: any) {
+                    log.error(`Could not write default configuration file`, err);
+                    vscode.window.showErrorMessage('Error creating configuration file');
                     return;
                 }
             }
-
-            try {
-                fs.writeFileSync(propertiesFilePath.fsPath, JSON.stringify({
-                    version: 1,
-                    specialMembers: {
-                        array: []
-                    }
-                }, undefined, '    '));
-            } catch (err: any) {
-                log.error(`Could not write default configuration file`, err);
-                vscode.window.showErrorMessage('Error creating configuration file');
-                return;
-            }
-        }
-
-        let doc;
-        try {
-            doc = await vscode.workspace.openTextDocument(propertiesFilePath)
-        } catch (err: any) {
-            log.error(`failed to open configuration file`, err);
-            return;
-        }
-
-        try {
-            await vscode.window.showTextDocument(doc);
-        } catch (err: any) {
-            log.error(`failed to show configuration file`, err);
-            return;
-        }
-    });
-
-    context.subscriptions.push(cmdDisposable);
-
-    vscode.workspace.workspaceFolders.forEach((folder, i) => {
-        const pathToFile = vscode.Uri.joinPath(folder.uri, '.vscode', config.ExtensionSettingsFileName);
-        utils.fileExists(pathToFile).then(async exists => {
-            /* 
-             * Track change and create events, but not delete -
-             * currently no mechanism to track deltas in files.
-             */
-            let trackCreateEvent = true;
-            if (exists) {
-                trackCreateEvent = false;
-                await processSettingsFile(pathToFile);
-                return;
-            }
-
-            const watcher = vscode.workspace.createFileSystemWatcher(pathToFile.fsPath, trackCreateEvent, false, true);
-            if (trackCreateEvent) {
-                watcher.onDidCreate(processSettingsFile);
-            }
-            watcher.onDidChange(processSettingsFile);
             
-            context.subscriptions.push(watcher);
-        }, () => log.debug(`settings file ${pathToFile.fsPath} does not exist`));
-    });
-
-    const refreshConfigCmdDisposable = vscode.commands.registerCommand(config.Commands.RefreshConfigFile, async () => {
-        if (!await utils.fileExists(propertiesFilePath)) {
-            const answer = await vscode.window.showWarningMessage(`Config file does not exist. Create?`, 'Yes', 'No');
-            if (answer !== 'Yes') {
+            let doc;
+            try {
+                doc = await vscode.workspace.openTextDocument(propertiesFilePath)
+            } catch (err: any) {
+                log.error(`failed to open configuration file`, err);
                 return;
             }
-
-            await vscode.commands.executeCommand(config.Commands.OpenConfigFile);
-            return;
-        }
-
-        log.info(`refreshing config file due to command execution`);
-        try {
-            await processSettingsFile(propertiesFilePath);
-        } catch (err: any) {
-            log.error(`failed to update config file`, err);
-        }
-    });
-
-    context.subscriptions.push(refreshConfigCmdDisposable);
-
-    /* TODO: 
-     * - more logging
-     * - readme update
-     * - usage examples
-     * - changelog update
-     * - test on clang
-     */
+            
+            try {
+                await vscode.window.showTextDocument(doc);
+            } catch (err: any) {
+                log.error(`failed to show configuration file`, err);
+                return;
+            }
+        });
+        
+        context.subscriptions.push(cmdDisposable);
+        
+        folders.forEach(folder => {
+            const pathToFile = vscode.Uri.joinPath(folder.uri, '.vscode', config.ExtensionSettingsFileName);
+            utils.fileExists(pathToFile).then(async exists => {
+                /* 
+                * Track change and create events, but not delete -
+                * currently no mechanism to track deltas in files.
+                */
+               let trackCreateEvent = true;
+               if (exists) {
+                   trackCreateEvent = false;
+                   await processSettingsFile(pathToFile);
+                   return;
+                }
+                
+                const watcher = vscode.workspace.createFileSystemWatcher(pathToFile.fsPath, trackCreateEvent, false, true);
+                if (trackCreateEvent) {
+                    watcher.onDidCreate(processSettingsFile);
+                }
+                watcher.onDidChange(processSettingsFile);
+                
+                context.subscriptions.push(watcher);
+            }, () => log.debug(`settings file ${pathToFile.fsPath} does not exist`));
+        });
+        
+        const refreshConfigCmdDisposable = vscode.commands.registerCommand(config.Commands.RefreshConfigFile, async () => {
+            if (!await utils.fileExists(propertiesFilePath)) {
+                const answer = await vscode.window.showWarningMessage(`Config file does not exist. Create?`, 'Yes', 'No');
+                if (answer !== 'Yes') {
+                    return;
+                }
+                
+                await vscode.commands.executeCommand(config.Commands.OpenConfigFile);
+                return;
+            }
+            
+            log.info(`refreshing config file due to command execution`);
+            try {
+                await processSettingsFile(propertiesFilePath);
+            } catch (err: any) {
+                log.error(`failed to update config file`, err);
+            }
+        });
+        
+        context.subscriptions.push(refreshConfigCmdDisposable);
+    }
+    
+    /* Command to create configuration file */
+    if (vscode.workspace.workspaceFolders) {
+        processFolders(vscode.workspace.workspaceFolders);
+    } else {
+        /* Wait for folder open */
+        vscode.workspace.onDidChangeWorkspaceFolders(e => {
+            processFolders(e.added);
+        }, context.subscriptions);
+    }
 }
 
 function createNodeVariablesDataProvider(logger: utils.VsCodeLogger, debug: utils.VsCodeDebuggerFacade, context: vscode.ExtensionContext) {
     const vars = new NodeVarFacade();
     const dataProvider = new NodePreviewTreeViewProvider(logger, vars, debug);
     /* 
-     * When registering special members all NodeTags must be known to figure out 
-     * errors in configuration. So wait for tags initialization and process
-     * special members after that.
-     */
-    processNodeTagFiles(vars, logger, context).then(_ => {
+    * When registering special members all NodeTags must be known to figure out 
+    * errors in configuration. So wait for tags initialization and process
+    * special members after that.
+    */
+   processNodeTagFiles(vars, logger, context).then(_ => {
         dataProvider.addSpecialMembers(sm.getWellKnownSpecialMembers(logger));
         registerSpecialMembersSettingsFile(dataProvider, logger, context);
     });
@@ -277,11 +288,6 @@ function createLogger(context: vscode.ExtensionContext): utils.VsCodeLogger {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-    if (!vscode.workspace.workspaceFolders) {
-        /* TODO: handle workspaces not exist */
-        return;
-    }
-
     const logger = createLogger(context);
     logger.info('Extension is activating');
     const debug = new utils.VsCodeDebuggerFacade();
