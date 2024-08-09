@@ -232,9 +232,6 @@ export function getWellKnownSpecialMembers(log: utils.ILogger): SpecialMember[] 
         arraySM('EState', 'es_rowmarks', 'es_range_table_size'),
         arraySM('EState', 'es_result_relations', 'es_range_table_size'),
 
-        arraySM('EPQState', 'relsubs_slot', 'parentestate->es_range_table_size'),
-        arraySM('EPQState', 'relsubs_rowmark', 'parentestate->es_range_table_size'),
-
         arraySM('ProjectSetState', 'elems', 'nelems'),
 
         arraySM('AppendState', 'appendplans', 'as_nplans'),
