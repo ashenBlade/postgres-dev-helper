@@ -59,7 +59,7 @@ export abstract class SpecialMember {
     abstract visitMember(member: IVariable, debug: utils.IDebuggerFacade): Promise<[IVariable, dap.DebugVariable[] | undefined] | null>;
 }
 
-export class ListSpecialMember extends SpecialMember {
+export class NodeListSpecialMember extends SpecialMember {
     constructor(logger: utils.ILogger) {
         super('List', 'elements', logger);
     }
@@ -97,7 +97,7 @@ export class ListSpecialMember extends SpecialMember {
     }
 }
 
-export class IntOidListSpecialMember extends SpecialMember {
+export class ListSpecialMember extends SpecialMember {
     private readonly fieldName: string;
     private readonly realType: string;
 
@@ -144,8 +144,10 @@ export class IntOidListSpecialMember extends SpecialMember {
         return [variable, arrayElements];
     }
 
-    static createIntList = (logger: utils.ILogger) => new IntOidListSpecialMember('IntList', 'int_value', 'int', logger);
-    static createOidList = (logger: utils.ILogger) => new IntOidListSpecialMember('OidList', 'oid_value', 'Oid', logger);
+    static createIntList = (logger: utils.ILogger) => new ListSpecialMember('IntList', 'int_value', 'int', logger);
+    static createOidList = (logger: utils.ILogger) => new ListSpecialMember('OidList', 'oid_value', 'Oid', logger);
+    static createXidList = (logger: utils.ILogger) => new ListSpecialMember('XidList', 'xid_value', 'TransactionId', logger);
+    static createNodeList = (logger: utils.ILogger) => new NodeListSpecialMember(logger);
 }
 
 export class ArraySpecialMember extends SpecialMember {
@@ -205,11 +207,13 @@ export function getWellKnownSpecialMembers(log: utils.ILogger): SpecialMember[] 
     return [
         /* List */
         /* List->elements */
-        new ListSpecialMember(log),
+        ListSpecialMember.createNodeList(log),
         /* IntList->elements */
-        IntOidListSpecialMember.createIntList(log),
+        ListSpecialMember.createIntList(log),
         /* OidList->elements */
-        IntOidListSpecialMember.createIntList(log),
+        ListSpecialMember.createOidList(log),
+        /* XidList->elements */
+        ListSpecialMember.createXidList(log),
 
         /* Array */
         arraySM('PlannerInfo', 'simple_rel_array', 'simple_rel_array_size'),
