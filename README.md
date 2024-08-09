@@ -105,6 +105,7 @@ Known issues:
 - To get NodeTags extension reads all available NodeTag files (from settings), but
   these files may be not created (./configure or make not run). I assume by time
   of debugging start files will be created, so extension catch them and process.
+- Tested only with [ms-vscode.cpptools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools) extension
 
 ## Release Notes
 
