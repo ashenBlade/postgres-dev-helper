@@ -83,7 +83,8 @@
                     "id": "postgresql-hacker-helper.node-tree-view",
                     "name": "pg variables",
                     "type": "tree",
-                    "visibility": "visible"
+                    "visibility": "visible",
+                    "when": "inDebugMode"
                 }
             ]
         },
