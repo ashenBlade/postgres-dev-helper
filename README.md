@@ -109,6 +109,12 @@ Known issues:
 
 ## Release Notes
 
+### 1.0.0
+
+Remove EPQState from array special members
+
+Add T_XidList support
+
 ### 0.2.0
 
 Add more special members.
