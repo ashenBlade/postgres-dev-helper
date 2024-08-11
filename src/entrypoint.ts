@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as vars from './variables';
 import * as utils from './utils';
 import * as fs from 'fs';
-import { NodePreviewTreeViewProvider, dumpVariableToLogCommand, Configuration as config } from './extension';
+import { NodePreviewTreeViewProvider, dumpVariableToLogCommand, Configuration as config, ConfigFileParseResult, parseConfigurationFile } from './extension';
 
 async function processNodeTagFiles(vars: vars.NodeVarRegistry, log: utils.ILogger, context: vscode.ExtensionContext): Promise<undefined> {
     const section = vscode.workspace.getConfiguration(config.ConfigSections.TopLevelSection);
@@ -71,7 +71,7 @@ async function processNodeTagFiles(vars: vars.NodeVarRegistry, log: utils.ILogge
 }
 
 function registerSpecialMembersSettingsFile(smRegistry: vars.SpecialMemberRegistry, log: utils.ILogger, context: vscode.ExtensionContext) {
-    const processSettingsFile = async (pathToFile: vscode.Uri) => {
+    const processSingleConfigFile = async (pathToFile: vscode.Uri) => {
         let doc = undefined;
         try {
             doc = await vscode.workspace.openTextDocument(pathToFile);
@@ -80,44 +80,39 @@ function registerSpecialMembersSettingsFile(smRegistry: vars.SpecialMemberRegist
             return;
         }
 
-        let data = undefined;
-        let text = undefined;
+        let text;
         try {
             text = doc.getText();
         } catch (err: any) {
             log.error(`failed to read settings file ${doc.uri.fsPath}`, err);
             return;
         }
-
+        
+        let data;
         try {
             data = JSON.parse(text);
         } catch (err: any) {
             log.error(`failed to parse JSON settings file ${doc.uri.fsPath}`, err);
             return;
         }
-        const specialMembers = data.specialMembers;
-        if (!specialMembers) {
+
+        let parseResult: ConfigFileParseResult | undefined;
+        try {
+            parseResult = parseConfigurationFile(data);
+        } catch (err: any) {
+            log.error(`failed to parse JSON settings file ${doc.uri.fsPath}`, err);
             return;
         }
-
-        if (Array.isArray(specialMembers.array) && 0 < specialMembers.array.length) {
-            try {
-                const members = [];
-                for (let index = 0; index < specialMembers.array.length; index++) {
-                    const element = specialMembers.array[index];
-                    members.push(vars.createArraySpecialMemberInfo(element));
-                }
-                smRegistry.addArraySpecialMembers(members);
-                log.debug(`added ${members.length} special members from ${doc.uri.fsPath}`);
-            } catch (err: any) {
-                log.error(`error while parsing json settings file ${doc.uri.fsPath}`, err)
-            }
+        
+        if (parseResult?.arrayInfos?.length) {
+            log.debug(`adding ${parseResult.arrayInfos.length} array special members from config file`);
+            smRegistry.addArraySpecialMembers(parseResult.arrayInfos);
         }
     }
 
     const processFolders = (folders: readonly vscode.WorkspaceFolder[]) => {
         const propertiesFilePath = vscode.Uri.joinPath(folders[0].uri, '.vscode', config.ExtensionSettingsFileName);
-        const cmdDisposable = vscode.commands.registerCommand(config.Commands.OpenConfigFile, async () => {
+        const openConfigFileCmd = vscode.commands.registerCommand(config.Commands.OpenConfigFile, async () => {
             if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
                 vscode.window.showInformationMessage('No workspaces found - open directory first');
                 return;
@@ -172,61 +167,76 @@ function registerSpecialMembersSettingsFile(smRegistry: vars.SpecialMemberRegist
             }
         });
 
-        context.subscriptions.push(cmdDisposable);
+        context.subscriptions.push(openConfigFileCmd);
 
         folders.forEach(folder => {
             const pathToFile = vscode.Uri.joinPath(folder.uri, '.vscode', config.ExtensionSettingsFileName);
             utils.fileExists(pathToFile).then(async exists => {
                 /* 
-                * Track change and create events, but not delete -
-                * currently no mechanism to track deltas in files.
-                */
+                 * Track change and create events, but not delete -
+                 * currently no mechanism to track deltas in files.
+                 */
                 let trackCreateEvent = true;
                 if (exists) {
                     trackCreateEvent = false;
-                    await processSettingsFile(pathToFile);
+                    await processSingleConfigFile(pathToFile);
                     return;
                 }
 
                 const watcher = vscode.workspace.createFileSystemWatcher(pathToFile.fsPath, trackCreateEvent, false, true);
                 if (trackCreateEvent) {
-                    watcher.onDidCreate(processSettingsFile);
+                    watcher.onDidCreate(processSingleConfigFile);
                 }
-                watcher.onDidChange(processSettingsFile);
-
+                watcher.onDidChange(processSingleConfigFile);
+                
                 context.subscriptions.push(watcher);
             }, () => log.debug(`settings file ${pathToFile.fsPath} does not exist`));
         });
-
+        
+        /* Refresh config file command register */
         const refreshConfigCmdDisposable = vscode.commands.registerCommand(config.Commands.RefreshConfigFile, async () => {
-            if (!await utils.fileExists(propertiesFilePath)) {
-                const answer = await vscode.window.showWarningMessage(`Config file does not exist. Create?`, 'Yes', 'No');
-                if (answer !== 'Yes') {
-                    return;
-                }
-
-                await vscode.commands.executeCommand(config.Commands.OpenConfigFile);
+            if (!vscode.workspace.workspaceFolders?.length) {
                 return;
             }
-
+    
             log.info(`refreshing config file due to command execution`);
-            try {
-                await processSettingsFile(propertiesFilePath);
-            } catch (err: any) {
-                log.error(`failed to update config file`, err);
+            for (const folder of vscode.workspace.workspaceFolders) {
+                const propertiesFilePath = vscode.Uri.joinPath(folder.uri, '.vscode', config.ExtensionSettingsFileName);
+                if (!await utils.fileExists(propertiesFilePath)) {
+                    const answer = await vscode.window.showWarningMessage(`Config file does not exist. Create?`, 'Yes', 'No');
+                    if (answer !== 'Yes') {
+                        return;
+                    }
+        
+                    await vscode.commands.executeCommand(config.Commands.OpenConfigFile);
+                    return;
+                }
+        
+                try {
+                    await processSingleConfigFile(propertiesFilePath);
+                } catch (err: any) {
+                    log.error(`failed to update config file`, err);
+                }
             }
         });
-
+    
         context.subscriptions.push(refreshConfigCmdDisposable);
+        
     }
-
+    
     /* Command to create configuration file */
     if (vscode.workspace.workspaceFolders) {
         processFolders(vscode.workspace.workspaceFolders);
     } else {
+        let disposable: vscode.Disposable | undefined;
         /* Wait for folder open */
-        vscode.workspace.onDidChangeWorkspaceFolders(e => {
+        disposable = vscode.workspace.onDidChangeWorkspaceFolders(e => {
             processFolders(e.added);
+            /* 
+             * Run only once, otherwise multiple commands will be registered - 
+             * it will spoil up everything
+            */
+            disposable?.dispose();
         }, context.subscriptions);
     }
 }
