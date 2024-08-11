@@ -6,7 +6,16 @@ import * as dap from "./dap";
  * Registry for all known `NodeTag' enum values 
  */
 export class NodeVarRegistry {
-    private readonly nodeTypes: Set<string> = new Set<string>(['Node', 'Expr']);
+    /**
+     * Known NodeTag values (without T_ prefix)
+     */
+    nodeTags: Set<string> = new Set<string>(['Node', 'Expr']);
+
+    /**
+     * Known aliases for Node variables - `typedef'
+     */
+    aliases: Map<string, string> = new Map([['Relids', 'Bitmapset *']]);
+
     /* 
      * Update stored node types for internal usage from provided
      * node tag file. i.e. `nodes.h' or `nodetags.h'.
@@ -39,7 +48,7 @@ export class NodeVarRegistry {
                 continue;
             }
 
-            this.nodeTypes.add(tag);
+            this.nodeTags.add(tag);
             added++;
         }
         return added;
@@ -64,9 +73,24 @@ export class NodeVarRegistry {
          *      it's size (and fields) is already known
          *  - As for pointer - only single `*' creates valid Node* variable that we can 
          *      work with
+         * 
+         * Also, there might be aliases - check them also
          */
-        return utils.getPointersCount(type) === 1
-            && this.nodeTypes.has(utils.getStructNameFromType(type));
+        let typeName = utils.getStructNameFromType(type);
+        if (this.nodeTags.has(typeName) && utils.getPointersCount(type) === 1) {
+            /* [const] [struct] NAME * */
+            return true;
+        }
+
+        const alias = this.aliases.get(typeName);
+        if (alias) {
+            /* typedef NAME *ALIAS */
+            type = utils.substituteStructName(type, alias);
+            typeName = utils.getStructNameFromType(type);
+            return this.nodeTags.has(typeName) && utils.getPointersCount(type) === 1;
+        }
+
+        return false;
     }
 
     /**
@@ -75,7 +99,7 @@ export class NodeVarRegistry {
      * @param tag String to test
      */
     isNodeTag(tag: string) {
-        return this.nodeTypes.has(tag);
+        return this.nodeTags.has(tag);
     }
 
     /**
@@ -714,8 +738,15 @@ class BitmapSetSpecialMember extends NodeTagVariable {
          * uses vla: no pointers - not allowed, more than 1 
          * is not valid bms type (i.e. it is array)
          */
-        return utils.getStructNameFromType(type) === 'Bitmapset' &&
-            utils.getPointersCount(type) === 1;
+        switch (utils.getPointersCount(type)) {
+            case 0:
+                /* Relids */
+                return utils.getStructNameFromType(type) === 'Relids';
+            case 1:
+                /* Bitmapset * */
+                return utils.getStructNameFromType(type) === 'Bitmapset';
+        }
+        return false;
     }
 
     static BmsElementVariable = class extends Variable {
