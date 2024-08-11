@@ -144,7 +144,7 @@ function registerSpecialMembersSettingsFile(smRegistry: vars.SpecialMemberRegist
 
                 try {
                     fs.writeFileSync(propertiesFilePath.fsPath, JSON.stringify({
-                        version: 1,
+                        version: 2,
                         specialMembers: {
                             array: []
                         }
