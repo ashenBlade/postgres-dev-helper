@@ -91,7 +91,7 @@ export class NodeVarRegistry {
 
 export interface ArraySpecialMemberInfo {
     typeName: string;
-    arrayMemberName: string;
+    memberName: string;
     lengthExpression: string;
 }
 
@@ -105,9 +105,9 @@ export class SpecialMemberRegistry {
         for (const element of elements) {
             const typeMap = this.arraySpecialMembers.get(element.typeName);
             if (typeMap === undefined) {
-                this.arraySpecialMembers.set(element.typeName, new Map([[element.arrayMemberName, element]]));
+                this.arraySpecialMembers.set(element.typeName, new Map([[element.memberName, element]]));
             } else {
-                typeMap.set(element.arrayMemberName, element);
+                typeMap.set(element.memberName, element);
             }
         }
     }
@@ -302,7 +302,7 @@ export class RealVariable extends Variable {
         this.frameId = args.frameId;
         this.parent = args.parent;
     }
-    
+
     getRealVariableArgs(): RealVariableArgs {
         return {
             evaluateName: this.evaluateName,
@@ -476,7 +476,7 @@ export class ListNodeTagVariable extends NodeTagVariable {
         /* Default safe values */
         let cellValue = 'int_value';
         let realType = 'int';
-        
+
         switch (this.realNodeTag) {
             case 'List':
                 cellValue = 'ptr_value';
@@ -542,9 +542,9 @@ export class ListNodeTagVariable extends NodeTagVariable {
          * @example int, Oid
          */
         realType: string;
-        
+
         listParent: ListNodeTagVariable;
-        
+
         constructor(listParent: ListNodeTagVariable, cellValue: string, realType: string, logger: utils.ILogger, args: RealVariableArgs) {
             super(args, logger);
             this.listParent = listParent;
@@ -631,7 +631,7 @@ export class ArraySpecialMember extends RealVariable {
     }
 
     formatMemberExpression() {
-        return `(${this.parent.evaluateName})->${this.info.arrayMemberName}`;
+        return `(${this.parent.evaluateName})->${this.info.memberName}`;
     }
 
     async getChildren(context: ExecContext) {
@@ -654,7 +654,7 @@ export class ArraySpecialMember extends RealVariable {
 
 class BitmapSetSpecialMember extends NodeTagVariable {
     constructor(logger: utils.ILogger, args: RealVariableArgs) {
-        super('Bitmapset',  args, logger);
+        super('Bitmapset', args, logger);
     }
 
     async isValidSet(debug: utils.IDebuggerFacade) {
@@ -670,7 +670,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
         if (!await this.isValidSet(debug)) {
             return;
         }
-        
+
         let number = -1;
         const numbers = [];
         do {
@@ -717,12 +717,12 @@ class BitmapSetSpecialMember extends NodeTagVariable {
         return utils.getStructNameFromType(type) === 'Bitmapset' &&
             utils.getPointersCount(type) === 1;
     }
-    
+
     static BmsElementVariable = class extends Variable {
-        constructor(index: number,  value: number, parent: Variable) {
+        constructor(index: number, value: number, parent: Variable) {
             super(`[${index}]`, value.toString(), 'int', parent);
         }
-        
+
         async getChildren(context: ExecContext): Promise<Variable[] | undefined> {
             return;
         }
@@ -738,7 +738,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
             super('$elements$', '', '', parent);
             this.setElements = setElements;
         }
-        
+
         async getChildren(context: ExecContext): Promise<Variable[] | undefined> {
             return this.setElements.map((se, i) => new BitmapSetSpecialMember.BmsElementVariable(i, se, this))
         }
@@ -758,7 +758,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
 
 
 export function getWellKnownSpecialMembers(): ArraySpecialMemberInfo[] {
-    const arraySM = (typeName: string, arrayMemberName: string, lengthExpression: string) => ({ typeName, arrayMemberName, lengthExpression });
+    const arraySM = (typeName: string, memberName: string, lengthExpression: string) => ({ typeName, memberName, lengthExpression });
 
     return [
         arraySM('PlannerInfo', 'simple_rel_array', 'simple_rel_array_size'),
@@ -777,7 +777,8 @@ export function getWellKnownSpecialMembers(): ArraySpecialMemberInfo[] {
         arraySM('EState', 'es_rowmarks', 'es_range_table_size'),
         arraySM('EState', 'es_result_relations', 'es_range_table_size'),
 
-        /* TODO: EPQState */
+        arraySM('EPQState', 'relsubs_slot', 'parentestate->es_range_table_size'),
+        arraySM('EPQState', 'relsubs_rowmark', 'parentestate->es_range_table_size'),
 
         arraySM('ProjectSetState', 'elems', 'nelems'),
 
@@ -863,5 +864,5 @@ export function createArraySpecialMemberInfo(object: any): ArraySpecialMemberInf
         throw new Error('lengthExpression can not be empty string');
     }
 
-    return { typeName, arrayMemberName, lengthExpression };
+    return { typeName, memberName: arrayMemberName, lengthExpression };
 }

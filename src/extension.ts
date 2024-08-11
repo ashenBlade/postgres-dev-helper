@@ -42,7 +42,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
         if (!frame || !frame.frameId) {
             return;
         }
-        
+
         const scopes = await this.context.debug.getScopes(frame.frameId);
         const variables = (await Promise.all(scopes
             .filter(s => s.presentationHint === 'locals' || s.presentationHint === 'arguments')
@@ -75,6 +75,147 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger, de
         await debug.evaluate(`-exec call pprint(${variable.evaluateName})`, frameId);
     } catch (err: any) {
         log.error(`could not dump variable ${variable.name} to log`, err);
+    }
+}
+
+export class ConfigFileParseResult {
+    arrayInfos?: vars.ArraySpecialMemberInfo[];
+}
+
+export function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefined {
+    if (!configFile === undefined) {
+        return;
+    }
+
+    if (typeof configFile !== 'object') {
+        return;
+    }
+
+    const parseArraySm1 = (obj: any): vars.ArraySpecialMemberInfo => {
+        let nodeTag = obj.nodeTag;
+        if (!nodeTag) {
+            throw new Error("nodeTag field not provided");
+        }
+
+        if (typeof nodeTag !== 'string') {
+            throw new Error(`nodeTag type must be string, given: ${typeof nodeTag}`);
+        }
+
+        nodeTag = nodeTag.trim().replace('T_', '');
+
+        /* NodeTag used also as type name, so it must be valid identifier */
+        if (!utils.isValidIdentifier(nodeTag)) {
+            throw new Error(`nodeTag must be valid identifier. given: ${obj.nodeTag}`);
+        }
+
+        let memberName = obj.memberName;
+        if (!memberName) {
+            throw new Error(`memberName field not provided for type with NodeTag: ${obj.nodeTag}`);
+        }
+
+        if (typeof memberName !== 'string') {
+            throw new Error(`memberName field must be string for type with NodeTag: ${obj.nodeTag}`);
+        }
+
+        memberName = memberName.trim();
+        if (!utils.isValidIdentifier(memberName)) {
+            throw new Error(`memberName field ${memberName} is not valid identifier`);
+        }
+
+        let lengthExpression = obj.lengthExpression;
+        if (!lengthExpression) {
+            throw new Error(`lengthExpression not provided for: ${obj.nodeTag}->${memberName}`);
+        }
+
+        if (typeof lengthExpression !== 'string') {
+            throw new Error(`lengthExpression field must be string for: ${obj.nodeTag}->${memberName}`);
+        }
+
+        lengthExpression = lengthExpression.trim();
+        if (!lengthExpression) {
+            throw new Error('lengthExpression can not be empty string');
+        }
+        return {
+            typeName: nodeTag,
+            memberName,
+            lengthExpression
+        }
+    }
+
+    const parseArraySm2 = (obj: any): vars.ArraySpecialMemberInfo => {
+        let typeName = obj.typeName;
+        if (!typeName) {
+            throw new Error("typeName field not provided");
+        }
+
+        if (typeof typeName !== 'string') {
+            throw new Error(`typeName type must be string, given: ${typeof typeName}`);
+        }
+
+        typeName = typeName.trim();
+
+        /* NodeTag used also as type name, so it must be valid identifier */
+        if (!utils.isValidIdentifier(typeName)) {
+            throw new Error(`typeName must be valid identifier. given: ${typeName}`);
+        }
+
+        let memberName = obj.memberName;
+        if (!memberName) {
+            throw new Error(`memberName field not provided for type: ${typeName}`);
+        }
+
+        if (typeof memberName !== 'string') {
+            throw new Error(`memberName field must be string for type: ${typeName}`);
+        }
+
+        memberName = memberName.trim();
+        if (!utils.isValidIdentifier(memberName)) {
+            throw new Error(`memberName field ${memberName} is not valid identifier`)
+        }
+
+        let lengthExpression = obj.lengthExpression;
+        if (!lengthExpression) {
+            throw new Error(`lengthExpression not provided for: ${typeName}->${memberName}`);
+        }
+
+        if (typeof lengthExpression !== 'string') {
+            throw new Error(`lengthExpression field must be string for: ${typeName}->${memberName}`);
+        }
+
+        lengthExpression = lengthExpression.trim();
+        if (!lengthExpression) {
+            throw new Error('lengthExpression can not be empty string');
+        }
+        return {
+            typeName,
+            memberName,
+            lengthExpression
+        }
+    }
+
+    const arrayMemberParser = (() => {
+        switch (configFile.version) {
+            case 1:
+                return parseArraySm1;
+            case 2:
+                return parseArraySm2;
+            default:
+                throw new Error(`unknown version of config file: ${configFile.version}`);
+        }
+    })();
+
+    const sm = configFile.specialMembers;
+    if (!sm) {
+        return {};
+    }
+
+    const array = sm.array;
+    if (!(Array.isArray(array) && array.length > 0)) {
+        return {};
+    }
+
+    return {
+        arrayInfos: array.map(arrayMemberParser),
     }
 }
 
