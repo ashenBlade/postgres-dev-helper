@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
-import * as sm from './special_member';
+import * as vars from './variables';
 import * as utils from './utils';
 import * as fs from 'fs';
-import { NodePreviewTreeViewProvider, dumpVariableToLogCommand, NodeVarFacade, Configuration as config } from './extension';
+import { NodePreviewTreeViewProvider, dumpVariableToLogCommand, Configuration as config } from './extension';
 
-async function processNodeTagFiles(vars: NodeVarFacade, log: utils.ILogger, context: vscode.ExtensionContext): Promise<undefined> {
+async function processNodeTagFiles(vars: vars.NodeVarRegistry, log: utils.ILogger, context: vscode.ExtensionContext): Promise<undefined> {
     const section = vscode.workspace.getConfiguration(config.ConfigSections.TopLevelSection);
     const nodeTagFiles = section.get<string[]>(config.ConfigSections.NodeTagFiles);
 
@@ -70,7 +70,7 @@ async function processNodeTagFiles(vars: NodeVarFacade, log: utils.ILogger, cont
     }, undefined, context.subscriptions);
 }
 
-function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvider, log: utils.ILogger, context: vscode.ExtensionContext) {
+function registerSpecialMembersSettingsFile(smRegistry: vars.SpecialMemberRegistry, log: utils.ILogger, context: vscode.ExtensionContext) {
     const processSettingsFile = async (pathToFile: vscode.Uri) => {
         let doc = undefined;
         try {
@@ -102,22 +102,19 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
 
         if (Array.isArray(specialMembers.array) && 0 < specialMembers.array.length) {
             try {
-                const members: sm.SpecialMember[] = [];
+                const members = [];
                 for (let index = 0; index < specialMembers.array.length; index++) {
                     const element = specialMembers.array[index];
-                    members.push(sm.createSpecialMember({
-                        type: 'array',
-                        ...element,
-                    }, log));
+                    members.push(vars.createArraySpecialMemberInfo(element));
                 }
-                provider.addSpecialMembers(members);
+                smRegistry.addArraySpecialMembers(members);
                 log.debug(`added ${members.length} special members from ${doc.uri.fsPath}`);
             } catch (err: any) {
                 log.error(`error while parsing json settings file ${doc.uri.fsPath}`, err)
             }
         }
     }
-    
+
     const processFolders = (folders: readonly vscode.WorkspaceFolder[]) => {
         const propertiesFilePath = vscode.Uri.joinPath(folders[0].uri, '.vscode', config.ExtensionSettingsFileName);
         const cmdDisposable = vscode.commands.registerCommand(config.Commands.OpenConfigFile, async () => {
@@ -125,7 +122,7 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
                 vscode.window.showInformationMessage('No workspaces found - open directory first');
                 return;
             }
-            
+
             const propertiesFileExists = await utils.fileExists(propertiesFilePath);
             /* Create default configuration file if not exists */
             if (!propertiesFileExists) {
@@ -133,7 +130,7 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
                     vscode.window.showErrorMessage(`Can not create ${config.ExtensionSettingsFileName} - fs entry exists and not file`);
                     return;
                 }
-                
+
                 log.debug(`creating ${propertiesFilePath} configuration file`);
                 const configDirectoryPath = vscode.Uri.joinPath(propertiesFilePath, '..');
                 if (!await utils.directoryExists(configDirectoryPath)) {
@@ -144,7 +141,7 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
                         return;
                     }
                 }
-                
+
                 try {
                     fs.writeFileSync(propertiesFilePath.fsPath, JSON.stringify({
                         version: 1,
@@ -158,7 +155,7 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
                     return;
                 }
             }
-            
+
             let doc;
             try {
                 doc = await vscode.workspace.openTextDocument(propertiesFilePath)
@@ -166,7 +163,7 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
                 log.error(`failed to open configuration file`, err);
                 return;
             }
-            
+
             try {
                 await vscode.window.showTextDocument(doc);
             } catch (err: any) {
@@ -174,9 +171,9 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
                 return;
             }
         });
-        
+
         context.subscriptions.push(cmdDisposable);
-        
+
         folders.forEach(folder => {
             const pathToFile = vscode.Uri.joinPath(folder.uri, '.vscode', config.ExtensionSettingsFileName);
             utils.fileExists(pathToFile).then(async exists => {
@@ -184,34 +181,34 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
                 * Track change and create events, but not delete -
                 * currently no mechanism to track deltas in files.
                 */
-               let trackCreateEvent = true;
-               if (exists) {
-                   trackCreateEvent = false;
-                   await processSettingsFile(pathToFile);
-                   return;
+                let trackCreateEvent = true;
+                if (exists) {
+                    trackCreateEvent = false;
+                    await processSettingsFile(pathToFile);
+                    return;
                 }
-                
+
                 const watcher = vscode.workspace.createFileSystemWatcher(pathToFile.fsPath, trackCreateEvent, false, true);
                 if (trackCreateEvent) {
                     watcher.onDidCreate(processSettingsFile);
                 }
                 watcher.onDidChange(processSettingsFile);
-                
+
                 context.subscriptions.push(watcher);
             }, () => log.debug(`settings file ${pathToFile.fsPath} does not exist`));
         });
-        
+
         const refreshConfigCmdDisposable = vscode.commands.registerCommand(config.Commands.RefreshConfigFile, async () => {
             if (!await utils.fileExists(propertiesFilePath)) {
                 const answer = await vscode.window.showWarningMessage(`Config file does not exist. Create?`, 'Yes', 'No');
                 if (answer !== 'Yes') {
                     return;
                 }
-                
+
                 await vscode.commands.executeCommand(config.Commands.OpenConfigFile);
                 return;
             }
-            
+
             log.info(`refreshing config file due to command execution`);
             try {
                 await processSettingsFile(propertiesFilePath);
@@ -219,10 +216,10 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
                 log.error(`failed to update config file`, err);
             }
         });
-        
+
         context.subscriptions.push(refreshConfigCmdDisposable);
     }
-    
+
     /* Command to create configuration file */
     if (vscode.workspace.workspaceFolders) {
         processFolders(vscode.workspace.workspaceFolders);
@@ -235,16 +232,21 @@ function registerSpecialMembersSettingsFile(provider: NodePreviewTreeViewProvide
 }
 
 function createNodeVariablesDataProvider(logger: utils.VsCodeLogger, debug: utils.VsCodeDebuggerFacade, context: vscode.ExtensionContext) {
-    const vars = new NodeVarFacade();
-    const dataProvider = new NodePreviewTreeViewProvider(logger, vars, debug);
+    const nodeRegistry = new vars.NodeVarRegistry();
+    const execCtx: vars.ExecContext = {
+        debug,
+        nodeVarRegistry: nodeRegistry,
+        specialMemberRegistry: new vars.SpecialMemberRegistry(),
+    }
+    const dataProvider = new NodePreviewTreeViewProvider(logger, execCtx);
     /* 
     * When registering special members all NodeTags must be known to figure out 
     * errors in configuration. So wait for tags initialization and process
     * special members after that.
     */
-   processNodeTagFiles(vars, logger, context).then(_ => {
-        dataProvider.addSpecialMembers(sm.getWellKnownSpecialMembers(logger));
-        registerSpecialMembersSettingsFile(dataProvider, logger, context);
+    processNodeTagFiles(nodeRegistry, logger, context).then(_ => {
+        execCtx.specialMemberRegistry.addArraySpecialMembers(vars.getWellKnownSpecialMembers());
+        registerSpecialMembersSettingsFile(execCtx.specialMemberRegistry, logger, context);
     });
     return dataProvider;
 }

@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import * as dap from "./dap";
-import { IVariable } from './extension';
 
 const nullPointer = '0x0';
 const pointerRegex = /^0x[0-9abcdef]+$/i;
@@ -93,7 +92,7 @@ export function substituteStructName(type: string, target: string) {
  * @param variable Variable to test
  * @returns true if variable is raw struct
  */
-export function isRawStruct(variable: IVariable) {
+export function isRawStruct(variable: { parent?: {}, value: string}) {
     /* 
      * Check that variable is plain struct - not pointer.
      * Figured out - top level variables has {...} in value, but
