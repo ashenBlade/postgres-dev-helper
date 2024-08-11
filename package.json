@@ -119,7 +119,7 @@
         },
         "jsonValidation": [
             {
-                "fileMatch": "pgsql_hacker_helper_properties.json",
+                "fileMatch": "pgsql_hacker_helper.json",
                 "url": "./properties.schema.json"
             }
         ]
