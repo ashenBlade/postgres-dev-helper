@@ -32,9 +32,9 @@ Also, there are intrinsics for some types:
 
 Currently, there are 36 registered special members, but you can add your own using [pgsql_hacker_helper.json](#pgsql_hacker_helperjson) configuration file.
 
-- `Bitmapset` elements with total lengths are displayed
+- `Bitmapset` elements with total lengths are displayed: `$elements$` - pseudo-member
 
-![Bitmapset expansaion](resources/bitmapset.gif)
+![Bitmapset expansion](resources/bitmapset.gif)
 
 ### Dump `Node *` state to log
 
