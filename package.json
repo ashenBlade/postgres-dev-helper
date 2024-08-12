@@ -61,7 +61,7 @@
             "debug/variables/context": [
                 {
                     "command": "postgresql-hacker-helper.dumpNodeToLog",
-                    "when": "inDebugMode && debugState == stopped"
+                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated"
                 }
             ],
             "view/title": [
@@ -79,7 +79,7 @@
                 {
                     "command": "postgresql-hacker-helper.refreshPostgresVariablesView",
                     "group": "navigation",
-                    "when": "inDebugMode && debugState == stopped"
+                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated"
                 }
             ]
         },
