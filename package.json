@@ -10,7 +10,11 @@
         "Debuggers"
     ],
     "icon": "resources/logo.png",
-    "activationEvents": [],
+    "activationEvents": [
+        "workspaceContains:.vscode/pgsql_hacker_helper.json",
+        "workspaceContains:src/include/nodes/nodes.h",
+        "workspaceContains:src/include/nodes/nodetags.h"
+    ],
     "main": "./out/entrypoint.js",
     "publisher": "ash-blade",
     "repository": {
@@ -86,7 +90,7 @@
                     "name": "pg variables",
                     "type": "tree",
                     "visibility": "visible",
-                    "when": "inDebugMode"
+                    "when": "inDebugMode && postgresql-hacker-helper:activated"
                 }
             ]
         },
