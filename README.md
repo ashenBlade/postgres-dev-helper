@@ -22,7 +22,7 @@ It behaves like Debug->Variables view, but no colorization (limitations of VS Co
 
 Also, there are intrinsics for some types:
 
-- `List *` elements are displayed according their types
+- `List` elements are displayed according their types
 
 ![List * expansion](resources/list.gif)
 
@@ -31,6 +31,10 @@ Also, there are intrinsics for some types:
 ![Planner expansion](resources/planner.gif)
 
 Currently, there are 36 registered special members, but you can add your own using [pgsql_hacker_helper.json](#pgsql_hacker_helperjson) configuration file.
+
+- `Bitmapset` elements with total lengths are displayed
+
+![Bitmapset expansaion](resources/bitmapset.gif)
 
 ### Dump `Node *` state to log
 
@@ -45,48 +49,47 @@ Using 'Dump Node to log' option in variable context menu you also will be able t
 
 This is a configuration file for extension.
 It stored inside `.vscode` directory in your repository - `.vscode/pgsql_hacker_helper.json`.
-It allows to extend capabilities of extension.
-
-It can be created manually or using command `Open or create configuration file`.
-
-For now, you can specify special members for arrays.
+You can use config file to extend built-in capabilities if there is no
+support for something yet.
 
 Example json:
 
 ```json
 {
-    "version": 1,
+    "version": 2,
     "specialMembers": {
         "array": [
             {
-                "nodeTag": "PlannerInfo",
+                "typeName": "PlannerInfo",
                 "memberName": "simple_rel_array",
                 "lengthExpression": "simple_rel_array_size"
             },
             {
-                "nodeTag": "RelOptInfo",
+                "typeName": "RelOptInfo",
                 "memberName": "partexprs",
                 "lengthExpression": "part_scheme->partnatts"
             },
             {
-                "nodeTag": "GatherMergeState",
+                "typeName": "GatherMergeState",
                 "memberName": "gm_slots",
                 "lengthExpression": "nreaders + 1"
             }
         ]
-    }
+    },
+    "aliases": [
+        {
+            "alias": "PlannerRef",
+            "type": "PlannerInfo *"
+        }
+    ]
 }
 ```
 
-In example 3 array special members:
+In example 3 array special members - arrays will be shown with specified length,
+not just pointers to arrays start.
+Also, `PlannerRef` - typedef for `PlannerInfo *`.
 
-1. `PlannerInfo->simple_rel_array` - length stored in `PlannerInfo->simple_rel_array_size` member
-2. `RelOptInfo->partexprs` - length stored in member of it's member `RelOptInfo->part_scheme->partnatts`
-3. `GatherMergeState->gm_slots` - length is computed using expression `GatherMergeState->nreaders + 1`
-
-> Hint: length is evaluated as `lengthExpression` concatenated to `nodeTag` variable - `${nodeTag}->${lengthExpression}`.
-
-After editing config file run command (from Command Palette) to refresh - `Refresh configuration file`.
+For more info check [configuration file documentation](./docs/config_file.md).
 
 ## Extension Settings
 
