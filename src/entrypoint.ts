@@ -333,7 +333,11 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(dumpVarsToLogCmd);
     context.subscriptions.push(treeDisposable);
     context.subscriptions.push(debug);
+    vscode.commands.executeCommand('setContext', config.Contexts.ExtensionActivated, true);
+
     logger.info('Extension activated');
 }
 
-export function deactivate() { }
+export function deactivate() {
+    vscode.commands.executeCommand('setContext', config.Contexts.ExtensionActivated, false);
+ }

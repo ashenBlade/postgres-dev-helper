@@ -270,4 +270,7 @@ export class Configuration {
         NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`,
     };
     static ExtensionSettingsFileName = 'pgsql_hacker_helper.json';
+    static Contexts = {
+        ExtensionActivated: `${this.ExtensionName}:activated`
+    }
 }
