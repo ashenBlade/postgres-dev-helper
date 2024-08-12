@@ -54,6 +54,30 @@
                 }
             }
         },
+        "aliasesV2": {
+            "type": "array",
+            "description": "Aliases for Node types",
+            "items": {
+                "type": "object",
+                "description": "Description of alias for specified Node types",
+                "properties": {
+                    "alias": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+                        "description": "Alias of type"
+                    },
+                    "type": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Type for which alias is created"
+                    }
+                },
+                "required": [
+                    "alias",
+                    "type"
+                ]
+            }
+        },
         "version": {
             "type": "integer",
             "default": 1,
@@ -106,6 +130,9 @@
                             }
                         }
                     }
+                },
+                "aliases": {
+                    "$ref": "#/definitions/aliasesV2"
                 }
             }
         }

@@ -2,6 +2,11 @@ import * as vscode from 'vscode';
 import * as utils from "./utils";
 import * as dap from "./dap";
 
+export interface AliasInfo {
+    alias: string;
+    type: string;
+}
+
 /**
  * Registry for all known `NodeTag' enum values 
  */
@@ -52,6 +57,12 @@ export class NodeVarRegistry {
             added++;
         }
         return added;
+    }
+
+    addAliases(aliases: AliasInfo[]) {
+        aliases.forEach(a => {
+            this.aliases.set(a.alias.trim(), a.type.trim());
+        });
     }
 
     /**
@@ -468,7 +479,7 @@ export class NodeTagVariable extends RealVariable {
         }
 
         /* Bitmapset */
-        if (BitmapSetSpecialMember.isMbsType(variable.type)) {
+        if (BitmapSetSpecialMember.isBmsType(variable.type)) {
             return new BitmapSetSpecialMember(logger, {
                 ...variable,
                 frameId,
@@ -732,7 +743,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
         return members;
     }
 
-    static isMbsType(type: string) {
+    static isBmsType(type: string) {
         /*
          * Valid bms always have single pointer, since it
          * uses vla: no pointers - not allowed, more than 1 

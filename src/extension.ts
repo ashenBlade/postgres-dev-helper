@@ -78,8 +78,14 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger, de
     }
 }
 
+export interface AliasInfo {
+    alias: string;
+    type: string;
+}
+
 export class ConfigFileParseResult {
     arrayInfos?: vars.ArraySpecialMemberInfo[];
+    aliasInfos?: vars.AliasInfo[];
 }
 
 export function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefined {
@@ -193,29 +199,55 @@ export function parseConfigurationFile(configFile: any): ConfigFileParseResult |
         }
     }
 
-    const arrayMemberParser = (() => {
-        switch (configFile.version) {
-            case 1:
-                return parseArraySm1;
-            case 2:
-                return parseArraySm2;
-            default:
-                throw new Error(`unknown version of config file: ${configFile.version}`);
+    const configVersion = Number(configFile.version);
+    if (Number.isNaN(configVersion) || !(configVersion == 1 || configVersion == 2)) {
+        throw new Error(`unknown version of config file: ${configFile.version}`);
+    }
+
+    const parseAliasV2 = (obj: any): vars.AliasInfo => {
+        if (typeof obj !== 'object') {
+            throw new Error(`AliasInfo object must be object type. given: ${typeof obj}`);
         }
-    })();
 
-    const sm = configFile.specialMembers;
-    if (!sm) {
-        return {};
+        if (!(obj.alias && typeof obj.alias === 'string')) {
+            throw new Error(`"alias" field must be string. given: ${typeof obj.alias}`);
+        }
+        
+        const alias = obj.alias.trim();
+        if (!alias) {
+            throw new Error(`"alias" field must not be empty`);
+        }
+        
+        if (!(obj.type && typeof obj.type === 'string')) {
+            throw new Error(`"type" field must be string. given: ${typeof obj.type}`);
+        }
+
+        const type = obj.type.trim();
+        if (!type) {
+            throw new Error(`"type" field must not be empty`);
+        }
+
+        return {
+            alias,
+            type,
+        }
     }
 
-    const array = sm.array;
-    if (!(Array.isArray(array) && array.length > 0)) {
-        return {};
-    }
+    const arrayMemberParser = configVersion == 1
+        ? parseArraySm1
+        : parseArraySm2;
+
+    const arrayInfos = Array.isArray(configFile.specialMembers?.array) && configFile.specialMembers.array.length > 0
+        ? configFile.specialMembers.array.forEach(arrayMemberParser)
+        : undefined;
+ 
+    const aliasInfos = configVersion == 2 && Array.isArray(configFile.aliases) && configFile.aliases.length > 0
+        ? configFile.aliases.map(parseAliasV2)
+        : undefined;
 
     return {
-        arrayInfos: array.map(arrayMemberParser),
+        arrayInfos,
+        aliasInfos,
     }
 }
 

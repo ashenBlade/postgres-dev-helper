@@ -70,7 +70,7 @@ async function processNodeTagFiles(vars: vars.NodeVarRegistry, log: utils.ILogge
     }, undefined, context.subscriptions);
 }
 
-function registerSpecialMembersSettingsFile(smRegistry: vars.SpecialMemberRegistry, log: utils.ILogger, context: vscode.ExtensionContext) {
+function setupConfigFiles(execCtx: vars.ExecContext, log: utils.ILogger, context: vscode.ExtensionContext) {
     const processSingleConfigFile = async (pathToFile: vscode.Uri) => {
         let doc = undefined;
         try {
@@ -87,7 +87,7 @@ function registerSpecialMembersSettingsFile(smRegistry: vars.SpecialMemberRegist
             log.error(`failed to read settings file ${doc.uri.fsPath}`, err);
             return;
         }
-        
+
         let data;
         try {
             data = JSON.parse(text);
@@ -103,16 +103,22 @@ function registerSpecialMembersSettingsFile(smRegistry: vars.SpecialMemberRegist
             log.error(`failed to parse JSON settings file ${doc.uri.fsPath}`, err);
             return;
         }
-        
-        if (parseResult?.arrayInfos?.length) {
-            log.debug(`adding ${parseResult.arrayInfos.length} array special members from config file`);
-            smRegistry.addArraySpecialMembers(parseResult.arrayInfos);
+
+        if (parseResult) {
+            if (parseResult.arrayInfos?.length) {
+                log.debug(`adding ${parseResult.arrayInfos.length} array special members from config file`);
+                execCtx.specialMemberRegistry.addArraySpecialMembers(parseResult.arrayInfos);
+            }
+            if (parseResult.aliasInfos?.length) {
+                log.debug(`adding ${parseResult.aliasInfos.length} aliases from config file`);
+                execCtx.nodeVarRegistry.addAliases(parseResult.aliasInfos);
+            }
         }
     }
 
     const processFolders = (folders: readonly vscode.WorkspaceFolder[]) => {
         const propertiesFilePath = vscode.Uri.joinPath(folders[0].uri, '.vscode', config.ExtensionSettingsFileName);
-        const openConfigFileCmd = vscode.commands.registerCommand(config.Commands.OpenConfigFile, async () => {
+        context.subscriptions.push(vscode.commands.registerCommand(config.Commands.OpenConfigFile, async () => {
             if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
                 vscode.window.showInformationMessage('No workspaces found - open directory first');
                 return;
@@ -165,9 +171,7 @@ function registerSpecialMembersSettingsFile(smRegistry: vars.SpecialMemberRegist
                 log.error(`failed to show configuration file`, err);
                 return;
             }
-        });
-
-        context.subscriptions.push(openConfigFileCmd);
+        }));
 
         folders.forEach(folder => {
             const pathToFile = vscode.Uri.joinPath(folder.uri, '.vscode', config.ExtensionSettingsFileName);
@@ -188,17 +192,17 @@ function registerSpecialMembersSettingsFile(smRegistry: vars.SpecialMemberRegist
                     watcher.onDidCreate(processSingleConfigFile);
                 }
                 watcher.onDidChange(processSingleConfigFile);
-                
+
                 context.subscriptions.push(watcher);
             }, () => log.debug(`settings file ${pathToFile.fsPath} does not exist`));
         });
-        
+
         /* Refresh config file command register */
         const refreshConfigCmdDisposable = vscode.commands.registerCommand(config.Commands.RefreshConfigFile, async () => {
             if (!vscode.workspace.workspaceFolders?.length) {
                 return;
             }
-    
+
             log.info(`refreshing config file due to command execution`);
             for (const folder of vscode.workspace.workspaceFolders) {
                 const propertiesFilePath = vscode.Uri.joinPath(folder.uri, '.vscode', config.ExtensionSettingsFileName);
@@ -207,11 +211,11 @@ function registerSpecialMembersSettingsFile(smRegistry: vars.SpecialMemberRegist
                     if (answer !== 'Yes') {
                         return;
                     }
-        
+
                     await vscode.commands.executeCommand(config.Commands.OpenConfigFile);
                     return;
                 }
-        
+
                 try {
                     await processSingleConfigFile(propertiesFilePath);
                 } catch (err: any) {
@@ -219,11 +223,11 @@ function registerSpecialMembersSettingsFile(smRegistry: vars.SpecialMemberRegist
                 }
             }
         });
-    
+
         context.subscriptions.push(refreshConfigCmdDisposable);
-        
+
     }
-    
+
     /* Command to create configuration file */
     if (vscode.workspace.workspaceFolders) {
         processFolders(vscode.workspace.workspaceFolders);
@@ -249,6 +253,7 @@ function createNodeVariablesDataProvider(logger: utils.VsCodeLogger, debug: util
         specialMemberRegistry: new vars.SpecialMemberRegistry(),
     }
     const dataProvider = new NodePreviewTreeViewProvider(logger, execCtx);
+
     /* 
     * When registering special members all NodeTags must be known to figure out 
     * errors in configuration. So wait for tags initialization and process
@@ -256,7 +261,7 @@ function createNodeVariablesDataProvider(logger: utils.VsCodeLogger, debug: util
     */
     processNodeTagFiles(nodeRegistry, logger, context).then(_ => {
         execCtx.specialMemberRegistry.addArraySpecialMembers(vars.getWellKnownSpecialMembers());
-        registerSpecialMembersSettingsFile(execCtx.specialMemberRegistry, logger, context);
+        setupConfigFiles(execCtx, logger, context);
     });
     return dataProvider;
 }
