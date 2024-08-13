@@ -39,16 +39,14 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
     }
 
     async getTopLevelVariables() {
-        const frame = vscode.debug.activeStackItem as vscode.DebugStackFrame | undefined;
-        if (!frame || !frame.frameId) {
+        const frameId = (vscode.debug.activeStackItem as vscode.DebugStackFrame | undefined)?.frameId
+        if (!frameId) {
             return;
         }
 
-        const scopes = await this.context.debug.getScopes(frame.frameId);
-        const variables = (await Promise.all(scopes
-            .filter(s => s.presentationHint === 'locals' || s.presentationHint === 'arguments')
-            .map(s => vars.Variable.getVariables(s.variablesReference, frame.frameId, this.context, this.log, undefined))));
-        return variables.filter(x => x !== undefined).flatMap(x => x);
+        const variables = await this.context.debug.getVariables();
+        return (await Promise.all(variables.map(v => vars.Variable.createVariable(v, frameId, this.context, this.log))))
+            .filter(v => v !== undefined);
     }
 }
 

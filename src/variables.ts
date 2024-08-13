@@ -240,7 +240,7 @@ export abstract class Variable {
             }, logger);
         }
 
-        /* NodeTag variables */
+        /* NodeTag variables: Node, List, Bitmapset etc.. */
         if (context.nodeVarRegistry.isNodeVar(debugVariable.type)) {
             const nodeTagVar = await NodeTagVariable.createNodeTagVariable(debugVariable, frameId, context, logger, parent);
             if (nodeTagVar) {
@@ -269,7 +269,7 @@ export abstract class Variable {
     }
 
     static async getVariables(variablesReference: number, frameId: number, context: ExecContext, logger: utils.ILogger, parent?: RealVariable): Promise<Variable[] | undefined> {
-        const debugVariables = await context.debug.getVariables(variablesReference);
+        const debugVariables = await context.debug.getMembers(variablesReference);
         if (!debugVariables) {
             return;
         }
@@ -423,7 +423,7 @@ export class NodeTagVariable extends RealVariable {
             await this.castToRealTag(context.debug);
         }
 
-        const debugVariables = await context.debug.getVariables(this.variablesReference);
+        const debugVariables = await context.debug.getMembers(this.variablesReference);
         return (await Promise.all(debugVariables.map(dv => Variable.createVariable(dv, this.frameId, context, this.logger, this as RealVariable))))
             .filter(d => d !== undefined);
     }
@@ -540,7 +540,7 @@ export class ListNodeTagVariable extends NodeTagVariable {
     }
 
     async getChildren(context: ExecContext) {
-        const debugVariables = await context.debug.getVariables(this.variablesReference);
+        const debugVariables = await context.debug.getMembers(this.variablesReference);
         if (!debugVariables) {
             return;
         }
@@ -681,7 +681,7 @@ export class ArraySpecialMember extends RealVariable {
         }
 
         const response = await context.debug.evaluate(`${this.formatMemberExpression()}, ${arrayLength}`, this.frameId);
-        const debugVariables = await context.debug.getVariables(response.variablesReference);
+        const debugVariables = await context.debug.getMembers(response.variablesReference);
         return (await Promise.all(debugVariables.map(dv => Variable.createVariable(dv, this.frameId, context, this.logger, this as RealVariable))))
             .filter(x => x !== undefined);
     }
@@ -697,7 +697,47 @@ class BitmapSetSpecialMember extends NodeTagVariable {
         return response.result === 'true';
     }
 
+    safeToObserve() {
+        if (vscode.debug.breakpoints.length === 0) {
+            return true;
+        }
+
+        /*
+         * Fastest way I found is just to iterate all breakpoints and check
+         * - no bp in bitmapset.c source code for line breakpoints
+         * - no bp for bms_next_member function for function breakpoints
+         *
+         * XXX I have found only these 2 classes of breakpoints. 
+         */
+        for (const bp of vscode.debug.breakpoints) {
+            if (!bp.enabled) {
+                continue;
+            }
+
+            if (bp instanceof vscode.SourceBreakpoint) {
+                if (bp.location.uri.path.endsWith('bitmapset.c')) {
+                    return false;
+                }
+            } else if (bp instanceof vscode.FunctionBreakpoint) {
+                /* Need to check only bms_next_member */
+                if (bp.functionName === 'bms_next_member') {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+
     async getSetMembers(debug: utils.IDebuggerFacade): Promise<number[] | undefined> {
+        /* 
+         * Must check we do not have breakpoints set in `bms_next_member`.
+         * Otherwise, we will get infinite recursion and backend will crash.
+         */
+        if (!this.safeToObserve()) {
+            return;
+        }
+        
         /* 
          * We MUST check validity of set, because otherwise
          * `Assert` will fail and whole backend will crash

@@ -92,7 +92,7 @@ export function substituteStructName(type: string, target: string) {
  * @param variable Variable to test
  * @returns true if variable is raw struct
  */
-export function isRawStruct(variable: { parent?: {}, value: string}) {
+export function isRawStruct(variable: { parent?: {}, value: string }) {
     /* 
      * Check that variable is plain struct - not pointer.
      * Figured out - top level variables has {...} in value, but
@@ -101,21 +101,6 @@ export function isRawStruct(variable: { parent?: {}, value: string}) {
     return variable.parent
         ? variable.value === ''
         : variable.value === '{...}';
-}
-
-export async function evaluate(session: vscode.DebugSession, expression: string, frameId: number, context?: string): Promise<dap.EvaluateResponse> {
-    context ??= 'repl';
-    return await session.customRequest('evaluate', { expression, context, frameId } as dap.EvaluateArguments);
-}
-
-export async function getVariables(session: vscode.DebugSession, variablesReference: number): Promise<dap.DebugVariable[]> {
-    const response: dap.VariablesResponse = await session.customRequest('variables', { variablesReference } as dap.VariablesArguments);
-    return response.variables;
-}
-
-export async function getScopes(session: vscode.DebugSession, frameId: number): Promise<dap.Scope[]> {
-    const response: dap.ScopesResponse = await session.customRequest('scopes', { frameId } as dap.ScopesArguments);
-    return response.scopes;
 }
 
 export interface ILogger {
@@ -182,8 +167,9 @@ export class VsCodeLogger implements ILogger {
 export interface IDebuggerFacade {
     readonly isInDebug: boolean;
     evaluate: (expression: string, frameId: number, context?: string) => Promise<dap.EvaluateResponse>;
-    getVariables: (variablesReference: number) => Promise<dap.DebugVariable[]>;
-    getScopes: (frameId: number) => Promise<dap.Scope[]>;
+    getVariables: () => Promise<dap.DebugVariable[]>;
+    getMembers: (variablesReference: number) => Promise<dap.DebugVariable[]>;
+    getSession: () => vscode.DebugSession;
 }
 
 export class VsCodeDebuggerFacade implements IDebuggerFacade, vscode.Disposable {
@@ -227,9 +213,31 @@ export class VsCodeDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
         return await this.getSession().customRequest('evaluate', { expression, context, frameId } as dap.EvaluateArguments);
     }
 
-    async getVariables(variablesReference: number): Promise<dap.DebugVariable[]> {
+    async getMembers(variablesReference: number): Promise<dap.DebugVariable[]> {
         const response: dap.VariablesResponse = await this.getSession().customRequest('variables', { variablesReference } as dap.VariablesArguments);
         return response.variables;
+    }
+
+    async getCurrentScopes() {
+        const frame = vscode.debug.activeStackItem as vscode.DebugStackFrame | undefined;
+        if (!frame || !frame.frameId) {
+            return;
+        }
+
+        return await this.getScopes(frame.frameId);
+    }
+
+    async getVariables(): Promise<dap.DebugVariable[]> {
+        const scopes = await this.getCurrentScopes();
+        if (scopes === undefined) {
+            return [];
+        }
+
+        return (await Promise.all(scopes
+            .filter(s => s.presentationHint === 'locals' || s.presentationHint === 'arguments')
+            .flatMap(sa => sa)
+            .map(s => this.getMembers(s.variablesReference))))
+            .flatMap(m => m);
     }
 
     async getScopes(frameId: number): Promise<dap.Scope[]> {
