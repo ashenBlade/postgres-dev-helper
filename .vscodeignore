@@ -8,3 +8,5 @@ tsconfig.json
 .github
 .vscode
 
+docs/**
+workflows/**
