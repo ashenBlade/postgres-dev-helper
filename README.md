@@ -8,8 +8,7 @@ and provide some other utilities.
 
 ## Features
 
-> Special member - is a member of some type that has some important properties and these properties can not be handled automatically.
-> i.e. it represents array and it's length stored in another member - without knowledge of length member we can not expand array.
+More info you can find in documentation for [pg variables view](docs/pg_variables.md).
 
 ### Investigate real type of `Node *`
 
@@ -103,7 +102,6 @@ There are 2 settings:
 Known issues:
 
 - Only tested on gdb debugger, UB for other debuggers (i.e. lldb)
-- It uses hacks to detect valid members, sometimes it will behave buggy, i.e. for pointer typedefs - `typedef ExampleData *Example`.
 - If in pointer variable was garbage, extension will not detect it and expand this variable (may be garbage)
 - To get NodeTags extension reads all available NodeTag files (from settings), but
   these files may be not created (./configure or make not run). I assume by time
@@ -111,6 +109,16 @@ Known issues:
 - Tested only with [ms-vscode.cpptools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools) extension
 
 ## Release Notes
+
+### 1.1.0
+
+Add support for `Bitmapset` and `Relids` - show elements of set.
+
+Add custom user type aliases for Node types in configuration
+
+Update config file layout. Current version - 2.
+
+Hide postgres variables view when not in debug mode.
 
 ### 1.0.0
 
