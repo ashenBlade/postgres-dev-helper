@@ -122,6 +122,10 @@ Examples:
 
     ![Bitmapset elements](../resources/tutorial_bitmapset_elements.png)
 
+> NOTE: if there were garbage, extension can mistake and cast variable to
+> wrong NodeTag. For example, `List` can be casted to `PathTarget`.
+> It is up to you to detect such errors for now.
+
 ### Aliases
 
 `Relids` - is a typedef for `Bitmapset *`, but it does not have
