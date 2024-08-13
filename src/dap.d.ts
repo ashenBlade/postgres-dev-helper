@@ -20,7 +20,7 @@ export interface EvaluateArguments {
      * the expression is evaluated in the global scope.
      */
     frameId?: number;
-    
+
     /**
      * The context in which the evaluate request is used.
      * Values:
@@ -57,8 +57,8 @@ export interface EvaluateResponse {
      * `variables` request as long as execution remains suspended. See 'Lifetime
      * of Object References' in the Overview section for details.
      */
-    variablesReference: number; 
-    
+    variablesReference: number;
+
     /**
      * A memory reference to a location appropriate for this result.
      * For pointer type eval results, this is generally a reference to the
@@ -70,65 +70,65 @@ export interface EvaluateResponse {
 }
 
 export interface VariablesArguments {
-  /**
-   * The variable for which to retrieve its children. The `variablesReference`
-   * must have been obtained in the current suspended state. See 'Lifetime of
-   * Object References' in the Overview section for details.
-   */
-  variablesReference: number;
+    /**
+     * The variable for which to retrieve its children. The `variablesReference`
+     * must have been obtained in the current suspended state. See 'Lifetime of
+     * Object References' in the Overview section for details.
+     */
+    variablesReference: number;
 }
 
 
 
 export interface DebugVariable {
-  /**
-   * The variable's name.
-   */
-  name: string;
+    /**
+     * The variable's name.
+     */
+    name: string;
 
-  /**
-   * The variable's value.
-   * This can be a multi-line text, e.g. for a function the body of a function.
-   * For structured variables (which do not have a simple value), it is
-   * recommended to provide a one-line representation of the structured object.
-   * This helps to identify the structured object in the collapsed state when
-   * its children are not yet visible.
-   * An empty string can be used if no value should be shown in the UI.
-   */
-  value: string;
+    /**
+     * The variable's value.
+     * This can be a multi-line text, e.g. for a function the body of a function.
+     * For structured variables (which do not have a simple value), it is
+     * recommended to provide a one-line representation of the structured object.
+     * This helps to identify the structured object in the collapsed state when
+     * its children are not yet visible.
+     * An empty string can be used if no value should be shown in the UI.
+     */
+    value: string;
 
-  /**
-   * The type of the variable's value. Typically shown in the UI when hovering
-   * over the value.
-   * This attribute should only be returned by a debug adapter if the
-   * corresponding capability `supportsVariableType` is true.
-   */
-  type: string;
+    /**
+     * The type of the variable's value. Typically shown in the UI when hovering
+     * over the value.
+     * This attribute should only be returned by a debug adapter if the
+     * corresponding capability `supportsVariableType` is true.
+     */
+    type: string;
 
-  /**
-   * The evaluatable name of this variable which can be passed to the `evaluate`
-   * request to fetch the variable's value.
-   */
-  evaluateName: string;
+    /**
+     * The evaluatable name of this variable which can be passed to the `evaluate`
+     * request to fetch the variable's value.
+     */
+    evaluateName: string;
 
-  /**
-   * If `variablesReference` is > 0, the variable is structured and its children
-   * can be retrieved by passing `variablesReference` to the `variables` request
-   * as long as execution remains suspended. See 'Lifetime of Object References'
-   * in the Overview section for details.
-   */
-  variablesReference: number;
+    /**
+     * If `variablesReference` is > 0, the variable is structured and its children
+     * can be retrieved by passing `variablesReference` to the `variables` request
+     * as long as execution remains suspended. See 'Lifetime of Object References'
+     * in the Overview section for details.
+     */
+    variablesReference: number;
 
-  /**
-   * A memory reference associated with this variable.
-   * For pointer type variables, this is generally a reference to the memory
-   * address contained in the pointer.
-   * For executable data, this reference may later be used in a `disassemble`
-   * request.
-   * This attribute may be returned by a debug adapter if corresponding
-   * capability `supportsMemoryReferences` is true.
-   */
-  memoryReference: string;
+    /**
+     * A memory reference associated with this variable.
+     * For pointer type variables, this is generally a reference to the memory
+     * address contained in the pointer.
+     * For executable data, this reference may later be used in a `disassemble`
+     * request.
+     * This attribute may be returned by a debug adapter if corresponding
+     * capability `supportsMemoryReferences` is true.
+     */
+    memoryReference: string;
 }
 
 export interface VariablesResponse {
@@ -139,41 +139,41 @@ export interface VariablesResponse {
 }
 
 export interface ScopesArguments {
-  /**
-   * Retrieve the scopes for the stack frame identified by `frameId`. The
-   * `frameId` must have been obtained in the current suspended state. See
-   * 'Lifetime of Object References' in the Overview section for details.
-   */
-  frameId: number;
+    /**
+     * Retrieve the scopes for the stack frame identified by `frameId`. The
+     * `frameId` must have been obtained in the current suspended state. See
+     * 'Lifetime of Object References' in the Overview section for details.
+     */
+    frameId: number;
 }
 
 export interface Scope {
-  /**
-   * Name of the scope such as 'Arguments', 'Locals', or 'Registers'. This
-   * string is shown in the UI as is and can be translated.
-   */
-  name: string;
+    /**
+     * Name of the scope such as 'Arguments', 'Locals', or 'Registers'. This
+     * string is shown in the UI as is and can be translated.
+     */
+    name: string;
 
-  /**
-   * A hint for how to present this scope in the UI. If this attribute is
-   * missing, the scope is shown with a generic UI.
-   * Values:
-   * 'arguments': Scope contains method arguments.
-   * 'locals': Scope contains local variables.
-   * 'registers': Scope contains registers. Only a single `registers` scope
-   * should be returned from a `scopes` request.
-   * 'returnValue': Scope contains one or more return values.
-   * etc.
-   */
-  presentationHint?: 'arguments' | 'locals' | 'registers' | 'returnValue' | string;
+    /**
+     * A hint for how to present this scope in the UI. If this attribute is
+     * missing, the scope is shown with a generic UI.
+     * Values:
+     * 'arguments': Scope contains method arguments.
+     * 'locals': Scope contains local variables.
+     * 'registers': Scope contains registers. Only a single `registers` scope
+     * should be returned from a `scopes` request.
+     * 'returnValue': Scope contains one or more return values.
+     * etc.
+     */
+    presentationHint?: 'arguments' | 'locals' | 'registers' | 'returnValue' | string;
 
-  /**
-   * The variables of this scope can be retrieved by passing the value of
-   * `variablesReference` to the `variables` request as long as execution
-   * remains suspended. See 'Lifetime of Object References' in the Overview
-   * section for details.
-   */
-  variablesReference: number;
+    /**
+     * The variables of this scope can be retrieved by passing the value of
+     * `variablesReference` to the `variables` request as long as execution
+     * remains suspended. See 'Lifetime of Object References' in the Overview
+     * section for details.
+     */
+    variablesReference: number;
 }
 
 export interface ScopesResponse {
