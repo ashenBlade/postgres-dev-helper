@@ -694,6 +694,10 @@ class BitmapSetSpecialMember extends NodeTagVariable {
 
     async isValidSet(debug: utils.IDebuggerFacade) {
         const response = await debug.evaluate(`bms_is_valid_set(${this.evaluateName})`, this.frameId);
+        if (!response.type) {
+            /* `bms_is_valid_set' introduced in 17 */
+            return true;
+        }
         return response.result === 'true';
     }
 
@@ -716,11 +720,13 @@ class BitmapSetSpecialMember extends NodeTagVariable {
 
             if (bp instanceof vscode.SourceBreakpoint) {
                 if (bp.location.uri.path.endsWith('bitmapset.c')) {
+                    this.logger.debug('found breakpoint at bitmapset.c - set elements not shown');
                     return false;
                 }
             } else if (bp instanceof vscode.FunctionBreakpoint) {
                 /* Need to check only bms_next_member */
                 if (bp.functionName === 'bms_next_member') {
+                    this.logger.debug('found breakpoint at bms_next_member - set elements not shown');
                     return false;
                 }
             }
