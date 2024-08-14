@@ -110,6 +110,10 @@ Known issues:
 
 ## Release Notes
 
+### 1.1.1
+
+Fix Bitmapset elements not shown for postgres version below 17
+
 ### 1.1.0
 
 Add support for `Bitmapset` and `Relids` - show elements of set.
