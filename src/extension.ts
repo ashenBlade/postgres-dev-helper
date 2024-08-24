@@ -122,23 +122,23 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
             throw new Error(`memberName field ${memberName} is not valid identifier`);
         }
 
-        let lengthExpression = obj.lengthExpression;
-        if (!lengthExpression) {
+        let lengthExpr = obj.lengthExpression;
+        if (!lengthExpr) {
             throw new Error(`lengthExpression not provided for: ${obj.nodeTag}->${memberName}`);
         }
 
-        if (typeof lengthExpression !== 'string') {
+        if (typeof lengthExpr !== 'string') {
             throw new Error(`lengthExpression field must be string for: ${obj.nodeTag}->${memberName}`);
         }
 
-        lengthExpression = lengthExpression.trim();
-        if (!lengthExpression) {
+        lengthExpr = lengthExpr.trim();
+        if (!lengthExpr) {
             throw new Error('lengthExpression can not be empty string');
         }
         return {
             typeName: nodeTag,
             memberName,
-            lengthExpression
+            lengthExpr,
         }
     }
 
@@ -173,23 +173,23 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
             throw new Error(`memberName field ${memberName} is not valid identifier`)
         }
 
-        let lengthExpression = obj.lengthExpression;
-        if (!lengthExpression) {
+        let lengthExpr = obj.lengthExpression;
+        if (!lengthExpr) {
             throw new Error(`lengthExpression not provided for: ${typeName}->${memberName}`);
         }
 
-        if (typeof lengthExpression !== 'string') {
+        if (typeof lengthExpr !== 'string') {
             throw new Error(`lengthExpression field must be string for: ${typeName}->${memberName}`);
         }
 
-        lengthExpression = lengthExpression.trim();
-        if (!lengthExpression) {
+        lengthExpr = lengthExpr.trim();
+        if (!lengthExpr) {
             throw new Error('lengthExpression can not be empty string');
         }
         return {
             typeName,
             memberName,
-            lengthExpression
+            lengthExpr,
         }
     }
 
@@ -206,12 +206,12 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
         if (!(obj.alias && typeof obj.alias === 'string')) {
             throw new Error(`"alias" field must be string. given: ${typeof obj.alias}`);
         }
-        
+
         const alias = obj.alias.trim();
         if (!alias) {
             throw new Error(`"alias" field must not be empty`);
         }
-        
+
         if (!(obj.type && typeof obj.type === 'string')) {
             throw new Error(`"type" field must be string. given: ${typeof obj.type}`);
         }
@@ -234,7 +234,7 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
     const arrayInfos = Array.isArray(configFile.specialMembers?.array) && configFile.specialMembers.array.length > 0
         ? configFile.specialMembers.array.forEach(arrayMemberParser)
         : undefined;
- 
+
     const aliasInfos = configVersion == 2 && Array.isArray(configFile.aliases) && configFile.aliases.length > 0
         ? configFile.aliases.map(parseAliasV2)
         : undefined;

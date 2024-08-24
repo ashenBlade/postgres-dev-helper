@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as utils from "./utils";
 import * as dap from "./dap";
+import * as constants from './constants';
 
 export interface AliasInfo {
     alias: string;
@@ -14,12 +15,12 @@ export class NodeVarRegistry {
     /**
      * Known NodeTag values (without T_ prefix)
      */
-    nodeTags: Set<string> = new Set<string>(['Node', 'Expr']);
+    nodeTags: Set<string> = new Set<string>(constants.getDefaultNodeTags());
 
     /**
      * Known aliases for Node variables - `typedef'
      */
-    aliases: Map<string, string> = new Map([['Relids', 'Bitmapset *']]);
+    aliases: Map<string, string> = new Map(constants.getDefaultAliases().map(alias => [alias.alias, alias.type]));
 
     /* 
      * Update stored node types for internal usage from provided
@@ -117,7 +118,7 @@ export class NodeVarRegistry {
 export interface ArraySpecialMemberInfo {
     typeName: string;
     memberName: string;
-    lengthExpression: string;
+    lengthExpr: string;
 }
 
 export class SpecialMemberRegistry {
@@ -393,7 +394,7 @@ export class NodeTagVariable extends RealVariable {
 
         return utils.substituteStructName(this.type, this.realNodeTag);
     }
-    
+
     getRealType(): string {
         if (!this.realType) {
             this.realType = this.computeRealType();
@@ -711,7 +712,7 @@ export class ArraySpecialMember extends RealVariable {
     }
 
     formatLengthExpression() {
-        return `(${this.parent.evaluateName})->${this.info.lengthExpression}`;
+        return `(${this.parent.evaluateName})->${this.info.lengthExpr}`;
     }
 
     formatMemberExpression() {
@@ -792,7 +793,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
         if (!this.safeToObserve()) {
             return;
         }
-        
+
         /* 
          * We MUST check validity of set, because otherwise
          * `Assert` will fail and whole backend will crash
@@ -895,57 +896,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
 
 
 export function getWellKnownSpecialMembers(): ArraySpecialMemberInfo[] {
-    const arraySM = (typeName: string, memberName: string, lengthExpression: string) => ({ typeName, memberName, lengthExpression });
-
-    return [
-        arraySM('PlannerInfo', 'simple_rel_array', 'simple_rel_array_size'),
-        arraySM('PlannerInfo', 'simple_rte_array', 'simple_rel_array_size'),
-        arraySM('PlannerInfo', 'append_rel_array', 'simple_rel_array_size'),
-        arraySM('PlannerInfo', 'placeholder_array', 'placeholder_array_size'),
-
-        arraySM('ResultRelInfo', 'ri_IndexRelationInfo', 'ri_NumIndices'),
-        arraySM('ResultRelInfo', 'ri_TrigWhenExprs', 'ri_TrigDesc->numtriggers'),
-        arraySM('ResultRelInfo', 'ri_Slots', 'ri_NumSlots'),
-        arraySM('ResultRelInfo', 'ri_PlanSlots', 'ri_NumSlots'),
-        arraySM('ResultRelInfo', 'ri_ConstraintExprs', 'ri_RelationDesc->rd_att->natts'),
-        arraySM('ResultRelInfo', 'ri_GeneratedExprsI', 'ri_NumGeneratedNeededI'),
-        arraySM('ResultRelInfo', 'ri_GeneratedExprsU', 'ri_NumGeneratedNeededU'),
-
-        arraySM('EState', 'es_rowmarks', 'es_range_table_size'),
-        arraySM('EState', 'es_result_relations', 'es_range_table_size'),
-
-        arraySM('EPQState', 'relsubs_slot', 'parentestate->es_range_table_size'),
-        arraySM('EPQState', 'relsubs_rowmark', 'parentestate->es_range_table_size'),
-
-        arraySM('ProjectSetState', 'elems', 'nelems'),
-
-        arraySM('AppendState', 'appendplans', 'as_nplans'),
-        arraySM('AppendState', 'as_asyncrequests', 'as_nplans'),
-        arraySM('AppendState', 'as_asyncresults', 'as_nasyncresults'),
-
-        arraySM('MergeAppendState', 'mergeplans', 'ms_nplans'),
-        arraySM('MergeAppendState', 'ms_slots', 'ms_nplans'),
-
-        arraySM('BitmapAndState', 'bitmapplans', 'nplans'),
-
-        arraySM('BitmapOrState', 'bitmapplans', 'nplans'),
-
-        arraySM('ValuesScanState', 'exprlists', 'array_len'),
-        arraySM('ValuesScanState', 'exprstatelists', 'array_len'),
-
-        arraySM('MemoizeState', 'param_exprs', 'nkeys'),
-
-        arraySM('AggState', 'aggcontexts', 'maxsets'),
-
-        arraySM('GatherState', 'reader', 'nreaders'),
-
-        arraySM('GatherMergeState', 'gm_slots', 'nreaders + 1'),
-        arraySM('GatherMergeState', 'reader', 'nreaders'),
-
-        arraySM('RelOptInfo', 'part_rels', 'nparts'),
-        arraySM('RelOptInfo', 'partexprs', 'part_scheme->partnatts'),
-        arraySM('RelOptInfo', 'nullable_partexprs', 'part_scheme->partnatts'),
-    ];
+    return constants.getArraySpecialMembers();
 }
 
 /**
@@ -987,19 +938,19 @@ export function createArraySpecialMemberInfo(object: any): ArraySpecialMemberInf
         throw new Error(`memberName field ${arrayMemberName} is not valid identifier - contains invalid characters`)
     }
 
-    let lengthExpression = object.lengthExpression;
-    if (!lengthExpression) {
+    let lengthExpr = object.lengthExpression;
+    if (!lengthExpr) {
         throw new Error(`lengthExpression not provided for: ${object.nodeTag}->${arrayMemberName}`);
     }
 
-    if (typeof lengthExpression !== 'string') {
+    if (typeof lengthExpr !== 'string') {
         throw new Error(`lengthExpression field must be string for: ${object.nodeTag}->${arrayMemberName}`);
     }
 
-    lengthExpression = lengthExpression.trim();
-    if (!lengthExpression) {
+    lengthExpr = lengthExpr.trim();
+    if (!lengthExpr) {
         throw new Error('lengthExpression can not be empty string');
     }
 
-    return { typeName, memberName: arrayMemberName, lengthExpression };
+    return { typeName, memberName: arrayMemberName, lengthExpr };
 }
