@@ -112,16 +112,6 @@ export class NodeVarRegistry {
     isNodeTag(tag: string) {
         return this.nodeTags.has(tag);
     }
-
-    /**
-     * Check variable can be casted to Node and it's value is valid
-     * 
-     * @param variable Variable to test
-     * @returns true if variable is of Node type with valid value
-     */
-    isValidNodeVar(variable: { type: string, value: string }) {
-        return this.isNodeVar(variable.type) && utils.isValidPointer(variable.value);
-    }
 }
 
 export interface ArraySpecialMemberInfo {
@@ -379,15 +369,43 @@ export class NodeTagVariable extends RealVariable {
      */
     realNodeTag: string;
 
+    /**
+     * Real type of Node variable. May be equal to declared type if NodeTags
+     * are equal. 
+     * 
+     * Evaluated lazily - use {@link getRealType getRealType()} function to 
+     * get value
+     * 
+     * @example `OpExpr *' was `Node *'
+     */
+    realType: string | undefined;
+
     constructor(realNodeTag: string, args: RealVariableArgs, logger: utils.ILogger) {
         super(args, logger);
         this.realNodeTag = realNodeTag.replace('T_', '');
     }
 
+    protected computeRealType() {
+        const tagFromType = utils.getStructNameFromType(this.type);
+        if (tagFromType === this.realNodeTag) {
+            return this.type;
+        }
+
+        return utils.substituteStructName(this.type, this.realNodeTag);
+    }
+    
+    getRealType(): string {
+        if (!this.realType) {
+            this.realType = this.computeRealType();
+        }
+
+        return this.realType;
+    }
+
     /**
      * Whether real NodeTag match with declared type
      */
-    private tagsMatch() {
+    protected tagsMatch() {
         return utils.getStructNameFromType(this.type) === this.realNodeTag;
     }
 
@@ -539,7 +557,31 @@ export class ListNodeTagVariable extends NodeTagVariable {
         });
     }
 
+    override computeRealType(): string {
+        const declaredTag = utils.getStructNameFromType(this.type);
+        if (declaredTag !== 'List') {
+            return utils.substituteStructName(this.type, 'List');
+        }
+        return this.type;
+    }
+
+    private async castToList(context: ExecContext) {
+        const realType = this.getRealType();
+        const response = await context.debug.evaluate(`(${realType}) (${this.evaluateName})`, this.frameId);
+        if (!Number.isInteger(response.variablesReference)) {
+            this.logger.warn(`failed to cast ${this.evaluateName} to List*: ${response.result}`);
+            return;
+        }
+
+        /* Also update type - it will be used  */
+        this.variablesReference = response.variablesReference;
+    }
+
     async getChildren(context: ExecContext) {
+        if (!this.tagsMatch()) {
+            await this.castToList(context);
+        }
+
         const debugVariables = await context.debug.getMembers(this.variablesReference);
         if (!debugVariables) {
             return;
@@ -587,23 +629,30 @@ export class ListNodeTagVariable extends NodeTagVariable {
             this.realType = realType;
         }
 
-        async getNodeElements(context: ExecContext) {
-            const listLength = Number((await context.debug.evaluate(`(${this.listParent.evaluateName})->length`, this.listParent.frameId)).result);
-            if (Number.isNaN(listLength)) {
+        private async getListLength(context: ExecContext) {
+            const lengthExpression = `((${this.listParent.getRealType()})${this.listParent.memoryReference})->length`;
+            const length = Number((await context.debug.evaluate(lengthExpression, this.listParent.frameId)).result);
+            if (Number.isNaN(length)) {
                 this.logger.warn(`failed to obtain list size for ${this.listParent.name}`);
                 return;
             }
+            return length;
+        }
 
-            const expression = `(Node **)(${this.evaluateName}), ${listLength}`;
+        async getNodeElements(context: ExecContext) {
+            const length = await this.getListLength(context);
+            if (!length) {
+                return;
+            }
+
+            const expression = `(Node **)(((${this.listParent.getRealType()})${this.listParent.memoryReference})->elements), ${length}`;
             const response = await context.debug.evaluate(expression, this.frameId);
             return await Variable.getVariables(response.variablesReference, this.frameId, context, this.logger, this);
         }
 
         async getIntegerElements(context: ExecContext) {
-            const lengthExpression = `(${this.listParent.evaluateName})->length`;
-            const listLength = Number((await context.debug.evaluate(lengthExpression, this.frameId)).result);
-            if (Number.isNaN(listLength)) {
-                this.logger.warn(`fail to obtain list size for ${this.listParent.name}`);
+            const length = await this.getListLength(context);
+            if (!length) {
                 return;
             }
 
@@ -613,7 +662,7 @@ export class ListNodeTagVariable extends NodeTagVariable {
             * each element and evaluate each item independently
             */
             const elements: RealVariable[] = [];
-            for (let i = 0; i < listLength; i++) {
+            for (let i = 0; i < length; i++) {
                 const expression = `(${this.evaluateName})[${i}].${this.cellValue}`;
                 const response = await context.debug.evaluate(expression, this.frameId);
                 /* mimic array elements behaviour */
