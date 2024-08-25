@@ -1,5 +1,6 @@
 src/**
 out/test/**
+out/**.map
 resources/**
 scripts/**
 !resources/logo.png
@@ -8,6 +9,7 @@ tsconfig.json
 !file.ts
 .github
 .vscode
+.gitignore
 
 docs/**
 workflows/**
