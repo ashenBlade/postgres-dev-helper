@@ -9,47 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-Fix Bitmapset elements not shown for postgres version below 17.
-Used function `bms_is_valid_set` was introduced in 17 version.
+- Fix Bitmapset elements not shown for postgres version below 17.
+  Used function `bms_is_valid_set` was introduced in 17 version.
 
 ## [1.1.0]
 
 ### Added
 
-Support for `Bitmapset` and `Relids` - show elements of set and it's length
-in `$elements$` and `$length$` pseudo-members.
+- Support for `Bitmapset` and `Relids` - show elements of set and it's length
+  in `$elements$` and `$length$` pseudo-members.
 
-User defined type alises for Node types. Roughly speaking, it specifies
-`typedef`s for types and when test for Node variable fails extension tries
-to substitute typename with given alias.
-This was introduced because of `typedef Bitmapset *Relids` - there is
-no `T_Relids` NodeTag.
+- User defined type alises for Node types. Roughly speaking, it specifies
+  `typedef`s for types and when test for Node variable fails extension tries
+  to substitute typename with given alias.
+  This was introduced because of `typedef Bitmapset *Relids` - there is
+  no `T_Relids` NodeTag.
 
 ### Changed
 
-Extension is activating automatically on presence of files:
+- Extension is activating automatically on presence of files:
 
-- `pgsql_hacker_helper.json` - extension's config file
-- `src/include/node/nodes.h`, `src/include/node/nodetags.h` - files with
+  - `pgsql_hacker_helper.json` - extension's config file
+  - `src/include/node/nodes.h`, `src/include/node/nodetags.h` - files with
     NodeTag values (vs code settings not checked)
 
-Update config file schema to 2 version - default version. `nodeTag` member
-replaced with `typeName`: old behaviour was designed to support only Node
-variables, but now it allows any type to specify custom arrays.
-Also, in `nodeTag` leading T_ prefix was removed, new member does not do it.
+- Update config file schema to 2 version - default version. `nodeTag` member
+  replaced with `typeName`: old behaviour was designed to support only Node
+  variables, but now it allows any type to specify custom arrays.
+  Also, in `nodeTag` leading T_ prefix was removed, new member does not do it.
 
-Postgres variables view in debug container shows only when extension is
-activated and in debug mode.
+- Postgres variables view in debug container shows only when extension is
+  activated and in debug mode.
 
 ## [1.0.0]
 
 ### Added
 
-T_XidList to supported List subtype
+- `T_XidList` to supported List subtype
 
 ### Removed
 
-EPQState from list of array special members - it does not have NodeTag
+- `EPQState` from list of array special members - it does not have NodeTag
 
 ## [0.2.0]
 
