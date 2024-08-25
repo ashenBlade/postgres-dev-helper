@@ -4,6 +4,7 @@ export function getDefaultNodeTags(): string[] {
         /* Pseudo NodeTags */
         'Node',
         'Expr',
+        'Plan',
         
         'List',
         'Alias',
