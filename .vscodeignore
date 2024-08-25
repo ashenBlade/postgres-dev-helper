@@ -1,6 +1,7 @@
 src/**
 out/test/**
 resources/**
+scripts/**
 !resources/logo.png
 
 tsconfig.json
