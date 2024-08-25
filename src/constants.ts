@@ -482,16 +482,16 @@ export function getDefaultNodeTags(): string[] {
     ]
 }
 
-export interface Alias {
-    alias: string;
-    type: string;
-}
-export function getDefaultAliases(): Alias[] {
+
+/**
+ * Return array of known Node `typedef's.
+ * First element is alias and second is type.
+ * 
+ * @returns Array of pairs: alias -> type
+ */
+export function getDefaultAliases(): [string, string][] {
     return [
-        {
-            alias: 'Relids',
-            type: 'Bitmapset *'
-        }
+        ['Relids', 'Bitmapset *']
     ]
 }
 

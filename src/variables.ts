@@ -20,7 +20,7 @@ export class NodeVarRegistry {
     /**
      * Known aliases for Node variables - `typedef'
      */
-    aliases: Map<string, string> = new Map(constants.getDefaultAliases().map(alias => [alias.alias, alias.type]));
+    aliases: Map<string, string> = new Map(constants.getDefaultAliases());
 
     /* 
      * Update stored node types for internal usage from provided
