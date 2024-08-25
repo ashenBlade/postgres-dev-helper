@@ -502,55 +502,236 @@ export interface ArraySpecialMember {
 }
 
 export function getArraySpecialMembers(): ArraySpecialMember[] {
-    const arraySM = (typeName: string, memberName: string, lengthExpr: string) => ({ typeName, memberName, lengthExpr });
+    const _ = (typeName: string, memberName: string, lengthExpr: string) => ({ typeName, memberName, lengthExpr });
 
     return [
-        arraySM('PlannerInfo', 'simple_rel_array', 'simple_rel_array_size'),
-        arraySM('PlannerInfo', 'simple_rte_array', 'simple_rel_array_size'),
-        arraySM('PlannerInfo', 'append_rel_array', 'simple_rel_array_size'),
-        arraySM('PlannerInfo', 'placeholder_array', 'placeholder_array_size'),
+        _('PlannerInfo', 'simple_rel_array', 'simple_rel_array_size'),
+        _('PlannerInfo', 'simple_rte_array', 'simple_rel_array_size'),
+        _('PlannerInfo', 'append_rel_array', 'simple_rel_array_size'),
+        _('PlannerInfo', 'placeholder_array', 'placeholder_array_size'),
 
-        arraySM('ResultRelInfo', 'ri_IndexRelationInfo', 'ri_NumIndices'),
-        arraySM('ResultRelInfo', 'ri_TrigWhenExprs', 'ri_TrigDesc->numtriggers'),
-        arraySM('ResultRelInfo', 'ri_Slots', 'ri_NumSlots'),
-        arraySM('ResultRelInfo', 'ri_PlanSlots', 'ri_NumSlots'),
-        arraySM('ResultRelInfo', 'ri_ConstraintExprs', 'ri_RelationDesc->rd_att->natts'),
-        arraySM('ResultRelInfo', 'ri_GeneratedExprsI', 'ri_NumGeneratedNeededI'),
-        arraySM('ResultRelInfo', 'ri_GeneratedExprsU', 'ri_NumGeneratedNeededU'),
+        _('ResultRelInfo', 'ri_IndexRelationInfo', 'ri_NumIndices'),
+        _('ResultRelInfo', 'ri_TrigWhenExprs', 'ri_TrigDesc->numtriggers'),
+        _('ResultRelInfo', 'ri_Slots', 'ri_NumSlots'),
+        _('ResultRelInfo', 'ri_PlanSlots', 'ri_NumSlots'),
+        _('ResultRelInfo', 'ri_ConstraintExprs', 'ri_RelationDesc->rd_att->natts'),
+        _('ResultRelInfo', 'ri_GeneratedExprsI', 'ri_NumGeneratedNeededI'),
+        _('ResultRelInfo', 'ri_GeneratedExprsU', 'ri_NumGeneratedNeededU'),
 
-        arraySM('EState', 'es_rowmarks', 'es_range_table_size'),
-        arraySM('EState', 'es_result_relations', 'es_range_table_size'),
+        _('EState', 'es_rowmarks', 'es_range_table_size'),
+        _('EState', 'es_result_relations', 'es_range_table_size'),
 
-        arraySM('EPQState', 'relsubs_slot', 'parentestate->es_range_table_size'),
-        arraySM('EPQState', 'relsubs_rowmark', 'parentestate->es_range_table_size'),
+        _('EPQState', 'relsubs_slot', 'parentestate->es_range_table_size'),
+        _('EPQState', 'relsubs_rowmark', 'parentestate->es_range_table_size'),
 
-        arraySM('ProjectSetState', 'elems', 'nelems'),
+        _('ProjectSetState', 'elems', 'nelems'),
 
-        arraySM('AppendState', 'appendplans', 'as_nplans'),
-        arraySM('AppendState', 'as_asyncrequests', 'as_nplans'),
-        arraySM('AppendState', 'as_asyncresults', 'as_nasyncresults'),
+        _('AppendState', 'appendplans', 'as_nplans'),
+        _('AppendState', 'as_asyncrequests', 'as_nplans'),
+        _('AppendState', 'as_asyncresults', 'as_nasyncresults'),
 
-        arraySM('MergeAppendState', 'mergeplans', 'ms_nplans'),
-        arraySM('MergeAppendState', 'ms_slots', 'ms_nplans'),
+        _('MergeAppendState', 'mergeplans', 'ms_nplans'),
+        _('MergeAppendState', 'ms_slots', 'ms_nplans'),
 
-        arraySM('BitmapAndState', 'bitmapplans', 'nplans'),
+        _('BitmapAndState', 'bitmapplans', 'nplans'),
 
-        arraySM('BitmapOrState', 'bitmapplans', 'nplans'),
+        _('BitmapOrState', 'bitmapplans', 'nplans'),
 
-        arraySM('ValuesScanState', 'exprlists', 'array_len'),
-        arraySM('ValuesScanState', 'exprstatelists', 'array_len'),
+        _('ValuesScanState', 'exprlists', 'array_len'),
+        _('ValuesScanState', 'exprstatelists', 'array_len'),
 
-        arraySM('MemoizeState', 'param_exprs', 'nkeys'),
+        _('MemoizeState', 'param_exprs', 'nkeys'),
 
-        arraySM('AggState', 'aggcontexts', 'maxsets'),
+        _('AggState', 'aggcontexts', 'maxsets'),
 
-        arraySM('GatherState', 'reader', 'nreaders'),
+        _('GatherState', 'reader', 'nreaders'),
 
-        arraySM('GatherMergeState', 'gm_slots', 'nreaders + 1'),
-        arraySM('GatherMergeState', 'reader', 'nreaders'),
+        _('GatherMergeState', 'gm_slots', 'nreaders + 1'),
+        _('GatherMergeState', 'reader', 'nreaders'),
 
-        arraySM('RelOptInfo', 'part_rels', 'nparts'),
-        arraySM('RelOptInfo', 'partexprs', 'part_scheme->partnatts'),
-        arraySM('RelOptInfo', 'nullable_partexprs', 'part_scheme->partnatts'),
+        _('RelOptInfo', 'part_rels', 'nparts'),
+        _('RelOptInfo', 'partexprs', 'part_scheme->partnatts'),
+        _('RelOptInfo', 'nullable_partexprs', 'part_scheme->partnatts'),
+
+        _('IndexOptInfo', 'indexkeys', 'ncolumns'),
+        _('IndexOptInfo', 'indexcollations', 'ncolumns'),
+        _('IndexOptInfo', 'opfamily', 'ncolumns'),
+        _('IndexOptInfo', 'opcintype', 'ncolumns'),
+        _('IndexOptInfo', 'sortopfamily', 'ncolumns'),
+        _('IndexOptInfo', 'reverse_sort', 'ncolumns'),
+        _('IndexOptInfo', 'nulls_first', 'ncolumns'),
+        _('IndexOptInfo', 'canreturn', 'ncolumns'),
+
+        _('ForeignKeyOptInfo', 'conkey', 'nkeys'),
+        _('ForeignKeyOptInfo', 'confkey', 'nkeys'),
+        _('ForeignKeyOptInfo', 'conpfeqop', 'nkeys'),
+
+        _('ForeignKeyCacheInfo', 'conkey', 'nkeys'),
+        _('ForeignKeyCacheInfo', 'confkey', 'nkeys'),
+        _('ForeignKeyCacheInfo', 'conpfeqop', 'nkeys'),
+
+        _('PathTarget', 'sortgrouprefs', 'exprs'),
+
+        _('AppendRelInfo', 'parent_colnos', 'num_child_cols'),
+
+        _('MergeAppend', 'sortColIdx', 'numCols'),
+        _('MergeAppend', 'sortOperators', 'numCols'),
+        _('MergeAppend', 'collations', 'numCols'),
+        _('MergeAppend', 'nullsFirst', 'numCols'),
+
+        _('RecursiveUnion', 'dupColIdx', 'numCols'),
+        _('RecursiveUnion', 'dupOperators', 'numCols'),
+        _('RecursiveUnion', 'dupCollations', 'numCols'),
+
+        _('MergeJoin', 'mergeFamilies', 'mergeclauses'),
+        _('MergeJoin', 'mergeCollations', 'mergeclauses'),
+        _('MergeJoin', 'mergeStrategies', 'mergeclauses'),
+        _('MergeJoin', 'mergeNullsFirst', 'mergeclauses'),
+
+        _('Memoize', 'hashOperators', 'numKeys'),
+        _('Memoize', 'collations', 'numKeys'),
+        
+        _('Sort', 'sortColIdx', 'numCols'),
+        _('Sort', 'sortOperators', 'numCols'),
+        _('Sort', 'collations', 'numCols'),
+        _('Sort', 'nullsFirst', 'numCols'),
+
+        _('Group', 'grpColIdx', 'numCols'),
+        _('Group', 'grpOperators', 'numCols'),
+        _('Group', 'grpCollations', 'numCols'),
+
+        _('Agg', 'grpColIdx', 'numCols'),
+        _('Agg', 'grpOperators', 'numCols'),
+        _('Agg', 'grpCollations', 'numCols'),
+
+        _('WindowAgg', 'partColIdx', 'partNumCols'),
+        _('WindowAgg', 'partOperators', 'partNumCols'),
+        _('WindowAgg', 'partCollations', 'partNumCols'),
+        _('WindowAgg', 'ordColIdx', 'ordNumCols'),
+        _('WindowAgg', 'ordOperators', 'ordNumCols'),
+        _('WindowAgg', 'ordCollations', 'ordNumCols'),
+
+        _('Unique', 'uniqColIdx', 'numCols'),
+        _('Unique', 'uniqOperators', 'numCols'),
+        _('Unique', 'uniqCollations', 'numCols'),
+
+        _('GatherMerge', 'sortColIdx', 'numCols'),
+        _('GatherMerge', 'sortOperators', 'numCols'),
+        _('GatherMerge', 'collations', 'numCols'),
+        _('GatherMerge', 'nullsFirst', 'numCols'),
+
+        _('SetOp', 'dupColIdx', 'numCols'),
+        _('SetOp', 'dupOperators', 'numCols'),
+        _('SetOp', 'dupCollations', 'numCols'),
+
+        _('Limit', 'uniqColIdx', 'uniqNumCols'),
+        _('Limit', 'uniqOperators', 'uniqNumCols'),
+        _('Limit', 'uniqCollations', 'uniqNumCols'),
+
+        _('PartitionedRelPruneInfo', 'subplan_map', 'nparts'),
+        _('PartitionedRelPruneInfo', 'subpart_map', 'nparts'),
+        _('PartitionedRelPruneInfo', 'relid_map', 'nparts'), 
+        
+        _('PLpgSQL_row', 'fieldnames', 'nfields'),
+        _('PLpgSQL_stmt_block', 'initvarnoss', 'n_initvars'),
+        _('PLpgSQL_function', 'datums', 'ndatums'),
+        _('PLpgSQL_execstate', 'datums', 'ndatums'),
+
+        _('GISTBuildBuffers', 'buffersOnLevels', 'buffersOnLevelsLen'),
+        _('GISTBuildBuffers', 'loadedBuffers', 'loadedBuffersCount'),
+
+        _('TableInfo', 'parents', 'numParents'),
+        _('TableInfo', 'attnames', 'numatts'),
+        _('TableInfo', 'atttypnames', 'numatts'),
+        _('TableInfo', 'attstattarget', 'numatts'),
+        _('TableInfo', 'attstorage', 'numatts'),
+        _('TableInfo', 'typstorage', 'numatts'),
+        _('TableInfo', 'attisdropped', 'numatts'),
+        _('TableInfo', 'attidentity', 'numatts'),
+        _('TableInfo', 'attlen', 'numatts'),
+        _('TableInfo', 'attalign', 'numatts'),
+        _('TableInfo', 'attislocal', 'numatts'),
+        _('TableInfo', 'attoptions', 'numatts'),
+        _('TableInfo', 'attcollation', 'numatts'),
+        _('TableInfo', 'attcompression', 'numatts'),
+        _('TableInfo', 'attfdwoptions', 'numatts'),
+        _('TableInfo', 'attmissingval', 'numatts'),
+        _('TableInfo', 'notnull', 'numatts'),
+        _('TableInfo', 'inhNotNull', 'numatts'),
+        _('TableInfo', 'attrdefs', 'numatts'),
+        _('TableInfo', 'checkexprs', 'numatts'),
+
+        _('IndxInfo', 'indkeys', 'indnattrs'),
+        _('OSInfo', 'old_tablespaces', 'num_old_tablespaces'),
+        _('OSInfo', 'libraries', 'num_libraries'),
+
+        _('ParallelExecutorInfo', 'reader', 'pcxt->nworkers_launched'),
+        _('ParallelExecutorInfo', 'tqueue', 'pcxt->nworkers_launched'),
+
+        _('SQLFunctionParseInfo', 'argnames', 'nargs'),
+        _('SQLFunctionParseInfo', 'argnames', 'nargs'),
+
+        _('HashJoinTableData', 'skewBucket', 'nSkewBuckets'),
+        _('HashJoinTableData', 'skewBucketNums', 'nSkewBuckets'),
+
+        _('AggStatePerPhaseData', 'grouped_cols', 'numsets'),
+        _('AggStatePerPhaseData', 'eqfunctions', 'numsets'),
+
+        _('printTableContent', 'headers', 'ncolumns + 1'),
+        _('printTableContent', 'aligns', 'ncolumns + 1'),
+
+        _('printQueryOpt', 'translate_columns', 'n_translate_columns'),
+
+        _('WindowFuncLists', 'windowFuncs', 'numWindowFuncs'),
+
+        _('PartitionBoundInfoData', 'datums', 'ndatums'),
+        _('PartitionBoundInfoData', 'kind', 'ndatums'),
+        _('PartitionBoundInfoData', 'indexes', 'nindexes'),
+
+        _('LogicalRepRelation', 'attnames', 'natts'),
+        _('LogicalRepRelation', 'atttyps', 'natts'),
+
+        _('LogicalRepTupleData', 'colvalues', 'ncols'),
+        _('LogicalRepTupleData', 'colstatus', 'ncols'),
+
+        _('RuleLock', 'rules', 'numLocks'),
+
+        _('StatsBuildData', 'attnums', 'nattnums'),
+        _('StatsBuildData', 'stats', 'nattnums'),
+
+        _('RelationData', 'rd_opfamily', 'rd_index->indnkeyatts'),
+        _('RelationData', 'rd_opcintype', 'rd_index->indnkeyatts'),
+        _('RelationData', 'rd_indcollation', 'rd_index->indnkeyatts'),
+        _('RelationData', 'rd_indoption', 'rd_index->indnkeyatts'),
+        _('RelationData', 'rd_exclops', 'rd_index->indnkeyatts'),
+        _('RelationData', 'rd_exclprocs', 'rd_index->indnkeyatts'),
+        _('RelationData', 'rd_exclstrats', 'rd_index->indnkeyatts'),
+
+        _('statement', 'paramvalues', 'nparams + 1'),
+        _('statement', 'paramlengths', 'nparams + 1'),
+        _('statement', 'paramformats', 'nparams + 1'),
+
+        _('pg_result', 'tuples', 'ntups'),
+        _('pg_result', 'attDescs', 'numAttributes'),
+        _('pg_result', 'paramDescs', 'numParameters'),
+        _('pg_result', 'events', 'nEvents'),
+
+        _('pg_conn', 'events', 'nEvents'),
+        _('pg_conn', 'addr', 'naddr'),
+
+        _('PLyProcedure', 'args', 'nargs'),
+        _('PLyProcedure', 'argnames', 'nargs'),
+
+        _('PLySavedArgs', 'namedargs', 'nargs'),
+
+        _('Session', 'steps', 'nsteps'),
+
+        _('PermutationStepBlocker', 'blockers', 'nblockers'),
+
+        _('Permutation', 'steps', 'nsteps'),
+
+        _('TestSpec', 'setupsqls', 'nsetupsqls'),
+        _('TestSpec', 'sessions', 'nsesssions'),
+        _('TestSpec', 'permutations', 'npermutations'),        
     ];
 }
