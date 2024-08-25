@@ -5,6 +5,28 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2]
+
+### Fixed
+
+- Invalid cast to `List` - show members of declared type, not based on tag. I.e.
+  when `Node *` is declared type, but `T_List` real tag value - shown members were
+  for `Node` (single `type` member).
+
+### Added
+
+- 137 new array special members. Total amount - 170.
+
+- Support for `Plan` structs for observing Node variables.
+
+### Changed
+
+- Optimize extension startup path: remove function dependencies, no depending
+  on NodeTag files
+
+- NodeTags stored as constant array in extension. Reading from file is not
+  necessary for operating.
+
 ## [1.1.1]
 
 ### Fixed

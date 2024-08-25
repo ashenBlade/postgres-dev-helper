@@ -110,6 +110,17 @@ Known issues:
 
 ## Release Notes
 
+### 1.1.2
+
+Fix invalid `List` behaviour with different declared type - members shown for
+declared type, not `List` members.
+
+Add 137 new array special members.
+
+Optimize extension activation performance.
+
+Treat `Plan` struct as Node variable.
+
 ### 1.1.1
 
 Fix Bitmapset elements not shown for postgres version below 17
