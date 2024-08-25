@@ -3,7 +3,8 @@ import * as vars from './variables';
 import * as utils from './utils';
 import { NodePreviewTreeViewProvider, dumpVariableToLogCommand, Configuration as config, setupConfigFiles } from './extension';
 
-async function processNodeTagFiles(vars: vars.NodeVarRegistry, log: utils.ILogger, context: vscode.ExtensionContext): Promise<undefined> {
+async function setupNodeTagFiles(execCtx: vars.ExecContext, log: utils.ILogger,
+                                 context: vscode.ExtensionContext): Promise<undefined> {
     const section = vscode.workspace.getConfiguration(config.ConfigSections.TopLevelSection);
     const nodeTagFiles = section.get<string[]>(config.ConfigSections.NodeTagFiles);
 
@@ -21,14 +22,14 @@ async function processNodeTagFiles(vars: vars.NodeVarRegistry, log: utils.ILogge
         log.debug(`processing ${path.fsPath} NodeTags file`);
         const document = await vscode.workspace.openTextDocument(path)
         try {
-            const added = vars.updateNodeTypesFromFile(document);
+            const added = execCtx.nodeVarRegistry.updateNodeTypesFromFile(document);
             log.debug(`added ${added} NodeTags from ${path.fsPath} file`);
         } catch (err: any) {
             log.error(`could not initialize node tags array`, err);
         }
     }
 
-    const processFolder = async (folder: vscode.WorkspaceFolder) => {
+    const setupSingleFolder = async (folder: vscode.WorkspaceFolder) => {
         await Promise.all(nodeTagFiles.map(async filePath => {
             await handleNodeTagFile(vscode.Uri.file(folder.uri.fsPath + '/' + filePath));
 
@@ -38,7 +39,6 @@ async function processNodeTagFiles(vars: vars.NodeVarRegistry, log: utils.ILogge
             * of 'configure' script and NodeTags are not created at that moment.
             * We will handle them later
             */
-
             const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, filePath), false, false, true);
             watcher.onDidChange(uri => {
                 log.info(`detected change in NodeTag file: ${uri.fsPath}`);
@@ -56,7 +56,7 @@ async function processNodeTagFiles(vars: vars.NodeVarRegistry, log: utils.ILogge
     if (vscode.workspace.workspaceFolders?.length) {
         await Promise.all(
             vscode.workspace.workspaceFolders.flatMap(async folder =>
-                await processFolder(folder)
+                await setupSingleFolder(folder)
             )
         );
     }
@@ -64,7 +64,7 @@ async function processNodeTagFiles(vars: vars.NodeVarRegistry, log: utils.ILogge
     vscode.workspace.onDidChangeWorkspaceFolders(async e => {
         for (let i = 0; i < e.added.length; i++) {
             const folder = e.added[i];
-            await processFolder(folder);
+            await setupSingleFolder(folder);
         }
     }, undefined, context.subscriptions);
 }
@@ -76,18 +76,14 @@ function createNodeVariablesDataProvider(logger: utils.VsCodeLogger, debug: util
         nodeVarRegistry: nodeRegistry,
         specialMemberRegistry: new vars.SpecialMemberRegistry(),
     }
-    const dataProvider = new NodePreviewTreeViewProvider(logger, execCtx);
+    
+    /* Support for configuration files */
+    setupConfigFiles(execCtx, logger, context);
 
-    /* 
-    * When registering special members all NodeTags must be known to figure out 
-    * errors in configuration. So wait for tags initialization and process
-    * special members after that.
-    */
-    processNodeTagFiles(nodeRegistry, logger, context).then(_ => {
-        execCtx.specialMemberRegistry.addArraySpecialMembers(vars.getWellKnownSpecialMembers());
-        setupConfigFiles(execCtx, logger, context);
-    });
-    return dataProvider;
+    /* Support for NodeTag files */
+    setupNodeTagFiles(execCtx, logger, context);
+
+    return new NodePreviewTreeViewProvider(logger, execCtx);
 }
 
 function createLogger(context: vscode.ExtensionContext): utils.VsCodeLogger {

@@ -125,7 +125,12 @@ export class SpecialMemberRegistry {
     /**
      * Double map: Type name -> (Member Name -> Info Object).
      */
-    arraySpecialMembers: Map<string, Map<string, ArraySpecialMemberInfo>> = new Map();
+    arraySpecialMembers: Map<string, Map<string, ArraySpecialMemberInfo>>;
+
+    constructor() {
+        this.arraySpecialMembers = new Map();
+        this.addArraySpecialMembers(constants.getArraySpecialMembers());
+    }
 
     addArraySpecialMembers(elements: ArraySpecialMemberInfo[]) {
         for (const element of elements) {
