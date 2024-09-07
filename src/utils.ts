@@ -6,6 +6,10 @@ import { Stats as FileStats, mkdir, stat, writeFile as fsWritefile } from 'fs';
 const nullPointer = '0x0';
 const pointerRegex = /^0x[0-9abcdef]+$/i;
 
+export function isNull(value: string) {
+    return value === nullPointer;
+}
+
 /**
  * Check provided pointer value represents valid value.
  * That is, it can be dereferenced
@@ -14,7 +18,7 @@ const pointerRegex = /^0x[0-9abcdef]+$/i;
  * @returns Pointer value is valid and not NULL
  */
 export function isValidPointer(value: string) {
-    return pointerRegex.test(value) && value !== nullPointer;
+    return pointerRegex.test(value) && !isNull(value);
 }
 
 const identifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;

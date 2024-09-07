@@ -213,9 +213,8 @@ export abstract class Variable {
     protected isExpandable() {
         /* First check it is valid pointer - they appear more often */
         return (
-                utils.isValidPointer(this.value)
-             && !utils.isBuiltInType(this.type)
-            ) || utils.isRawStruct(this);
+            utils.isValidPointer(this.value) && !utils.isBuiltInType(this.type)
+        ) || utils.isRawStruct(this);
     }
 
     /**
@@ -250,11 +249,23 @@ export abstract class Variable {
             }, logger);
         }
 
+        /* 
+         * PostgreSQL versions prior 16 do not have Bitmapset Node.
+         * So handle Bitmapset (with Relids) here.
+         */
+        if (BitmapSetSpecialMember.isBitmapset(debugVariable.type)) {
+            return new BitmapSetSpecialMember(logger, {
+                ...debugVariable,
+                frameId,
+                parent
+            });
+        }
+
         /* NodeTag variables: Node, List, Bitmapset etc.. */
         if (context.nodeVarRegistry.isNodeVar(debugVariable.type)) {
             const nodeTagVar = await NodeTagVariable
                 .createNodeTagVariable(debugVariable, frameId,
-                                        context, logger, parent);
+                                       context, logger, parent);
             if (nodeTagVar) {
                 return nodeTagVar;
             }
@@ -301,7 +312,7 @@ export abstract class Variable {
         const variables = await (Promise.all(debugVariables.map(v =>
             Variable.createVariable(v, frameId, context, logger, parent))
         ));
-        return variables.filter(v => v !== undefined);                    
+        return variables.filter(v => v !== undefined);
     }
 }
 
@@ -317,7 +328,7 @@ class ScalarVariable extends Variable {
 
 interface RealVariableArgs {
     evaluateName: string;
-    memoryReference: string;
+    memoryReference?: string;
     name: string;
     type: string;
     value: string;
@@ -341,7 +352,7 @@ export class RealVariable extends Variable {
     /** 
      * Memory address of variable value
      */
-    memoryReference: string;
+    memoryReference?: string;
 
     /**
      * Number to use in requests to work with DAP.
@@ -563,17 +574,21 @@ export class NodeTagVariable extends RealVariable {
 
 /**
  * Special class to represent various Lists: Node, int, Oid, Xid...
- */
+*/
 export class ListNodeTagVariable extends NodeTagVariable {
     constructor(nodeTag: string, args: RealVariableArgs, logger: utils.ILogger) {
         super(nodeTag, args, logger);
+    }
+
+    getMemberExpression(member: string) {
+        return `((${this.getRealType()})${this.value})->${member}`
     }
 
     protected isExpandable(): boolean {
         return true;
     }
 
-    createNodeElementsMember(dv: dap.DebugVariable) {
+    private createArrayNodeElementsMember(dv: dap.DebugVariable) {
         /* Default safe values */
         let cellValue = 'int_value';
         let realType = 'int';
@@ -603,6 +618,35 @@ export class ListNodeTagVariable extends NodeTagVariable {
             frameId: this.frameId,
             parent: this,
         });
+    }
+
+    private createLinkedListNodeElementsMember() {
+        /* Default safe values */
+        let cellValue = 'int_value';
+        let realType = 'int';
+
+        switch (this.realNodeTag) {
+            case 'List':
+                cellValue = 'ptr_value';
+                realType = 'Node *';
+                break;
+            case 'IntList':
+                break;
+            case 'OidList':
+                cellValue = 'oid_value';
+                realType = 'Oid';
+                break;
+            case 'XidList':
+                cellValue = 'xid_value';
+                realType = 'TransactionId';
+                break;
+            default:
+                this.logger.warn(`failed to determine List tag for ${this.name}->elements. using int value`);
+                break;
+        }
+
+        return new ListNodeTagVariable.LinkedListElementsMember(this, cellValue,
+                                                                realType, this.logger);
     }
 
     override computeRealType(): string {
@@ -638,10 +682,12 @@ export class ListNodeTagVariable extends NodeTagVariable {
 
         /* Replace `elements' variable with special case */
         const members: Variable[] = [];
+        let isArrayImplementation = false;
         for (let i = 0; i < debugVariables.length; i++) {
             const dv = debugVariables[i];
             if (dv.name === 'elements') {
-                members.push(this.createNodeElementsMember(dv));
+                members.push(this.createArrayNodeElementsMember(dv));
+                isArrayImplementation = true;
             } else {
                 const v = await Variable.createVariable(dv, this.frameId, context,
                                                         this.logger, this);
@@ -651,23 +697,27 @@ export class ListNodeTagVariable extends NodeTagVariable {
             }
         }
 
+        if (!isArrayImplementation) {
+            members.push(this.createLinkedListNodeElementsMember());
+        }
+
         return members;
     }
 
     /**
      * Show `elements' member of List struct of Node* values
-     */
+    */
     private static ListElementsMember = class extends RealVariable {
         /**
          * Member of ListCell to use.
          * @example int_value, oid_value
-         */
+        */
         cellValue: string;
 
         /**
          * Real type of stored data
          * @example int, Oid
-         */
+        */
         realType: string;
 
         listParent: ListNodeTagVariable;
@@ -679,14 +729,10 @@ export class ListNodeTagVariable extends NodeTagVariable {
             this.realType = realType;
         }
 
-        private getMemberExpression(member: string) {
-            return `((${this.listParent.getRealType()})${this.listParent.value})->${member}`
-        }
-
         private async getListLength(context: ExecContext) {
-            const lengthExpression = this.getMemberExpression('length');
+            const lengthExpression = this.listParent.getMemberExpression('length');
             const evalResult = await context.debug.evaluate(lengthExpression,
-                                                            this.listParent.frameId);
+                this.listParent.frameId);
             const length = Number(evalResult.result);
             if (Number.isNaN(length)) {
                 this.logger.warn(`failed to obtain list size for ${this.listParent.name}`);
@@ -701,7 +747,7 @@ export class ListNodeTagVariable extends NodeTagVariable {
                 return;
             }
 
-            const expression = `(Node **)(${this.getMemberExpression('elements')})`;
+            const expression = `(Node **)(${this.listParent.getMemberExpression('elements')})`;
             return super.getArrayMembers(expression, length, context);
         }
 
@@ -739,6 +785,82 @@ export class ListNodeTagVariable extends NodeTagVariable {
             return this.listParent.realNodeTag === 'List'
                 ? this.getNodeElements(context)
                 : this.getIntegerElements(context);
+        }
+
+        protected isExpandable(): boolean {
+            return true;
+        }
+    }
+
+    /* 
+     * Show elements of List for Linked List implementation (head/tail).
+     * Suitable for Postgres version prior to 13.
+     */
+    private static LinkedListElementsMember = class extends Variable {
+        /**
+         * Member of ListCell to use.
+         * @example int_value, oid_value, ptr_value, xid_value
+         */
+        cellValue: string;
+
+        /**
+         * Real type of stored data
+         * @example int, Oid, Node *, Xid
+         */
+        realType: string;
+
+        /**
+         * List structure we observing
+         */
+        listParent: ListNodeTagVariable;
+
+        logger: utils.ILogger;
+
+        get frameId(): number {
+            return this.listParent.frameId;
+        }
+
+        constructor(listParent: ListNodeTagVariable, cellValue: string,
+                    realType: string, logger: utils.ILogger) {
+            super('$elements$', '', '', listParent);
+            this.logger = logger; 
+            this.listParent = listParent;
+            this.cellValue = cellValue;
+            this.realType = realType;
+        }
+
+        async getLinkedListElements(context: ExecContext) {
+            /* 
+             * Traverse through linked list until we get NULL
+             * and read each element from List manually.
+             * So we do not need to evaluate length.
+             */
+            const elements: dap.DebugVariable[] = [];
+            const headExpression = this.listParent.getMemberExpression('head');
+            let evaluateName = headExpression;
+            let cell = await context.debug.evaluate(headExpression, this.frameId);
+            let i = 0;
+            do {
+                const valueExpression = `(${this.realType})((${evaluateName})->data.${this.cellValue})`;
+                const response = await context.debug.evaluate(valueExpression, this.frameId);
+                elements.push({
+                    name: `[${i}]`,
+                    value: response.result,
+                    type: this.realType,
+                    evaluateName: valueExpression,
+                    variablesReference: response.variablesReference,
+                    memoryReference: response.memoryReference,
+                });
+                evaluateName = `${evaluateName}->next`;
+                cell = await context.debug.evaluate(evaluateName, this.frameId);
+            } while (!utils.isNull(cell.result));
+
+            return await Variable.mapVariables(elements, this.frameId, context,
+                                               this.logger, this.listParent);
+        }
+
+        async getChildren(context: ExecContext) {
+            return await this.getLinkedListElements(context);
         }
 
         protected isExpandable(): boolean {
@@ -878,7 +1000,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
                 this.logger.warn(`failed to get set elements for ${this.name}`);
                 return;
             }
-            
+
             if (number < 0) {
                 break;
             }
@@ -945,6 +1067,18 @@ class BitmapSetSpecialMember extends NodeTagVariable {
                 collapsibleState: vscode.TreeItemCollapsibleState.Collapsed,
             }
         }
+    }
+
+    static isBitmapset(type: string) {
+        const typename = utils.getStructNameFromType(type);
+        if (typename === 'Bitmapset') {
+            /* Bitmapset* */
+            return utils.getPointersCount(type) === 1;
+        } else if (typename === 'Relids') {
+            /* Relids */
+            return utils.getPointersCount(type) === 0;
+        }
+        return false;
     }
 }
 
