@@ -4,6 +4,7 @@ out/**.map
 resources/**
 scripts/**
 !resources/logo.png
+dev/*
 
 tsconfig.json
 !file.ts
