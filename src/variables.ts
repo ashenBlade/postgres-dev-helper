@@ -853,6 +853,7 @@ export class ListNodeTagVariable extends NodeTagVariable {
                 });
                 evaluateName = `${evaluateName}->next`;
                 cell = await context.debug.evaluate(evaluateName, this.frameId);
+                ++i;
             } while (!utils.isNull(cell.result));
 
             return await Variable.mapVariables(elements, this.frameId, context,
