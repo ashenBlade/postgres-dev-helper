@@ -1,13 +1,22 @@
 import * as vscode from 'vscode';
 import * as utils from './utils';
+import * as dap from './dap';
 import * as vars from './variables';
 import * as fs from 'fs';
+import { register } from 'module';
+
 
 export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars.Variable> {
+    subscriptions: vscode.Disposable[] = [];
+
+    private getCurrentFrameId = async (_: vars.ExecContext) => {
+        /* debugFocus API */
+        return (vscode.debug.activeStackItem as vscode.DebugStackFrame | undefined)?.frameId;
+    }
+
     constructor(
         private log: utils.ILogger,
-        private context: vars.ExecContext) {
-    }
+        private context: vars.ExecContext) { }
 
     /* https://code.visualstudio.com/api/extension-guides/tree-view#updating-tree-view-content */
     private _onDidChangeTreeData = new vscode.EventEmitter<vars.Variable | undefined | null | void>();
@@ -21,7 +30,8 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
             return;
         }
 
-        return this.context.specialMemberRegistry.getArraySpecialMember(variable.parent.type, variable.name)
+        return this.context.specialMemberRegistry
+            .getArraySpecialMember(variable.parent.type, variable.name)
     }
 
     async getTreeItem(variable: vars.Variable) {
@@ -33,24 +43,106 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
             return;
         }
 
-        return element
-            ? await element.getChildren(this.context)
-            : await this.getTopLevelVariables();
+        try {
+            return element
+                ? await element.getChildren(this.context)
+                : await this.getTopLevelVariables();
+        } catch (err) {
+            /* 
+             * There may be race condition when our state of debugger 
+             * is 'ready', but real debugger is not. Such cases include
+             * debugger detach, continue after breakpoint etc. 
+             * (we can not send commands to debugger).
+             * 
+             * In this cases we must return empty array - this will 
+             * clear our tree view.
+             */
+            if (err instanceof Error &&
+                err.message.indexOf('No debugger available') !== -1) {
+                return;
+            }
+        }
     }
 
     async getTopLevelVariables() {
-        const frameId = (vscode.debug.activeStackItem as vscode.DebugStackFrame | undefined)?.frameId
+        const frameId = await this.getCurrentFrameId(this.context);
         if (!frameId) {
             return;
         }
 
-        const variables = await this.context.debug.getVariables();
-        return (await Promise.all(variables.map(v => vars.Variable.createVariable(v, frameId, this.context, this.log))))
-            .filter(v => v !== undefined);
+        const variables = await this.context.debug.getVariables(frameId);
+        return await vars.Variable.mapVariables(variables, frameId, this.context,
+            this.log, undefined);
+    }
+
+    switchToEventBasedRefresh(context: vscode.ExtensionContext) {
+        /* 
+         * Prior to VS Code version 1.90 there is no debugFocus API - 
+         * we can not track current stack frame. It is very convenient,
+         * because single event refreshes state and also we keep track
+         * of stack frame selected in debugger view.
+         * 
+         * For older versions we use event based implementation -
+         * subscribe to debugger events and filter out needed:
+         * continue execution, stopped (breakpoint), terminated etc...
+         * 
+         * NOTES:
+         *  - We can not track current stack frame, so this feature is
+         *    not available for users.
+         *  - Support only 'cppdbg' configuration - tested only for it
+         */
+
+        const provider = this;
+        let savedThreadId: undefined | number = undefined;
+        const disposable = vscode.debug.registerDebugAdapterTrackerFactory('cppdbg', {
+            createDebugAdapterTracker(_: vscode.DebugSession) {
+                return {
+                    onDidSendMessage(message: dap.ProtocolMessage) {
+                        if (message.type === 'response') {
+                            if (message.command === 'continue') {
+                                /* 
+                                 * `Continue' command - clear
+                                 */
+                                provider.refresh();
+                            }
+
+                            return;
+                        }
+
+                        if (message.type === 'event') {
+                            if (message.event === 'stopped' || message.event === 'terminated') {
+                                /* 
+                                 * Hit breakpoint - show variables
+                                 */
+                                provider.refresh();
+                                savedThreadId = message.body?.threadId as number | undefined;
+                            }
+                        }
+                    },
+
+                    onWillStopSession() {
+                        /* Debug session terminates - clear */
+                        provider.refresh();
+                    },
+                }
+            },
+        });
+        context.subscriptions.push(disposable);
+        this.getCurrentFrameId = async (context: vars.ExecContext) => {
+            /* 
+             * We can not track selected stack frame - return last (top)
+             */
+            if (!(context.debug.isInDebug && savedThreadId)) {
+                return;
+            }
+
+            return await context.debug.getTopStackFrameId(savedThreadId);
+        }
     }
 }
 
-export async function dumpVariableToLogCommand(args: any, log: utils.ILogger, debug: utils.IDebuggerFacade) {
+export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
+    debug: utils.IDebuggerFacade) {
     const session = vscode.debug.activeDebugSession;
     if (!session) {
         vscode.window.showWarningMessage('Can not dump variable - no active debug session!');
@@ -58,22 +150,27 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger, de
     }
 
     const variable = args.variable;
-    if (!variable) {
-        log.info('Variable info not present in args');
+    if (!variable?.value) {
+        log.warn('Variable info not present in args');
         return;
     }
 
-    const frameId = (vscode.debug.activeStackItem as vscode.DebugStackFrame | undefined)?.frameId;
-    if (frameId === undefined) {
-        log.info('Could not find active stack frame');
+    console.assert(typeof variable.value === 'string');
+
+    if (!(utils.isValidPointer(variable.value))) {
+        vscode.window.showWarningMessage(`Variable ${variable.name} is not valid pointer`);
         return;
     }
+
+    /* Simple `pprint(Node*)' function call */
+    const expression = `-exec call pprint((const void *) ${variable.value})`;
 
     try {
-        /* Simple `pprint(Node*) call, just like in gdb */
-        await debug.evaluate(`-exec call pprint(${variable.evaluateName})`, frameId);
+        await debug.evaluate(expression, undefined);
     } catch (err: any) {
         log.error(`could not dump variable ${variable.name} to log`, err);
+        vscode.window.showErrorMessage(`Could not dump variable ${variable.name}. `
+            + `See errors in Output log`)
     }
 }
 
@@ -194,7 +291,8 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
     }
 
     const configVersion = Number(configFile.version);
-    if (Number.isNaN(configVersion) || !(configVersion == 1 || configVersion == 2)) {
+    if (Number.isNaN(configVersion) ||
+        !(configVersion == 1 || configVersion == 2)) {
         throw new Error(`unknown version of config file: ${configFile.version}`);
     }
 
@@ -231,11 +329,14 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
         ? parseArraySm1
         : parseArraySm2;
 
-    const arrayInfos = Array.isArray(configFile.specialMembers?.array) && configFile.specialMembers.array.length > 0
-        ? configFile.specialMembers.array.forEach(arrayMemberParser)
+    const arrayInfos = Array.isArray(configFile.specialMembers?.array)
+        && configFile.specialMembers.array.length > 0
+        ? configFile.specialMembers.array.map(arrayMemberParser)
         : undefined;
 
-    const aliasInfos = configVersion == 2 && Array.isArray(configFile.aliases) && configFile.aliases.length > 0
+    const aliasInfos = configVersion == 2
+        && Array.isArray(configFile.aliases)
+        && configFile.aliases.length > 0
         ? configFile.aliases.map(parseAliasV2)
         : undefined;
 
@@ -245,13 +346,20 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
     }
 }
 
-export function setupConfigFiles(execCtx: vars.ExecContext, log: utils.ILogger, context: vscode.ExtensionContext) {
+export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.ExecContext,
+    logger: utils.ILogger, nodesView: NodePreviewTreeViewProvider) {
+
+    function registerCommand(name: string, command: (...args: any[]) => void) {
+        const disposable = vscode.commands.registerCommand(name, command);
+        context.subscriptions.push(disposable);
+    }
+
     const processSingleConfigFile = async (pathToFile: vscode.Uri) => {
         let doc = undefined;
         try {
             doc = await vscode.workspace.openTextDocument(pathToFile);
         } catch (err: any) {
-            log.error(`failed to read settings file ${pathToFile.fsPath}`, err);
+            logger.error(`failed to read settings file ${pathToFile.fsPath}`, err);
             return;
         }
 
@@ -259,7 +367,7 @@ export function setupConfigFiles(execCtx: vars.ExecContext, log: utils.ILogger, 
         try {
             text = doc.getText();
         } catch (err: any) {
-            log.error(`failed to read settings file ${doc.uri.fsPath}`, err);
+            logger.error(`failed to read settings file ${doc.uri.fsPath}`, err);
             return;
         }
 
@@ -267,7 +375,7 @@ export function setupConfigFiles(execCtx: vars.ExecContext, log: utils.ILogger, 
         try {
             data = JSON.parse(text);
         } catch (err: any) {
-            log.error(`failed to parse JSON settings file ${doc.uri.fsPath}`, err);
+            logger.error(`failed to parse JSON settings file ${doc.uri.fsPath}`, err);
             return;
         }
 
@@ -275,58 +383,95 @@ export function setupConfigFiles(execCtx: vars.ExecContext, log: utils.ILogger, 
         try {
             parseResult = parseConfigurationFile(data);
         } catch (err: any) {
-            log.error(`failed to parse JSON settings file ${doc.uri.fsPath}`, err);
+            logger.error(`failed to parse JSON settings file ${doc.uri.fsPath}`, err);
             return;
         }
 
         if (parseResult) {
             if (parseResult.arrayInfos?.length) {
-                log.debug(`adding ${parseResult.arrayInfos.length} array special members from config file`);
+                logger.debug(`adding ${parseResult.arrayInfos.length} array special members from config file`);
                 execCtx.specialMemberRegistry.addArraySpecialMembers(parseResult.arrayInfos);
             }
             if (parseResult.aliasInfos?.length) {
-                log.debug(`adding ${parseResult.aliasInfos.length} aliases from config file`);
+                logger.debug(`adding ${parseResult.aliasInfos.length} aliases from config file`);
                 execCtx.nodeVarRegistry.addAliases(parseResult.aliasInfos);
             }
         }
     }
 
-    const processFolders = (folders: readonly vscode.WorkspaceFolder[]) => {
-        const propertiesFilePath = vscode.Uri.joinPath(folders[0].uri, '.vscode', Configuration.ExtensionSettingsFileName);
-        context.subscriptions.push(vscode.commands.registerCommand(Configuration.Commands.OpenConfigFile, async () => {
-            if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
-                vscode.window.showInformationMessage('No workspaces found - open directory first');
-                return;
+    const refreshConfigurationFromFolders = async (folders: readonly vscode.WorkspaceFolder[]) => {
+        for (const folder of folders) {
+            const pathToFile = utils.joinPath(
+                folder.uri,
+                '.vscode',
+                Configuration.ExtensionSettingsFileName);
+            if (await utils.fileExists(pathToFile)) {
+                await processSingleConfigFile(pathToFile);
+            } else {
+                logger.debug(`config file ${pathToFile.fsPath} does not exist`);
             }
+        }
+    }
 
-            const propertiesFileExists = await utils.fileExists(propertiesFilePath);
+    /* Refresh config files when debug session starts */
+    vscode.debug.onDidStartDebugSession(async _ => {
+        if (vscode.workspace.workspaceFolders?.length) {
+            logger.info(`refreshing configuration files due to debug session start`)
+            await refreshConfigurationFromFolders(vscode.workspace.workspaceFolders);
+        }
+    }, undefined, context.subscriptions);
+
+    /* Register command to dump variable to log */
+    const pprintVarToLogCmd = async (args: any) => {
+        try {
+            await dumpVariableToLogCommand(args, logger, execCtx.debug);
+        } catch (err: any) {
+            logger.error(`error while dumping node to log`, err);
+        }
+    };
+
+    const openConfigFileCmd = async () => {
+        if (!vscode.workspace.workspaceFolders?.length) {
+            vscode.window.showInformationMessage('No workspaces found - open directory first');
+            return;
+        }
+
+        for (const folder of vscode.workspace.workspaceFolders) {
+            const configFilePath = utils.joinPath(
+                folder.uri,
+                '.vscode',
+                Configuration.ExtensionSettingsFileName);
+            const propertiesFileExists = await utils.fileExists(configFilePath);
             /* Create default configuration file if not exists */
             if (!propertiesFileExists) {
-                if (await utils.fsEntryExists(propertiesFilePath)) {
+                if (await utils.fsEntryExists(configFilePath)) {
                     vscode.window.showErrorMessage(`Can not create ${Configuration.ExtensionSettingsFileName} - fs entry exists and not file`);
                     return;
                 }
 
-                log.debug(`creating ${propertiesFilePath} configuration file`);
-                const configDirectoryPath = vscode.Uri.joinPath(propertiesFilePath, '..');
+                logger.debug(`creating ${configFilePath} configuration file`);
+                const configDirectoryPath = utils.joinPath(configFilePath, '..');
                 if (!await utils.directoryExists(configDirectoryPath)) {
                     try {
-                        fs.mkdirSync(configDirectoryPath.fsPath);
+                        await utils.createDirectory(configDirectoryPath);
                     } catch (err) {
-                        log.error(`failed to create config directory`, err);
+                        logger.error(`failed to create config directory`, err);
                         return;
                     }
                 }
 
                 try {
-                    fs.writeFileSync(propertiesFilePath.fsPath, JSON.stringify({
-                        version: 2,
-                        specialMembers: {
-                            array: []
-                        }
-                    }, undefined, '    '));
+                    await utils.writeFile(configFilePath, JSON.stringify(
+                        /* Example config file */
+                        {
+                            version: 2,
+                            specialMembers: {
+                                array: []
+                            }
+                        },
+                        undefined, '    '));
                 } catch (err: any) {
-                    log.error(`Could not write default configuration file`, err);
+                    logger.error(`Could not write default configuration file`, err);
                     vscode.window.showErrorMessage('Error creating configuration file');
                     return;
                 }
@@ -334,90 +479,147 @@ export function setupConfigFiles(execCtx: vars.ExecContext, log: utils.ILogger, 
 
             let doc;
             try {
-                doc = await vscode.workspace.openTextDocument(propertiesFilePath)
+                doc = await vscode.workspace.openTextDocument(configFilePath);
             } catch (err: any) {
-                log.error(`failed to open configuration file`, err);
+                logger.error(`failed to open configuration file`, err);
                 return;
             }
 
             try {
                 await vscode.window.showTextDocument(doc);
             } catch (err: any) {
-                log.error(`failed to show configuration file`, err);
-                return;
-            }
-        }));
-
-        folders.forEach(folder => {
-            const pathToFile = vscode.Uri.joinPath(folder.uri, '.vscode', Configuration.ExtensionSettingsFileName);
-            utils.fileExists(pathToFile).then(async exists => {
-                /* 
-                 * Track change and create events, but not delete -
-                 * currently no mechanism to track deltas in files.
-                 */
-                let trackCreateEvent = true;
-                if (exists) {
-                    trackCreateEvent = false;
-                    await processSingleConfigFile(pathToFile);
-                    return;
-                }
-
-                const watcher = vscode.workspace.createFileSystemWatcher(pathToFile.fsPath, trackCreateEvent, false, true);
-                if (trackCreateEvent) {
-                    watcher.onDidCreate(processSingleConfigFile);
-                }
-                watcher.onDidChange(processSingleConfigFile);
-
-                context.subscriptions.push(watcher);
-            }, () => log.debug(`settings file ${pathToFile.fsPath} does not exist`));
-        });
-
-        /* Refresh config file command register */
-        const refreshConfigCmdDisposable = vscode.commands.registerCommand(Configuration.Commands.RefreshConfigFile, async () => {
-            if (!vscode.workspace.workspaceFolders?.length) {
+                logger.error(`failed to show configuration file`, err);
                 return;
             }
 
-            log.info(`refreshing config file due to command execution`);
-            for (const folder of vscode.workspace.workspaceFolders) {
-                const propertiesFilePath = vscode.Uri.joinPath(folder.uri, '.vscode', Configuration.ExtensionSettingsFileName);
-                if (!await utils.fileExists(propertiesFilePath)) {
-                    const answer = await vscode.window.showWarningMessage(`Config file does not exist. Create?`, 'Yes', 'No');
-                    if (answer !== 'Yes') {
-                        return;
-                    }
+            /* Stop at first success folder to process */
+            break;
+        }
+    };
 
-                    await vscode.commands.executeCommand(Configuration.Commands.OpenConfigFile);
+    /* Refresh config file command register */
+    const refreshConfigCmd = async () => {
+        if (!vscode.workspace.workspaceFolders?.length) {
+            return;
+        }
+
+        logger.info(`refreshing config file due to command execution`);
+        for (const folder of vscode.workspace.workspaceFolders) {
+            const configFilePath = utils.joinPath(
+                folder.uri,
+                '.vscode',
+                Configuration.ExtensionSettingsFileName);
+            if (!await utils.fileExists(configFilePath)) {
+                const answer = await vscode.window.showWarningMessage(`Config file does not exist. Create?`, 'Yes', 'No');
+                if (answer !== 'Yes') {
                     return;
                 }
 
-                try {
-                    await processSingleConfigFile(propertiesFilePath);
-                } catch (err: any) {
-                    log.error(`failed to update config file`, err);
-                }
+                await vscode.commands.executeCommand(Configuration.Commands.OpenConfigFile);
+                return;
             }
-        });
 
-        context.subscriptions.push(refreshConfigCmdDisposable);
+            try {
+                await processSingleConfigFile(configFilePath);
+            } catch (err: any) {
+                logger.error(`failed to update config file`, err);
+            }
+        }
+    };
 
-    }
+    const refreshVariablesCommand = () => {
+        logger.info(`refreshing variables view due to command`)
+        nodesView.refresh();
+    };
 
-    /* Command to create configuration file */
+    registerCommand(Configuration.Commands.RefreshConfigFile, refreshConfigCmd);
+    registerCommand(Configuration.Commands.OpenConfigFile, openConfigFileCmd);
+    registerCommand(Configuration.Commands.DumpNodeToLog, pprintVarToLogCmd);
+    registerCommand(Configuration.Commands.RefreshPostgresVariables, refreshVariablesCommand);
+
+    /* Process config files immediately */
     if (vscode.workspace.workspaceFolders) {
-        processFolders(vscode.workspace.workspaceFolders);
+        refreshConfigurationFromFolders(vscode.workspace.workspaceFolders);
     } else {
         let disposable: vscode.Disposable | undefined;
         /* Wait for folder open */
         disposable = vscode.workspace.onDidChangeWorkspaceFolders(e => {
-            processFolders(e.added);
-            /* 
+            refreshConfigurationFromFolders(e.added);
+
+            /*
              * Run only once, otherwise multiple commands will be registered - 
              * it will spoil up everything
             */
             disposable?.dispose();
         }, context.subscriptions);
     }
+
+    /* Read files with NodeTags */
+    setupNodeTagFiles(execCtx, logger, context);
+}
+
+async function setupNodeTagFiles(execCtx: vars.ExecContext, log: utils.ILogger,
+    context: vscode.ExtensionContext): Promise<undefined> {
+    const section = vscode.workspace.getConfiguration(Configuration.ConfigSections.TopLevelSection);
+    const nodeTagFiles = section.get<string[]>(Configuration.ConfigSections.NodeTagFiles);
+
+    if (!nodeTagFiles?.length) {
+        const fullSectionName = Configuration.ConfigSections.fullSection(Configuration.ConfigSections.NodeTagFiles);
+        log.error(`no NodeTag files defined. check ${fullSectionName} setting`);
+        return;
+    }
+
+    const handleNodeTagFile = async (path: vscode.Uri) => {
+        if (!await utils.fileExists(path)) {
+            return;
+        }
+
+        log.debug(`processing ${path.fsPath} NodeTags file`);
+        const document = await vscode.workspace.openTextDocument(path)
+        try {
+            const added = execCtx.nodeVarRegistry.updateNodeTypesFromFile(document);
+            log.debug(`added ${added} NodeTags from ${path.fsPath} file`);
+        } catch (err: any) {
+            log.error(`could not initialize node tags array`, err);
+        }
+    }
+
+    const setupSingleFolder = async (folder: vscode.WorkspaceFolder) => {
+        for (const file of nodeTagFiles) {
+            const filePath = utils.joinPath(folder.uri, file);
+            await handleNodeTagFile(filePath);
+
+            7
+            const filePattern = new vscode.RelativePattern(folder, file);
+            const watcher = vscode.workspace.createFileSystemWatcher(filePattern, false,
+                false, true);
+            watcher.onDidChange(uri => {
+                log.info(`detected change in NodeTag file: ${uri.fsPath}`);
+                handleNodeTagFile(uri);
+            }, context.subscriptions);
+            watcher.onDidCreate(uri => {
+                log.info(`detected creation of NodeTag file: ${uri.fsPath}`);
+                handleNodeTagFile(uri);
+            }, context.subscriptions);
+    
+            context.subscriptions.push(watcher);
+        }
+    }
+
+    if (vscode.workspace.workspaceFolders?.length) {
+        await Promise.all(
+            vscode.workspace.workspaceFolders.map(async folder =>
+                await setupSingleFolder(folder)
+            )
+        );
+    }
+
+    vscode.workspace.onDidChangeWorkspaceFolders(async e => {
+        for (let i = 0; i < e.added.length; i++) {
+            const folder = e.added[i];
+            await setupSingleFolder(folder);
+        }
+    }, undefined, context.subscriptions);
 }
 
 export class Configuration {

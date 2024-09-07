@@ -1,93 +1,31 @@
 import * as vscode from 'vscode';
 import * as vars from './variables';
 import * as utils from './utils';
-import { NodePreviewTreeViewProvider, dumpVariableToLogCommand, Configuration as config, setupConfigFiles } from './extension';
+import {
+    NodePreviewTreeViewProvider as PostgresVariablesView,
+    Configuration as config,
+    setupExtension
+} from './extension';
 
-async function setupNodeTagFiles(execCtx: vars.ExecContext, log: utils.ILogger,
-                                 context: vscode.ExtensionContext): Promise<undefined> {
-    const section = vscode.workspace.getConfiguration(config.ConfigSections.TopLevelSection);
-    const nodeTagFiles = section.get<string[]>(config.ConfigSections.NodeTagFiles);
-
-    if (!(nodeTagFiles && 0 < nodeTagFiles.length)) {
-        const fullSectionName = config.ConfigSections.fullSection(config.ConfigSections.NodeTagFiles);
-        log.error(`no NodeTag files defined. check ${fullSectionName} setting`);
-        return;
+function createDebugFacade(context: vscode.ExtensionContext) {
+    const debug = new utils.VsCodeDebuggerFacade();
+    if (!utils.Features.hasEvaluateArrayLength()) {
+        debug.switchToManualArrayExpansion();
     }
-
-    const handleNodeTagFile = async (path: vscode.Uri) => {
-        if (!await utils.fileExists(path)) {
-            return;
-        }
-
-        log.debug(`processing ${path.fsPath} NodeTags file`);
-        const document = await vscode.workspace.openTextDocument(path)
-        try {
-            const added = execCtx.nodeVarRegistry.updateNodeTypesFromFile(document);
-            log.debug(`added ${added} NodeTags from ${path.fsPath} file`);
-        } catch (err: any) {
-            log.error(`could not initialize node tags array`, err);
-        }
-    }
-
-    const setupSingleFolder = async (folder: vscode.WorkspaceFolder) => {
-        await Promise.all(nodeTagFiles.map(async filePath => {
-            await handleNodeTagFile(vscode.Uri.file(folder.uri.fsPath + '/' + filePath));
-
-            /* 
-            * Create watcher to handle file updates and creations, but not deletions.
-            * This is required, because extension can be activated before running
-            * of 'configure' script and NodeTags are not created at that moment.
-            * We will handle them later
-            */
-            const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, filePath), false, false, true);
-            watcher.onDidChange(uri => {
-                log.info(`detected change in NodeTag file: ${uri.fsPath}`);
-                handleNodeTagFile(uri);
-            }, context.subscriptions);
-            watcher.onDidCreate(uri => {
-                log.info(`detected creation of NodeTag file: ${uri.fsPath}`);
-                handleNodeTagFile(uri);
-            }, context.subscriptions);
-
-            context.subscriptions.push(watcher);
-        }));
-    }
-
-    if (vscode.workspace.workspaceFolders?.length) {
-        await Promise.all(
-            vscode.workspace.workspaceFolders.flatMap(async folder =>
-                await setupSingleFolder(folder)
-            )
-        );
-    }
-
-    vscode.workspace.onDidChangeWorkspaceFolders(async e => {
-        for (let i = 0; i < e.added.length; i++) {
-            const folder = e.added[i];
-            await setupSingleFolder(folder);
-        }
-    }, undefined, context.subscriptions);
+    context.subscriptions.push(debug);
+    return debug;
 }
 
-function createNodeVariablesDataProvider(logger: utils.VsCodeLogger, debug: utils.VsCodeDebuggerFacade, context: vscode.ExtensionContext) {
-    const nodeRegistry = new vars.NodeVarRegistry();
-    const execCtx: vars.ExecContext = {
-        debug,
-        nodeVarRegistry: nodeRegistry,
-        specialMemberRegistry: new vars.SpecialMemberRegistry(),
+function createOutputChannel() {
+    if (utils.Features.logOutputLanguageEnabled()) {
+        return vscode.window.createOutputChannel(config.ExtensionPrettyName, 'log');
+    } else {
+        return vscode.window.createOutputChannel(config.ExtensionPrettyName);
     }
-    
-    /* Support for configuration files */
-    setupConfigFiles(execCtx, logger, context);
-
-    /* Support for NodeTag files */
-    setupNodeTagFiles(execCtx, logger, context);
-
-    return new NodePreviewTreeViewProvider(logger, execCtx);
 }
 
 function createLogger(context: vscode.ExtensionContext): utils.VsCodeLogger {
-    const outputChannel = vscode.window.createOutputChannel(config.ExtensionPrettyName, 'log');
+    const outputChannel = createOutputChannel();
     const configuration = vscode.workspace.getConfiguration(config.ConfigSections.TopLevelSection);
     const getLogLevel = () => {
         const configValue = configuration.get(config.ConfigSections.LogLevel);
@@ -111,7 +49,8 @@ function createLogger(context: vscode.ExtensionContext): utils.VsCodeLogger {
         }
     }
     const logger = new utils.VsCodeLogger(outputChannel, getLogLevel());
-    const fullConfigSectionName = config.ConfigSections.fullSection(config.ConfigSections.LogLevel);
+    const logLevel = config.ConfigSections.LogLevel;
+    const fullConfigSectionName = config.ConfigSections.fullSection(logLevel);
     vscode.workspace.onDidChangeConfiguration(event => {
         if (!event.affectsConfiguration(fullConfigSectionName)) {
             return;
@@ -124,40 +63,58 @@ function createLogger(context: vscode.ExtensionContext): utils.VsCodeLogger {
     return logger;
 }
 
+function createPostgresVariablesView(context: vscode.ExtensionContext, logger: utils.ILogger,
+                                     execContext: vars.ExecContext) {
+    const nodesView = new PostgresVariablesView(logger, execContext);
+    const treeDisposable = vscode.window.registerTreeDataProvider(config.Views.NodePreviewTreeView,
+                                                                  nodesView);
+    context.subscriptions.push(treeDisposable);
+    return nodesView;
+}
+
+function setupDebugger(
+    dataProvider: PostgresVariablesView,
+    logger: utils.ILogger,
+    context: vscode.ExtensionContext) {
+
+    if (utils.Features.debugFocusEnabled()) {
+        vscode.debug.onDidChangeActiveStackItem(() => dataProvider.refresh(),
+            undefined, context.subscriptions);
+    } else {
+        logger.warn(
+            `Current version of VS Code (${vscode.version}) do not support ` +
+            'debugFocus API, falling back to compatible event-based implementation. ' +
+            'Some features might be not accessible. ' +
+            'Please update VS Code to version 1.90 or higher',
+        );
+
+        dataProvider.switchToEventBasedRefresh(context);
+    }
+    return;
+}
+
 export function activate(context: vscode.ExtensionContext) {
     const logger = createLogger(context);
-    logger.info('Extension is activating');
-    const debug = new utils.VsCodeDebuggerFacade();
+    try {
+        logger.info('Extension is activating');
+        const execContext = {
+            debug: createDebugFacade(context),
+            nodeVarRegistry: new vars.NodeVarRegistry(),
+            specialMemberRegistry: new vars.SpecialMemberRegistry(),
+        } as vars.ExecContext;
+        const nodesView = createPostgresVariablesView(context, logger, execContext);
+        
+        setupExtension(context, execContext, logger, nodesView);
+                
+        setupDebugger(nodesView, logger, context);
 
-    /* Register command to dump variable to log */
-    const dumpVarsToLogCmd = vscode.commands.registerCommand(config.Commands.DumpNodeToLog, async (args) => {
-        try {
-            await dumpVariableToLogCommand(args, logger, debug);
-        } catch (err: any) {
-            logger.error(`could not dump node to log`, err);
-        }
-    });
-
-    /* Setup Node variable support */
-
-    const dataProvider = createNodeVariablesDataProvider(logger, debug, context);
-
-    const treeDisposable = vscode.window.registerTreeDataProvider(config.Views.NodePreviewTreeView, dataProvider);
-    const asiDisposable = vscode.debug.onDidChangeActiveStackItem(() => dataProvider.refresh());
-    const refreshVariablesCommand = vscode.commands.registerCommand(config.Commands.RefreshPostgresVariables, () => {
-        dataProvider.refresh();
-    });
-
-    context.subscriptions.push(refreshVariablesCommand);
-    context.subscriptions.push(asiDisposable);
-    context.subscriptions.push(dumpVarsToLogCmd);
-    context.subscriptions.push(treeDisposable);
-    context.subscriptions.push(debug);
-    vscode.commands.executeCommand('setContext', config.Contexts.ExtensionActivated, true);
-
-    logger.info('Extension activated');
+        vscode.commands.executeCommand('setContext', config.Contexts.ExtensionActivated, true);
+        logger.info('Extension activated');
+    } catch (error) {
+        logger.error('Failed to activate extension', error);
+    }
 }
 
 export function deactivate() {
     vscode.commands.executeCommand('setContext', config.Contexts.ExtensionActivated, false);
- }
+}

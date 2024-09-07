@@ -503,7 +503,11 @@ export interface ArraySpecialMember {
 }
 
 export function getArraySpecialMembers(): ArraySpecialMember[] {
-    const _ = (typeName: string, memberName: string, lengthExpr: string) => ({ typeName, memberName, lengthExpr });
+    const _ = (typeName: string, memberName: string, lengthExpr: string) => ({
+        typeName,
+        memberName,
+        lengthExpr
+    });
 
     return [
         _('PlannerInfo', 'simple_rel_array', 'simple_rel_array_size'),

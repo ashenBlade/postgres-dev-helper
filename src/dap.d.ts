@@ -155,19 +155,6 @@ export interface Scope {
     name: string;
 
     /**
-     * A hint for how to present this scope in the UI. If this attribute is
-     * missing, the scope is shown with a generic UI.
-     * Values:
-     * 'arguments': Scope contains method arguments.
-     * 'locals': Scope contains local variables.
-     * 'registers': Scope contains registers. Only a single `registers` scope
-     * should be returned from a `scopes` request.
-     * 'returnValue': Scope contains one or more return values.
-     * etc.
-     */
-    presentationHint?: 'arguments' | 'locals' | 'registers' | 'returnValue' | string;
-
-    /**
      * The variables of this scope can be retrieved by passing the value of
      * `variablesReference` to the `variables` request as long as execution
      * remains suspended. See 'Lifetime of Object References' in the Overview
@@ -182,4 +169,65 @@ export interface ScopesResponse {
      * scopes available.
      */
     scopes: Scope[];
+}
+
+export interface ProtocolMessage {
+    type: 'event' | 'response' | 'request' | string;
+
+    /**
+     * Type of event, if type === 'event'
+     */
+    event?: 'stopped' | string;
+
+    /**
+     * The command requested or executed.
+     */
+    command?: 'continue' | string;
+
+    /**
+     * Event-specific information.
+     */
+    body?: any;
+}
+
+export interface StackTraceArguments {
+    /**
+     * Retrieve the stacktrace for this thread.
+     */
+    threadId: number;
+
+    /**
+     * The maximum number of frames to return. If levels is not specified or 0,
+     * all frames are returned.
+     */
+    levels?: number;
+
+}
+
+export interface StackFrame {
+    /**
+     * An identifier for the stack frame. It must be unique across all threads.
+     * This id can be used to retrieve the scopes of the frame with the `scopes`
+     * request or to restart the execution of a stack frame.
+     */
+    id: number;
+}
+
+export interface StackTraceResponse {
+    /**
+     * The frames of the stack frame. If the array has length zero, there are no
+     * stack frames available.
+     * This means that there is no location information available.
+     */
+    stackFrames: StackFrame[];
+
+    /**
+     * The total number of frames available in the stack. If omitted or if
+     * `totalFrames` is larger than the available frames, a client is expected
+     * to request frames until a request returns less frames than requested
+     * (which indicates the end of the stack). Returning monotonically
+     * increasing `totalFrames` values for subsequent requests can be used to
+     * enforce paging in the client.
+     */
+    totalFrames?: number;
 }

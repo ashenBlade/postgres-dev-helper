@@ -30,7 +30,8 @@ export class NodeVarRegistry {
         let added = 0;
         for (let lineNo = 0; lineNo < file.lineCount; lineNo++) {
             /* 
-             * NodeTag has following representation:
+             * NodeTag enum value has following representation:
+             * 
              * [spaces] T_*tag_name* [= *number*],
              * 
              * We must obtain only *tag_name* part, because 'T_' prefix
@@ -49,7 +50,9 @@ export class NodeVarRegistry {
                 continue;
             }
 
-            const tag = text.replaceAll(',', '').replace('T_', '').split(' ', 1)[0];
+            const tag = text.replace(',', '')
+                            .replace('T_', '')
+                            .split(' ', 1)[0];
             if (tag.trim() === '') {
                 continue;
             }
@@ -99,7 +102,8 @@ export class NodeVarRegistry {
             /* typedef NAME *ALIAS */
             type = utils.substituteStructName(type, alias);
             typeName = utils.getStructNameFromType(type);
-            return this.nodeTags.has(typeName) && utils.getPointersCount(type) === 1;
+            return this.nodeTags.has(typeName)
+                && utils.getPointersCount(type) === 1;
         }
 
         return false;
@@ -136,15 +140,18 @@ export class SpecialMemberRegistry {
         for (const element of elements) {
             const typeMap = this.arraySpecialMembers.get(element.typeName);
             if (typeMap === undefined) {
-                this.arraySpecialMembers.set(element.typeName, new Map([[element.memberName, element]]));
+                this.arraySpecialMembers.set(element.typeName, new Map([
+                    [element.memberName, element]
+                ]));
             } else {
                 typeMap.set(element.memberName, element);
             }
         }
     }
 
-    getArraySpecialMember(parentType: string, memberName: string): ArraySpecialMemberInfo | undefined {
-        const membersMap = this.arraySpecialMembers.get(utils.getStructNameFromType(parentType));
+    getArraySpecialMember(parentType: string, memberName: string) {
+        const parentTypeName = utils.getStructNameFromType(parentType);
+        const membersMap = this.arraySpecialMembers.get(parentTypeName);
         if (membersMap === undefined) {
             return;
         }
@@ -204,8 +211,11 @@ export abstract class Variable {
     abstract getChildren(context: ExecContext): Promise<Variable[] | undefined>;
 
     protected isExpandable() {
-        return (utils.isValidPointer(this.value) && !utils.isBuiltInType(this.type)) ||
-            utils.isRawStruct(this);
+        /* First check it is valid pointer - they appear more often */
+        return (
+                utils.isValidPointer(this.value)
+             && !utils.isBuiltInType(this.type)
+            ) || utils.isRawStruct(this);
     }
 
     /**
@@ -221,14 +231,18 @@ export abstract class Variable {
         }
     }
 
-    static async createVariable(debugVariable: dap.DebugVariable, frameId: number, context: ExecContext, logger: utils.ILogger, parent?: RealVariable): Promise<RealVariable | undefined> {
+    static async createVariable(
+                    debugVariable: dap.DebugVariable, frameId: number,
+                    context: ExecContext, logger: utils.ILogger,
+                    parent?: RealVariable): Promise<RealVariable | undefined> {
         /* 
          * We pass RealVariable - not generic Variable, 
          * because if we want to use this function - if means 
          * we create it using debugger interface and this variable
          * is real
          */
-        if (utils.isRawStruct(debugVariable) || !utils.isValidPointer(debugVariable.value)) {
+        if (utils.isRawStruct(debugVariable) ||
+            !utils.isValidPointer(debugVariable.value)) {
             return new RealVariable({
                 ...debugVariable,
                 frameId,
@@ -238,7 +252,9 @@ export abstract class Variable {
 
         /* NodeTag variables: Node, List, Bitmapset etc.. */
         if (context.nodeVarRegistry.isNodeVar(debugVariable.type)) {
-            const nodeTagVar = await NodeTagVariable.createNodeTagVariable(debugVariable, frameId, context, logger, parent);
+            const nodeTagVar = await NodeTagVariable
+                .createNodeTagVariable(debugVariable, frameId,
+                                        context, logger, parent);
             if (nodeTagVar) {
                 return nodeTagVar;
             }
@@ -246,7 +262,8 @@ export abstract class Variable {
 
         /* Special members */
         if (parent?.type) {
-            const specialMember = context.specialMemberRegistry.getArraySpecialMember(parent.type, debugVariable.name);
+            const specialMember = context.specialMemberRegistry
+                .getArraySpecialMember(parent.type, debugVariable.name);
             if (specialMember) {
                 return new ArraySpecialMember(parent, specialMember, {
                     ...debugVariable,
@@ -264,14 +281,27 @@ export abstract class Variable {
         }, logger);
     }
 
-    static async getVariables(variablesReference: number, frameId: number, context: ExecContext, logger: utils.ILogger, parent?: RealVariable): Promise<Variable[] | undefined> {
+    static async getVariables(variablesReference: number, frameId: number,
+                              context: ExecContext, logger: utils.ILogger,
+                              parent?: RealVariable): Promise<Variable[] | undefined> {
         const debugVariables = await context.debug.getMembers(variablesReference);
         if (!debugVariables) {
             return;
         }
 
-        return (await Promise.all(debugVariables.map(variable => Variable.createVariable(variable, frameId, context, logger, parent))))
-            .filter(x => x) as Variable[];
+        const variables = await Promise.all(debugVariables.map(variable =>
+            Variable.createVariable(variable, frameId, context, logger, parent))
+        );
+        return variables.filter(x => x !== undefined);
+    }
+
+    static async mapVariables(debugVariables: dap.DebugVariable[], frameId: number,
+                              context: ExecContext, logger: utils.ILogger,
+                              parent?: RealVariable): Promise<Variable[] | undefined> {
+        const variables = await (Promise.all(debugVariables.map(v =>
+            Variable.createVariable(v, frameId, context, logger, parent))
+        ));
+        return variables.filter(v => v !== undefined);                    
     }
 }
 
@@ -280,7 +310,7 @@ class ScalarVariable extends Variable {
         super(name, value, type, parent);
     }
 
-    async getChildren(context: ExecContext): Promise<Variable[] | undefined> {
+    async getChildren(_: ExecContext): Promise<Variable[] | undefined> {
         return;
     }
 }
@@ -359,7 +389,16 @@ export class RealVariable extends Variable {
      * {@link variablesReference variablesReference } field
      */
     async getChildren(context: ExecContext): Promise<Variable[] | undefined> {
-        return Variable.getVariables(this.variablesReference, this.frameId, context, this.logger, this);
+        return Variable.getVariables(this.variablesReference, this.frameId,
+                                     context, this.logger, this);
+    }
+
+    protected async getArrayMembers(expression: string, length: number,
+                                    context: ExecContext) {
+        const variables = await context.debug.getArrayVariables(expression,
+                                                                length, this.frameId);
+        return await Variable.mapVariables(variables, this.frameId, context,
+                                           this.logger, this);
     }
 }
 
@@ -473,7 +512,9 @@ export class NodeTagVariable extends RealVariable {
         return realTag;
     }
 
-    static async createNodeTagVariable(variable: dap.DebugVariable, frameId: number, context: ExecContext, logger: utils.ILogger, parent?: Variable) {
+    static async createNodeTagVariable(variable: dap.DebugVariable, frameId: number,
+                                       context: ExecContext, logger: utils.ILogger,
+                                       parent?: Variable) {
         if (!context.nodeVarRegistry.isNodeVar(variable.type)) {
             return;
         }
@@ -482,6 +523,7 @@ export class NodeTagVariable extends RealVariable {
         if (!realTag) {
             return;
         }
+
         const args: RealVariableArgs = {
             ...variable,
             frameId,
@@ -503,7 +545,7 @@ export class NodeTagVariable extends RealVariable {
         }
 
         /* Bitmapset */
-        if (BitmapSetSpecialMember.isBmsType(variable.type)) {
+        if (realTag === 'Bitmapset') {
             return new BitmapSetSpecialMember(logger, {
                 ...variable,
                 frameId,
@@ -573,7 +615,8 @@ export class ListNodeTagVariable extends NodeTagVariable {
 
     private async castToList(context: ExecContext) {
         const realType = this.getRealType();
-        const response = await context.debug.evaluate(`(${realType}) (${this.evaluateName})`, this.frameId);
+        const castExpression = `(${realType}) (${this.evaluateName})`;
+        const response = await context.debug.evaluate(castExpression, this.frameId);
         if (!Number.isInteger(response.variablesReference)) {
             this.logger.warn(`failed to cast ${this.evaluateName} to List*: ${response.result}`);
             return;
@@ -600,9 +643,10 @@ export class ListNodeTagVariable extends NodeTagVariable {
             if (dv.name === 'elements') {
                 members.push(this.createNodeElementsMember(dv));
             } else {
-                const v = await Variable.createVariable(dv, this.frameId, context, this.logger, this as RealVariable);
+                const v = await Variable.createVariable(dv, this.frameId, context,
+                                                        this.logger, this);
                 if (v) {
-                    members.push(v)
+                    members.push(v);
                 }
             }
         }
@@ -635,9 +679,15 @@ export class ListNodeTagVariable extends NodeTagVariable {
             this.realType = realType;
         }
 
+        private getMemberExpression(member: string) {
+            return `((${this.listParent.getRealType()})${this.listParent.value})->${member}`
+        }
+
         private async getListLength(context: ExecContext) {
-            const lengthExpression = `((${this.listParent.getRealType()})${this.listParent.memoryReference})->length`;
-            const length = Number((await context.debug.evaluate(lengthExpression, this.listParent.frameId)).result);
+            const lengthExpression = this.getMemberExpression('length');
+            const evalResult = await context.debug.evaluate(lengthExpression,
+                                                            this.listParent.frameId);
+            const length = Number(evalResult.result);
             if (Number.isNaN(length)) {
                 this.logger.warn(`failed to obtain list size for ${this.listParent.name}`);
                 return;
@@ -651,9 +701,8 @@ export class ListNodeTagVariable extends NodeTagVariable {
                 return;
             }
 
-            const expression = `(Node **)(((${this.listParent.getRealType()})${this.listParent.memoryReference})->elements), ${length}`;
-            const response = await context.debug.evaluate(expression, this.frameId);
-            return await Variable.getVariables(response.variablesReference, this.frameId, context, this.logger, this);
+            const expression = `(Node **)(${this.getMemberExpression('elements')})`;
+            return super.getArrayMembers(expression, length, context);
         }
 
         async getIntegerElements(context: ExecContext) {
@@ -671,9 +720,8 @@ export class ListNodeTagVariable extends NodeTagVariable {
             for (let i = 0; i < length; i++) {
                 const expression = `(${this.evaluateName})[${i}].${this.cellValue}`;
                 const response = await context.debug.evaluate(expression, this.frameId);
-                /* mimic array elements behaviour */
                 elements.push(new RealVariable({
-                    name: `[${i}]`,
+                    name: `[${i}]` /* array elements behaviour */,
                     type: this.realType,
                     evaluateName: expression,
                     variablesReference: response.variablesReference,
@@ -710,7 +758,8 @@ export class ArraySpecialMember extends RealVariable {
     info: ArraySpecialMemberInfo;
     parent: RealVariable;
 
-    constructor(parent: RealVariable, info: ArraySpecialMemberInfo, args: RealVariableArgs, logger: utils.ILogger) {
+    constructor(parent: RealVariable, info: ArraySpecialMemberInfo,
+                args: RealVariableArgs, logger: utils.ILogger) {
         super(args, logger);
         this.info = info;
         this.parent = parent;
@@ -725,9 +774,12 @@ export class ArraySpecialMember extends RealVariable {
     }
 
     async getChildren(context: ExecContext) {
-        const arrayLength = Number((await context.debug.evaluate(this.formatLengthExpression(), this.frameId)).result);
+        const lengthExpression = this.formatLengthExpression();
+        const evalResult = await context.debug.evaluate(lengthExpression,
+                                                        this.frameId);
+        const arrayLength = Number(evalResult.result);
         if (Number.isNaN(arrayLength)) {
-            this.logger.warn(`failed to obtain array size using ${this.formatLengthExpression()}`);
+            this.logger.warn(`failed to obtain array size using ${lengthExpression}`);
             return;
         }
 
@@ -735,10 +787,11 @@ export class ArraySpecialMember extends RealVariable {
             return;
         }
 
-        const response = await context.debug.evaluate(`${this.formatMemberExpression()}, ${arrayLength}`, this.frameId);
-        const debugVariables = await context.debug.getMembers(response.variablesReference);
-        return (await Promise.all(debugVariables.map(dv => Variable.createVariable(dv, this.frameId, context, this.logger, this as RealVariable))))
-            .filter(x => x !== undefined);
+        const memberExpression = this.formatMemberExpression();
+        const debugVariables = await context.debug.getArrayVariables(memberExpression,
+                                                                     arrayLength, this.frameId);
+        return await Variable.mapVariables(debugVariables, this.frameId, context,
+                                           this.logger, this);
     }
 }
 
@@ -748,9 +801,15 @@ class BitmapSetSpecialMember extends NodeTagVariable {
     }
 
     async isValidSet(debug: utils.IDebuggerFacade) {
-        const response = await debug.evaluate(`bms_is_valid_set(${this.evaluateName})`, this.frameId);
+        const expression = `bms_is_valid_set(${this.evaluateName})`;
+        const response = await debug.evaluate(expression, this.frameId);
         if (!response.type) {
-            /* `bms_is_valid_set' introduced in 17 */
+            /* 
+             * `bms_is_valid_set' introduced in 17.
+             * On other versions `type` member will be not set (undefined).
+             * We assume it is valid, because for NULL variables we do not
+             * create Variable instances.
+             */
             return true;
         }
         return response.result === 'true';
@@ -758,6 +817,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
 
     safeToObserve() {
         if (vscode.debug.breakpoints.length === 0) {
+            /* Strange but OK */
             return true;
         }
 
@@ -766,7 +826,8 @@ class BitmapSetSpecialMember extends NodeTagVariable {
          * - no bp in bitmapset.c source code for line breakpoints
          * - no bp for bms_next_member function for function breakpoints
          *
-         * XXX I have found only these 2 classes of breakpoints. 
+         * I have found only these 2 subclasses of breakpoints. 
+         * Seems that it is enough.
          */
         for (const bp of vscode.debug.breakpoints) {
             if (!bp.enabled) {
@@ -790,7 +851,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
     }
 
 
-    async getSetMembers(debug: utils.IDebuggerFacade): Promise<number[] | undefined> {
+    async getSetElements(debug: utils.IDebuggerFacade): Promise<number[] | undefined> {
         /* 
          * Must check we do not have breakpoints set in `bms_next_member`.
          * Otherwise, we will get infinite recursion and backend will crash.
@@ -810,12 +871,14 @@ class BitmapSetSpecialMember extends NodeTagVariable {
         let number = -1;
         const numbers = [];
         do {
-            const response = await debug.evaluate(`bms_next_member(${this.evaluateName}, ${number})`, this.frameId);
+            const expression = `bms_next_member(${this.evaluateName}, ${number})`;
+            const response = await debug.evaluate(expression, this.frameId);
             number = Number(response.result);
             if (Number.isNaN(number)) {
                 this.logger.warn(`failed to get set elements for ${this.name}`);
                 return;
             }
+            
             if (number < 0) {
                 break;
             }
@@ -828,37 +891,23 @@ class BitmapSetSpecialMember extends NodeTagVariable {
 
     async getChildren(context: ExecContext) {
         /* All existing members */
-        const members = await Variable.getVariables(this.variablesReference, this.frameId, context, this.logger, this);
+        const members = await Variable.getVariables(this.variablesReference,
+                                                    this.frameId, context,
+                                                    this.logger, this);
         if (members === undefined || members.length === 0) {
             return;
         }
 
-        /* Set members */
-        const setMembers = await this.getSetMembers(context.debug);
+        /* + Set elements */
+        const setMembers = await this.getSetElements(context.debug);
         if (setMembers === undefined) {
             return members;
         }
 
-        members.push(new ScalarVariable('$length$', setMembers.length.toString(), 'int', this));
+        members.push(new ScalarVariable('$length$', setMembers.length.toString(),
+                                        'int', this));
         members.push(new BitmapSetSpecialMember.BmsArrayVariable(this, setMembers));
         return members;
-    }
-
-    static isBmsType(type: string) {
-        /*
-         * Valid bms always have single pointer, since it
-         * uses vla: no pointers - not allowed, more than 1 
-         * is not valid bms type (i.e. it is array)
-         */
-        switch (utils.getPointersCount(type)) {
-            case 0:
-                /* Relids */
-                return utils.getStructNameFromType(type) === 'Relids';
-            case 1:
-                /* Bitmapset * */
-                return utils.getStructNameFromType(type) === 'Bitmapset';
-        }
-        return false;
     }
 
     static BmsElementVariable = class extends Variable {
@@ -897,11 +946,6 @@ class BitmapSetSpecialMember extends NodeTagVariable {
             }
         }
     }
-}
-
-
-export function getWellKnownSpecialMembers(): ArraySpecialMemberInfo[] {
-    return constants.getArraySpecialMembers();
 }
 
 /**
