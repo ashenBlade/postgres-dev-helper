@@ -2,9 +2,9 @@
     "name": "postgresql-hacker-helper",
     "displayName": "PostgreSQL Hacker Helper",
     "description": "Extension to assist Postgres hackers - source code developers",
-    "version": "1.1.2",
+    "version": "1.2.0",
     "engines": {
-        "vscode": "^1.0.0"
+        "vscode": "^1.30.0"
     },
     "categories": [
         "Debuggers"
@@ -138,7 +138,7 @@
         "deploy": "vsce publish"
     },
     "devDependencies": {
-        "@types/vscode": "^1.0.0",
+        "@types/vscode": "^1.30.0",
         "@types/mocha": "^10.0.7",
         "@types/node": "20.x",
         "@typescript-eslint/eslint-plugin": "^7.14.1",
