@@ -5,6 +5,30 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0]
+
+### Added
+
+- Compatibility with PostgreSQL starting from **8.0** version. This includes:
+  - Linked List implementation of `List`
+  - `Bitmapset` traversal using `bms_first_member` and temp object
+  - `Bitmapset` handling for versions up to 16, when it was not Node type
+- Compatibility with VS Code versions starting from **1.30**. But some features
+  can be unaccessible due to API incompatibility.
+  
+  In example some versions do not have `Dump Node to stdout` in variables debug
+  context menu.
+- Add more NodeTags - searched from version 8.0 to 17. Current amount - 558.
+
+### Fixed
+
+- Log level not updated until restart of extension (or VS Code).
+- Invalid Node casting when declared type has `struct` qualifier and NodeTag
+  type do not have it.
+  
+  Example: `typedef JoinPath NestJoin` (for versions up to 14) - failed to show
+  members when declared type is `struct Path *`.
+
 ## [1.1.2]
 
 ### Fixed

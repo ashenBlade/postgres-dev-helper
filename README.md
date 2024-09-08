@@ -17,7 +17,8 @@ They appear in separate action view.
 
 ![Overview of extension](resources/overview.gif)
 
-It behaves like Debug->Variables view, but no colorization (limitations of VS Code Extension framework) and automatically detects real type of `Node *` variables.
+It behaves like Debug->Variables view, but no colorization (limitations of VS
+Code Extension framework) and automatically detects real type of `Node *` variables.
 
 Also, there are intrinsics for some types:
 
@@ -25,20 +26,25 @@ Also, there are intrinsics for some types:
 
 ![List * expansion](resources/list.gif)
 
-- Support for special members like `PlannerInfo->simple_rel_array` - array is displayed using it's length
+- Support for special members like `PlannerInfo->simple_rel_array` - array is
+  displayed using it's length
 
 ![Planner expansion](resources/planner.gif)
 
-Currently, there are 36 registered special members, but you can add your own using [pgsql_hacker_helper.json](#pgsql_hacker_helperjson) configuration file.
+Currently, there are 36 registered special members, but you can add your own 
+using [pgsql_hacker_helper.json](#pgsql_hacker_helperjson) configuration file.
 
-- `Bitmapset` elements with total lengths are displayed: `$elements$` - pseudo-member
+- `Bitmapset` elements are displayed:
+  - `$elements$` - elements of set (array of integers)
+  - `$length$` - number of entries in set
 
 ![Bitmapset expansion](resources/bitmapset.gif)
 
 ### Dump `Node *` state to log
 
-In PostgreSQL there is `pprint(Node *)` which dumps passed Node variable to stdout with pretty printing it.
-Using 'Dump Node to log' option in variable context menu you also will be able to do so.
+In PostgreSQL there is `pprint(Node *)` which dumps passed Node variable to
+stdout with pretty printing it. Using 'Dump Node to log' option in variable
+context menu you also will be able to do so.
 
 ![call pprint](resources/dump.gif)
 
@@ -47,9 +53,9 @@ Using 'Dump Node to log' option in variable context menu you also will be able t
 ### pgsql_hacker_helper.json
 
 This is a configuration file for extension.
-It stored inside `.vscode` directory in your repository - `.vscode/pgsql_hacker_helper.json`.
-You can use config file to extend built-in capabilities if there is no
-support for something yet.
+It stored inside `.vscode` directory in your repository -
+`.vscode/pgsql_hacker_helper.json`. You can use config file to extend built-in
+capabilities if there is no support for something yet.
 
 Example json:
 
@@ -94,21 +100,56 @@ For more info check [configuration file documentation](./docs/config_file.md).
 
 There are 2 settings:
 
-- Log level - set minimum level of log messages in Output channel. By default - `INFO`
-- Files with NodeTag files - list of paths points to files that contain NodeTags. By default - `src/include/nodes/nodes.h`, `src/include/nodes/nodetags.h`
+- Log level - set minimum level of log messages in Output channel.
+  By default - `INFO`
+- Files with NodeTag files - list of paths points to files that contain NodeTags.
+  By default - `src/include/nodes/nodes.h`, `src/include/nodes/nodetags.h`
+
+## Compatibility
+
+Extension tries to be compatible with multiple versions of both VS Code and
+PostgreSQL.
+
+Minimal supported version of:
+
+- `VS Code` - 1.30
+- `PostgreSQL` - 8.0
+
+> It is tested manually and not all use cases might be covered. If you found
+> bug specific to some version please [create issue](https://github.com/ashenBlade/postgres-dev-helper/issues).
+
+Also, extension will target latest VS Code version and try to use the full
+functionality of new versions. So, use latest VS Code versions to get new
+features earlier.
 
 ## Known Issues
 
 Known issues:
 
 - Only tested on gdb debugger, UB for other debuggers (i.e. lldb)
-- If in pointer variable was garbage, extension will not detect it and expand this variable (may be garbage)
-- To get NodeTags extension reads all available NodeTag files (from settings), but
-  these files may be not created (./configure or make not run). I assume by time
-  of debugging start files will be created, so extension catch them and process.
-- Tested only with [ms-vscode.cpptools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools) extension
+- If in pointer variable was garbage, extension will not detect it and expand
+  this variable (may be garbage)
+- To get NodeTags extension reads all available NodeTag files (from settings),
+  but these files may be not created (./configure or make not run). I assume by
+  time of debugging start files will be created, so extension catch them and
+  process.
+- Tested only with [ms-vscode.cpptools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools)
+  extension
 
 ## Release Notes
+
+### 1.2.0
+
+Expand range of supported versions both for PostgreSQL (from 8.0) and VS Code
+(from 1.30).
+
+Add support for Bitmapset for versions below 16.
+
+Add support for List with Linked List implementation.
+
+Fix log level updated only after extension or VS Code reload.
+
+Fix invalid Node cast in some cases when declared type has `struct` keyword.
 
 ### 1.1.2
 
