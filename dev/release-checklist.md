@@ -12,14 +12,22 @@ There tests must be performed for VS Code versions:
 - 1.90 (debugFocus API)
 - latest
 
-And all supported PostgreSQL versions (with latest minor versions):
+And PostgreSQL versions:
 
+- 8.0 (minimal)
+- 8.4
+- 9.0
+- 9.5
+- 9.6
+- 10
+- 11
 - 12
 - 13
 - 14
 - 15
 - 16
 - 17
+- latest
 
 ## Check list
 
@@ -49,6 +57,6 @@ Checks:
 | List                 | `root->processed_tlist`                                                                                                 | List with 2 TargetEntry element: Var and Aggref                          |
 | Refresh variables    | Click refresh button in view                                                                                            | Variables have not changed but refresh in noticeable                     |
 | pprint               | `root`, context menu, 'Dump Node to stdout'                                                                             | Node must be shown in log file                                           |
-| Create config file   | Delete config file (if exists), run task `PgSQL: Open or create configuration file` and click 'Yes'                     | File `pgsql_hacker_helper.json` created in `.vscode` folder              |
+| Create config file   | Delete config file (if exists), run task `PgSQL: Open or create configuration file` | File `pgsql_hacker_helper.json` created in `.vscode` folder              |
 | Open config file     | Create config file (if not exists), make changes and run task `PgSQL: Open or create configuration file`                | Opened config file has same values as changed version                    |
 | Update config file   | Open default config file, add 2 alias types and 1 array special member and run task `PgSQL: Refresh configuration file` | In log must be message about adding 1 array special member and 2 aliases |
