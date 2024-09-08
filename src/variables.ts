@@ -18,7 +18,7 @@ export class NodeVarRegistry {
     nodeTags: Set<string> = new Set<string>(constants.getDefaultNodeTags());
 
     /**
-     * Known aliases for Node variables - `typedef'
+     * Known aliases for Node variables - `typedef RealType* Alias'
      */
     aliases: Map<string, string> = new Map(constants.getDefaultAliases());
 
@@ -230,10 +230,9 @@ export abstract class Variable {
         }
     }
 
-    static async createVariable(
-                    debugVariable: dap.DebugVariable, frameId: number,
-                    context: ExecContext, logger: utils.ILogger,
-                    parent?: RealVariable): Promise<RealVariable | undefined> {
+    static async create(debugVariable: dap.DebugVariable, frameId: number,
+                        context: ExecContext, logger: utils.ILogger,
+                        parent?: RealVariable): Promise<RealVariable | undefined> {
         /* 
          * We pass RealVariable - not generic Variable, 
          * because if we want to use this function - if means 
@@ -263,9 +262,8 @@ export abstract class Variable {
 
         /* NodeTag variables: Node, List, Bitmapset etc.. */
         if (context.nodeVarRegistry.isNodeVar(debugVariable.type)) {
-            const nodeTagVar = await NodeTagVariable
-                .createNodeTagVariable(debugVariable, frameId,
-                                       context, logger, parent);
+            const nodeTagVar = await NodeTagVariable.create(debugVariable, frameId,
+                                                            context, logger, parent);
             if (nodeTagVar) {
                 return nodeTagVar;
             }
@@ -301,7 +299,7 @@ export abstract class Variable {
         }
 
         const variables = await Promise.all(debugVariables.map(variable =>
-            Variable.createVariable(variable, frameId, context, logger, parent))
+            Variable.create(variable, frameId, context, logger, parent))
         );
         return variables.filter(x => x !== undefined);
     }
@@ -310,7 +308,7 @@ export abstract class Variable {
                               context: ExecContext, logger: utils.ILogger,
                               parent?: RealVariable): Promise<Variable[] | undefined> {
         const variables = await (Promise.all(debugVariables.map(v =>
-            Variable.createVariable(v, frameId, context, logger, parent))
+            Variable.create(v, frameId, context, logger, parent))
         ));
         return variables.filter(v => v !== undefined);
     }
@@ -441,18 +439,27 @@ export class NodeTagVariable extends RealVariable {
         this.realNodeTag = realNodeTag.replace('T_', '');
     }
 
-    protected computeRealType() {
+    protected computeRealType(registry: NodeVarRegistry) {
         const tagFromType = utils.getStructNameFromType(this.type);
         if (tagFromType === this.realNodeTag) {
             return this.type;
         }
 
+        /* 
+         * Also try find aliases for some NodeTags
+         */
+
+        const alias = registry.aliases.get(this.realNodeTag);
+        if (alias) {
+            return utils.substituteStructName(this.type, alias);
+        }
+
         return utils.substituteStructName(this.type, this.realNodeTag);
     }
 
-    getRealType(): string {
+    getRealType(registry: NodeVarRegistry): string {
         if (!this.realType) {
-            this.realType = this.computeRealType();
+            this.realType = this.computeRealType(registry);
         }
 
         return this.realType;
@@ -481,25 +488,52 @@ export class NodeTagVariable extends RealVariable {
         };
     }
 
-    async castToRealTag(debug: utils.IDebuggerFacade) {
-        /* 
-         * We should substitute current type with target, because 
-         * there may be qualifiers such `struct' or `const'
-         */
-        const resultType = utils.substituteStructName(this.type, this.realNodeTag);
-        const newVarExpression = `((${resultType})${this.evaluateName})`;
+    private async castToType(debug: utils.IDebuggerFacade, type: string) {
+        const newVarExpression = `((${type})${this.evaluateName})`;
         const response = await debug.evaluate(newVarExpression, this.frameId);
         this.variablesReference = response.variablesReference;
     }
 
-    async getChildren(context: ExecContext): Promise<Variable[] | undefined> {
+    private async castToTag(debug: utils.IDebuggerFacade, tag: string) {
+        /* 
+         * We should substitute current type with target, because 
+         * there may be qualifiers such `struct' or `const'
+         */
+        const resultType = utils.substituteStructName(this.type, tag);
+        await this.castToType(debug, resultType);
+    }
+
+    private async getMembersImpl(context: ExecContext) {
+        const debugVariables = await context.debug.getMembers(this.variablesReference);
+        return await Variable.mapVariables(debugVariables, this.frameId, context,
+                                           this.logger, this);
+    }
+
+    async getChildren(context: ExecContext) {
         if (!this.tagsMatch()) {
-            await this.castToRealTag(context.debug);
+            await this.castToTag(context.debug, this.realNodeTag);
+        }
+        
+        let members = await this.getMembersImpl(context);
+
+        if (members?.length) {
+            return members;
         }
 
-        const debugVariables = await context.debug.getMembers(this.variablesReference);
-        return (await Promise.all(debugVariables.map(dv => Variable.createVariable(dv, this.frameId, context, this.logger, this as RealVariable))))
-            .filter(d => d !== undefined);
+        /*
+         * If declared type has `struct' qualifier, we
+         * can fail cast, because of invalid type specifier.
+         * i.e. declared - `struct Path*' and real node tag
+         * is `T_NestPath'. This will create `struct NestPath*',
+         * but in versions prior to 14 NestPath is typedef
+         * for another struct, so there is no struct NestPath.
+         */
+        if (this.type.indexOf('struct') !== -1) {
+            const structLessType = this.type.replace('struct', '');
+            await this.castToType(context.debug, structLessType);
+            members = await this.getMembersImpl(context);
+        }
+        return members;
     }
 
     static isValidNodeTag(tag: string) {
@@ -523,9 +557,9 @@ export class NodeTagVariable extends RealVariable {
         return realTag;
     }
 
-    static async createNodeTagVariable(variable: dap.DebugVariable, frameId: number,
-                                       context: ExecContext, logger: utils.ILogger,
-                                       parent?: Variable) {
+    static async create(variable: dap.DebugVariable, frameId: number,
+                        context: ExecContext, logger: utils.ILogger,
+                        parent?: Variable) {
         if (!context.nodeVarRegistry.isNodeVar(variable.type)) {
             return;
         }
@@ -580,8 +614,8 @@ export class ListNodeTagVariable extends NodeTagVariable {
         super(nodeTag, args, logger);
     }
 
-    getMemberExpression(member: string) {
-        return `((${this.getRealType()})${this.value})->${member}`
+    getMemberExpression(member: string, registry: NodeVarRegistry) {
+        return `((${this.getRealType(registry)})${this.value})->${member}`
     }
 
     protected isExpandable(): boolean {
@@ -658,7 +692,7 @@ export class ListNodeTagVariable extends NodeTagVariable {
     }
 
     private async castToList(context: ExecContext) {
-        const realType = this.getRealType();
+        const realType = this.getRealType(context.nodeVarRegistry);
         const castExpression = `(${realType}) (${this.evaluateName})`;
         const response = await context.debug.evaluate(castExpression, this.frameId);
         if (!Number.isInteger(response.variablesReference)) {
@@ -689,7 +723,7 @@ export class ListNodeTagVariable extends NodeTagVariable {
                 members.push(this.createArrayNodeElementsMember(dv));
                 isArrayImplementation = true;
             } else {
-                const v = await Variable.createVariable(dv, this.frameId, context,
+                const v = await Variable.create(dv, this.frameId, context,
                                                         this.logger, this);
                 if (v) {
                     members.push(v);
@@ -730,7 +764,8 @@ export class ListNodeTagVariable extends NodeTagVariable {
         }
 
         private async getListLength(context: ExecContext) {
-            const lengthExpression = this.listParent.getMemberExpression('length');
+            const lengthExpression = this.listParent.getMemberExpression('length',
+                                                            context.nodeVarRegistry);
             const evalResult = await context.debug.evaluate(lengthExpression,
                 this.listParent.frameId);
             const length = Number(evalResult.result);
@@ -747,7 +782,9 @@ export class ListNodeTagVariable extends NodeTagVariable {
                 return;
             }
 
-            const expression = `(Node **)(${this.listParent.getMemberExpression('elements')})`;
+            const listType = this.listParent.getMemberExpression('elements',
+                                                                 context.nodeVarRegistry);
+            const expression = `(Node **)(${listType})`;
             return super.getArrayMembers(expression, length, context);
         }
 
@@ -836,7 +873,8 @@ export class ListNodeTagVariable extends NodeTagVariable {
              * So we do not need to evaluate length.
              */
             const elements: dap.DebugVariable[] = [];
-            const headExpression = this.listParent.getMemberExpression('head');
+            const headExpression = this.listParent.getMemberExpression('head',
+                                                                       context.nodeVarRegistry);
             let evaluateName = headExpression;
             let cell = await context.debug.evaluate(headExpression, this.frameId);
             let i = 0;
