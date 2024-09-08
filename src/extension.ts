@@ -560,12 +560,10 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
 
 async function setupNodeTagFiles(execCtx: vars.ExecContext, log: utils.ILogger,
     context: vscode.ExtensionContext): Promise<undefined> {
-    const section = vscode.workspace.getConfiguration(Configuration.ConfigSections.TopLevelSection);
-    const nodeTagFiles = section.get<string[]>(Configuration.ConfigSections.NodeTagFiles);
+    const nodeTagFiles = Configuration.getNodeTagFiles();
 
     if (!nodeTagFiles?.length) {
-        const fullSectionName = Configuration.ConfigSections.fullSection(Configuration.ConfigSections.NodeTagFiles);
-        log.error(`no NodeTag files defined. check ${fullSectionName} setting`);
+        log.error(`no NodeTag files defined in configuration`);
         return;
     }
 
@@ -591,8 +589,8 @@ async function setupNodeTagFiles(execCtx: vars.ExecContext, log: utils.ILogger,
 
             7
             const filePattern = new vscode.RelativePattern(folder, file);
-            const watcher = vscode.workspace.createFileSystemWatcher(filePattern, false,
-                false, true);
+            const watcher = vscode.workspace.createFileSystemWatcher(filePattern,
+                false, false, true);
             watcher.onDidChange(uri => {
                 log.info(`detected change in NodeTag file: ${uri.fsPath}`);
                 handleNodeTagFile(uri);
@@ -622,6 +620,27 @@ async function setupNodeTagFiles(execCtx: vars.ExecContext, log: utils.ILogger,
     }, undefined, context.subscriptions);
 }
 
+export function getCurrentLogLevel() {
+    const configValue = Configuration.getLogLevel();
+    if (typeof configValue !== 'string') {
+        return utils.LogLevel.Info;
+    }
+    switch (configValue) {
+        case 'INFO':
+            return utils.LogLevel.Info;
+        case 'DEBUG':
+            return utils.LogLevel.Debug;
+        case 'WARNING':
+            return utils.LogLevel.Warn;
+        case 'ERROR':
+            return utils.LogLevel.Error;
+        case 'DISABLE':
+            return utils.LogLevel.Disable;
+        default:
+            return utils.LogLevel.Info;
+    }
+}
+
 export class Configuration {
     static ExtensionName = 'postgresql-hacker-helper';
     static ExtensionPrettyName = 'PostgreSQL Hacker Helper';
@@ -629,7 +648,6 @@ export class Configuration {
         TopLevelSection: `${this.ExtensionName}`,
         NodeTagFiles: 'nodeTagFiles',
         LogLevel: 'logLevel',
-        fullSection: (section: string) => `${this.ExtensionName}.${section}`,
     };
     static Commands = {
         DumpNodeToLog: `${this.ExtensionName}.dumpNodeToLog`,
@@ -641,7 +659,23 @@ export class Configuration {
         NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`,
     };
     static ExtensionSettingsFileName = 'pgsql_hacker_helper.json';
-    static Contexts = {
-        ExtensionActivated: `${this.ExtensionName}:activated`
+
+    static getLogLevel() {
+        return this.getConfig<string>(this.ConfigSections.LogLevel) ?? '';
+    };
+    static getNodeTagFiles() {
+        return this.getConfig<string[]>(this.ConfigSections.NodeTagFiles) ?? [];
+    };
+    static getConfig<T>(section: string) {
+        const topLevelSection = this.ConfigSections.TopLevelSection
+        const config = vscode.workspace.getConfiguration(topLevelSection);
+        return config.get<T>(section);
+    };
+    static getFullConfigSection(section: string) {
+        return `${this.ConfigSections.TopLevelSection}.${section}`;
+    }
+    static setExtensionActive(status: boolean) {
+        const context = `${this.ExtensionName}:activated`;
+        vscode.commands.executeCommand('setContext', context, status);
     }
 }

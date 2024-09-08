@@ -127,7 +127,8 @@ export enum LogLevel {
 export class VsCodeLogger implements ILogger {
     minLogLevel: LogLevel;
 
-    constructor(private readonly channel: vscode.OutputChannel,
+    constructor(
+        private readonly channel: vscode.OutputChannel,
         minLogLevel: LogLevel) {
         this.minLogLevel = minLogLevel;
     }

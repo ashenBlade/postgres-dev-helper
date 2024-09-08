@@ -4,6 +4,7 @@ import * as utils from './utils';
 import {
     NodePreviewTreeViewProvider as PostgresVariablesView,
     Configuration as config,
+    getCurrentLogLevel,
     setupExtension
 } from './extension';
 
@@ -26,47 +27,27 @@ function createOutputChannel() {
 
 function createLogger(context: vscode.ExtensionContext): utils.VsCodeLogger {
     const outputChannel = createOutputChannel();
-    const configuration = vscode.workspace.getConfiguration(config.ConfigSections.TopLevelSection);
-    const getLogLevel = () => {
-        const configValue = configuration.get(config.ConfigSections.LogLevel);
-        if (typeof configValue !== 'string') {
-            return utils.LogLevel.Info;
-        }
-        switch (configValue) {
-            case 'INFO':
-                return utils.LogLevel.Info;
-            case 'DEBUG':
-                return utils.LogLevel.Debug;
-            case 'WARNING':
-                return utils.LogLevel.Warn;
-            case 'ERROR':
-                return utils.LogLevel.Error;
-            case 'DISABLE':
-                return utils.LogLevel.Disable;
-            default:
-                outputChannel.appendLine(`Unknown log level '${configValue}' - setting to 'INFO'`);
-                return utils.LogLevel.Info;
-        }
-    }
-    const logger = new utils.VsCodeLogger(outputChannel, getLogLevel());
+    const logger = new utils.VsCodeLogger(outputChannel, getCurrentLogLevel());
     const logLevel = config.ConfigSections.LogLevel;
-    const fullConfigSectionName = config.ConfigSections.fullSection(logLevel);
+    const fullConfigSectionName = config.getFullConfigSection(logLevel);
     vscode.workspace.onDidChangeConfiguration(event => {
         if (!event.affectsConfiguration(fullConfigSectionName)) {
             return;
         }
 
-        logger.minLogLevel = getLogLevel();
+        logger.minLogLevel = getCurrentLogLevel();
     }, undefined, context.subscriptions);
 
     context.subscriptions.push(outputChannel);
     return logger;
 }
 
-function createPostgresVariablesView(context: vscode.ExtensionContext, logger: utils.ILogger,
+function createPostgresVariablesView(context: vscode.ExtensionContext,
+                                     logger: utils.ILogger,
                                      execContext: vars.ExecContext) {
     const nodesView = new PostgresVariablesView(logger, execContext);
-    const treeDisposable = vscode.window.registerTreeDataProvider(config.Views.NodePreviewTreeView,
+    const nodesViewName = config.Views.NodePreviewTreeView;
+    const treeDisposable = vscode.window.registerTreeDataProvider(nodesViewName,
                                                                   nodesView);
     context.subscriptions.push(treeDisposable);
     return nodesView;
@@ -108,13 +89,14 @@ export function activate(context: vscode.ExtensionContext) {
                 
         setupDebugger(nodesView, logger, context);
 
-        vscode.commands.executeCommand('setContext', config.Contexts.ExtensionActivated, true);
+        config.setExtensionActive(true);
         logger.info('Extension activated');
     } catch (error) {
         logger.error('Failed to activate extension', error);
+        config.setExtensionActive(false);
     }
 }
 
 export function deactivate() {
-    vscode.commands.executeCommand('setContext', config.Contexts.ExtensionActivated, false);
+    config.setExtensionActive(false);
 }
