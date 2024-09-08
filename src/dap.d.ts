@@ -128,7 +128,7 @@ export interface DebugVariable {
      * This attribute may be returned by a debug adapter if corresponding
      * capability `supportsMemoryReferences` is true.
      */
-    memoryReference: string;
+    memoryReference?: string;
 }
 
 export interface VariablesResponse {

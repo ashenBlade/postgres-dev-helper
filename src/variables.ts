@@ -991,6 +991,29 @@ class BitmapSetSpecialMember extends NodeTagVariable {
             return;
         }
 
+        /* 
+         * Most likely, we use new Bitmapset API, 
+         * but fallback with old-styled 
+         */
+        let result = await this.getSetElementsNextMember(debug);
+        if (result === undefined) {
+            result = await this.getSetElementsFirstMember(debug);
+        }
+        return result;
+    }
+
+    private async getSetElementsNextMember(debug: utils.IDebuggerFacade): Promise<number[] | undefined> {
+        /* 
+         * Current style (from 9.3) of reading Bitmapset values:
+         * 
+         * Bitmapset *bms;
+         * int x = -1;
+         * while ((x = bms_next_member(bms, x)) > 0)
+         * {
+         *    ...
+         * }
+         */
+        
         let number = -1;
         const numbers = [];
         do {
@@ -1008,6 +1031,51 @@ class BitmapSetSpecialMember extends NodeTagVariable {
 
             numbers.push(number);
         } while (number > 0);
+        return numbers;
+    }
+
+    private async getSetElementsFirstMember(debug: utils.IDebuggerFacade): Promise<number[] | undefined> {
+        /*
+         * Old style (prior to 9.2) of reading Bitmapset values:
+         * 
+         * Bitmapset *bms;
+         * Bitmapset *tmp;
+         * tmp = bms_copy(bms);
+         * 
+         * int x;
+         * while ((x = bms_first_member(tmp)) > 0)
+         * {
+         *    ...
+         * }
+         * 
+         * pfree(tmp);
+         */
+        const tmpSet = await debug.evaluate(`bms_copy(${this.evaluateName})`,
+                                            this.frameId);
+
+        if (!utils.isValidPointer(tmpSet.result)) {
+            return;
+        }
+
+        let number = -1;
+        const numbers = [];
+        do {
+            const expression = `bms_first_member((Bitmapset*)${tmpSet.result})`;
+            const response = await debug.evaluate(expression, this.frameId);
+            number = Number(response.result);
+            if (Number.isNaN(number)) {
+                this.logger.warn(`failed to get set elements for ${this.name}`);
+                return;
+            }
+
+            if (number < 0) {
+                break;
+            }
+
+            numbers.push(number);
+        } while (number > 0);
+
+        await debug.evaluate(`pfree((Bitmapset*)${tmpSet.result})`, this.frameId);
 
         return numbers;
     }

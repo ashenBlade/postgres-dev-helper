@@ -242,7 +242,7 @@ export class VsCodeDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
              */
             const variables: dap.DebugVariable[] = [];
             for (let i = 0; i < length; i++) {
-                const expression = `${array}[${i}]`;
+                const expression = `(${array})[${i}]`;
                 const evalResponse = await this.evaluate(expression, frameId);
                 const variable = {
                     evaluateName: expression,
