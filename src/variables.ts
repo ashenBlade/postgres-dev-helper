@@ -89,24 +89,12 @@ export class NodeVarRegistry {
          *  - As for pointer - only single `*' creates valid Node* variable that we can 
          *      work with
          * 
-         * Also, there might be aliases - check them also
+         * Aliases must be checked at start. So do not handle them here
          */
         let typeName = utils.getStructNameFromType(type);
-        if (this.nodeTags.has(typeName) && utils.getPointersCount(type) === 1) {
-            /* [const] [struct] NAME * */
-            return true;
-        }
 
-        const alias = this.aliases.get(typeName);
-        if (alias) {
-            /* typedef NAME *ALIAS */
-            type = utils.substituteStructName(type, alias);
-            typeName = utils.getStructNameFromType(type);
-            return this.nodeTags.has(typeName)
-                && utils.getPointersCount(type) === 1;
-        }
-
-        return false;
+        /* [const] [struct] NAME * */
+        return this.nodeTags.has(typeName) && utils.getPointersCount(type) === 1
     }
 
     /**
@@ -230,6 +218,26 @@ export abstract class Variable {
         }
     }
 
+    /**
+     * Utility function to handle type aliases.
+     * This is required to properly handle other types.
+     * 
+     * For example, `MemoryContext' - alias for `MemoryContextData *'
+     * and it does not have is's own NodeTag. So when performing
+     * cast we get subtle error because we cast to type `AllocSetContext'
+     * (without pointer).
+     */
+    private static checkForAlias(debugVariable: dap.DebugVariable, context: ExecContext) {
+        const structName = utils.getStructNameFromType(debugVariable.type);
+        const alias = context.nodeVarRegistry.aliases.get(structName);
+        if (!alias) {
+            return;
+        }
+
+        const resultType = utils.substituteStructName(debugVariable.type, alias);
+        debugVariable.type = resultType;
+    }
+
     static async create(debugVariable: dap.DebugVariable, frameId: number,
                         context: ExecContext, logger: utils.ILogger,
                         parent?: RealVariable): Promise<RealVariable | undefined> {
@@ -247,6 +255,8 @@ export abstract class Variable {
                 parent
             }, logger);
         }
+
+        this.checkForAlias(debugVariable, context);
 
         /* 
          * PostgreSQL versions prior 16 do not have Bitmapset Node.

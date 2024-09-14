@@ -1,11 +1,17 @@
 export function getDefaultNodeTags(): string[] {
     /* Compiled from versions from 8.0 to 17 */
     return [
-        /* Pseudo NodeTags */
+        /* 
+         * Pseudo NodeTags.
+         * They are abstract Nodes that do not
+         * have own NodeTag, but they must be
+         * handled as `Node' - get real NodeTag
+         */
         'Node',
         'Expr',
         'Plan',
-        
+        'MemoryContextData',
+
         'A_ArrayExpr',
         'AccessPriv',
         'A_Const',
@@ -573,7 +579,8 @@ export function getDefaultNodeTags(): string[] {
  */
 export function getDefaultAliases(): [string, string][] {
     return [
-        ['Relids', 'Bitmapset *']
+        ['Relids', 'Bitmapset *'],
+        ['MemoryContext', 'MemoryContextData *']
     ]
 }
 
@@ -676,7 +683,7 @@ export function getArraySpecialMembers(): ArraySpecialMember[] {
 
         _('Memoize', 'hashOperators', 'numKeys'),
         _('Memoize', 'collations', 'numKeys'),
-        
+
         _('Sort', 'sortColIdx', 'numCols'),
         _('Sort', 'sortOperators', 'numCols'),
         _('Sort', 'collations', 'numCols'),
@@ -716,8 +723,8 @@ export function getArraySpecialMembers(): ArraySpecialMember[] {
 
         _('PartitionedRelPruneInfo', 'subplan_map', 'nparts'),
         _('PartitionedRelPruneInfo', 'subpart_map', 'nparts'),
-        _('PartitionedRelPruneInfo', 'relid_map', 'nparts'), 
-        
+        _('PartitionedRelPruneInfo', 'relid_map', 'nparts'),
+
         _('PLpgSQL_row', 'fieldnames', 'nfields'),
         _('PLpgSQL_stmt_block', 'initvarnoss', 'n_initvars'),
         _('PLpgSQL_function', 'datums', 'ndatums'),
@@ -818,6 +825,6 @@ export function getArraySpecialMembers(): ArraySpecialMember[] {
 
         _('TestSpec', 'setupsqls', 'nsetupsqls'),
         _('TestSpec', 'sessions', 'nsesssions'),
-        _('TestSpec', 'permutations', 'npermutations'),        
+        _('TestSpec', 'permutations', 'npermutations'),
     ];
 }
