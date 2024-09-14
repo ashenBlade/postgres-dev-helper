@@ -2,8 +2,6 @@ import * as vscode from 'vscode';
 import * as utils from './utils';
 import * as dap from './dap';
 import * as vars from './variables';
-import * as fs from 'fs';
-import { register } from 'module';
 
 
 export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars.Variable> {
@@ -168,9 +166,9 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
     try {
         await debug.evaluate(expression, undefined);
     } catch (err: any) {
-        log.error(`could not dump variable ${variable.name} to log`, err);
+        log.error('could not dump variable %s to log', variable.name, err);
         vscode.window.showErrorMessage(`Could not dump variable ${variable.name}. `
-            + `See errors in Output log`)
+                                     + `See errors in Output log`)
     }
 }
 
@@ -359,7 +357,7 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
         try {
             doc = await vscode.workspace.openTextDocument(pathToFile);
         } catch (err: any) {
-            logger.error(`failed to read settings file ${pathToFile.fsPath}`, err);
+            logger.error('failed to read settings file %s', pathToFile, err);
             return;
         }
 
@@ -367,7 +365,7 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
         try {
             text = doc.getText();
         } catch (err: any) {
-            logger.error(`failed to read settings file ${doc.uri.fsPath}`, err);
+            logger.error('failed to read settings file %s', doc.uri, err);
             return;
         }
 
@@ -375,7 +373,7 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
         try {
             data = JSON.parse(text);
         } catch (err: any) {
-            logger.error(`failed to parse JSON settings file ${doc.uri.fsPath}`, err);
+            logger.error('failed to parse JSON settings file %s', doc.uri, err);
             return;
         }
 
@@ -383,17 +381,17 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
         try {
             parseResult = parseConfigurationFile(data);
         } catch (err: any) {
-            logger.error(`failed to parse JSON settings file ${doc.uri.fsPath}`, err);
+            logger.error('failed to parse JSON settings file %s', doc.uri, err);
             return;
         }
 
         if (parseResult) {
             if (parseResult.arrayInfos?.length) {
-                logger.debug(`adding ${parseResult.arrayInfos.length} array special members from config file`);
+                logger.debug('adding %i array special members from config file', parseResult.arrayInfos.length);
                 execCtx.specialMemberRegistry.addArraySpecialMembers(parseResult.arrayInfos);
             }
             if (parseResult.aliasInfos?.length) {
-                logger.debug(`adding ${parseResult.aliasInfos.length} aliases from config file`);
+                logger.debug('adding %i aliases from config file', parseResult.aliasInfos.length);
                 execCtx.nodeVarRegistry.addAliases(parseResult.aliasInfos);
             }
         }
@@ -408,7 +406,7 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
             if (await utils.fileExists(pathToFile)) {
                 await processSingleConfigFile(pathToFile);
             } else {
-                logger.debug(`config file ${pathToFile.fsPath} does not exist`);
+                logger.debug('config file %s does not exist', pathToFile.fsPath);
             }
         }
     }
@@ -416,7 +414,7 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
     /* Refresh config files when debug session starts */
     vscode.debug.onDidStartDebugSession(async _ => {
         if (vscode.workspace.workspaceFolders?.length) {
-            logger.info(`refreshing configuration files due to debug session start`)
+            logger.info('refreshing configuration files due to debug session start')
             await refreshConfigurationFromFolders(vscode.workspace.workspaceFolders);
         }
     }, undefined, context.subscriptions);
@@ -426,7 +424,7 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
         try {
             await dumpVariableToLogCommand(args, logger, execCtx.debug);
         } catch (err: any) {
-            logger.error(`error while dumping node to log`, err);
+            logger.error('error while dumping node to log', err);
         }
     };
 
@@ -449,13 +447,13 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
                     return;
                 }
 
-                logger.debug(`creating ${configFilePath} configuration file`);
+                logger.debug('creating %s configuration file', configFilePath.fsPath);
                 const configDirectoryPath = utils.joinPath(configFilePath, '..');
                 if (!await utils.directoryExists(configDirectoryPath)) {
                     try {
                         await utils.createDirectory(configDirectoryPath);
                     } catch (err) {
-                        logger.error(`failed to create config directory`, err);
+                        logger.error('failed to create config directory', err);
                         return;
                     }
                 }
@@ -471,7 +469,7 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
                         },
                         undefined, '    '));
                 } catch (err: any) {
-                    logger.error(`Could not write default configuration file`, err);
+                    logger.error('Could not write default configuration file', err);
                     vscode.window.showErrorMessage('Error creating configuration file');
                     return;
                 }
@@ -481,14 +479,14 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
             try {
                 doc = await vscode.workspace.openTextDocument(configFilePath);
             } catch (err: any) {
-                logger.error(`failed to open configuration file`, err);
+                logger.error('failed to open configuration file', err);
                 return;
             }
 
             try {
                 await vscode.window.showTextDocument(doc);
             } catch (err: any) {
-                logger.error(`failed to show configuration file`, err);
+                logger.error('failed to show configuration file', err);
                 return;
             }
 
@@ -503,14 +501,16 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
             return;
         }
 
-        logger.info(`refreshing config file due to command execution`);
+        logger.info('refreshing config file due to command execution');
         for (const folder of vscode.workspace.workspaceFolders) {
             const configFilePath = utils.joinPath(
                 folder.uri,
                 '.vscode',
                 Configuration.ExtensionSettingsFileName);
             if (!await utils.fileExists(configFilePath)) {
-                const answer = await vscode.window.showWarningMessage(`Config file does not exist. Create?`, 'Yes', 'No');
+                const answer = await vscode.window.showWarningMessage(
+                    'Config file does not exist. Create?',
+                    'Yes', 'No');
                 if (answer !== 'Yes') {
                     return;
                 }
@@ -522,13 +522,13 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
             try {
                 await processSingleConfigFile(configFilePath);
             } catch (err: any) {
-                logger.error(`failed to update config file`, err);
+                logger.error('failed to update config file', err);
             }
         }
     };
 
     const refreshVariablesCommand = () => {
-        logger.info(`refreshing variables view due to command`)
+        logger.info('refreshing variables view due to command')
         nodesView.refresh();
     };
 
@@ -563,7 +563,7 @@ async function setupNodeTagFiles(execCtx: vars.ExecContext, log: utils.ILogger,
     const nodeTagFiles = Configuration.getNodeTagFiles();
 
     if (!nodeTagFiles?.length) {
-        log.error(`no NodeTag files defined in configuration`);
+        log.error('no NodeTag files defined in configuration');
         return;
     }
 
@@ -572,13 +572,13 @@ async function setupNodeTagFiles(execCtx: vars.ExecContext, log: utils.ILogger,
             return;
         }
 
-        log.debug(`processing ${path.fsPath} NodeTags file`);
+        log.debug('processing %s NodeTags file', path.fsPath);
         const document = await vscode.workspace.openTextDocument(path)
         try {
             const added = execCtx.nodeVarRegistry.updateNodeTypesFromFile(document);
-            log.debug(`added ${added} NodeTags from ${path.fsPath} file`);
+            log.debug('added %i NodeTags from %s file', added, path.fsPath);
         } catch (err: any) {
-            log.error(`could not initialize node tags array`, err);
+            log.error('could not initialize node tags array', err);
         }
     }
 
@@ -592,11 +592,11 @@ async function setupNodeTagFiles(execCtx: vars.ExecContext, log: utils.ILogger,
             const watcher = vscode.workspace.createFileSystemWatcher(filePattern,
                 false, false, true);
             watcher.onDidChange(uri => {
-                log.info(`detected change in NodeTag file: ${uri.fsPath}`);
+                log.info('detected change in NodeTag file: %s', uri);
                 handleNodeTagFile(uri);
             }, context.subscriptions);
             watcher.onDidCreate(uri => {
-                log.info(`detected creation of NodeTag file: ${uri.fsPath}`);
+                log.info('detected creation of NodeTag file: %s', uri);
                 handleNodeTagFile(uri);
             }, context.subscriptions);
     
@@ -645,7 +645,7 @@ export class Configuration {
     static ExtensionName = 'postgresql-hacker-helper';
     static ExtensionPrettyName = 'PostgreSQL Hacker Helper';
     static ConfigSections = {
-        TopLevelSection: `${this.ExtensionName}`,
+        TopLevelSection: this.ExtensionName,
         NodeTagFiles: 'nodeTagFiles',
         LogLevel: 'logLevel',
     };

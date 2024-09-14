@@ -558,8 +558,10 @@ export class NodeTagVariable extends RealVariable {
         return utils.getStructNameFromType(type);
     }
 
-    static async getRealNodeTag(variable: dap.DebugVariable, frameId: number, context: ExecContext) {
-        const response = await context.debug.evaluate(`((Node*)(${variable.evaluateName}))->type`, frameId);
+    static async getRealNodeTag(variable: dap.DebugVariable, frameId: number,
+                                context: ExecContext) {
+        const nodeTagExpression = `((Node*)(${variable.evaluateName}))->type`;
+        const response = await context.debug.evaluate(nodeTagExpression, frameId);
         let realTag = response.result?.replace('T_', '');
         if (!this.isValidNodeTag(realTag)) {
             return;
@@ -618,7 +620,7 @@ export class NodeTagVariable extends RealVariable {
 
 /**
  * Special class to represent various Lists: Node, int, Oid, Xid...
-*/
+ */
 export class ListNodeTagVariable extends NodeTagVariable {
     constructor(nodeTag: string, args: RealVariableArgs, logger: utils.ILogger) {
         super(nodeTag, args, logger);
@@ -653,7 +655,8 @@ export class ListNodeTagVariable extends NodeTagVariable {
                 realType = 'TransactionId';
                 break;
             default:
-                this.logger.warn(`failed to determine List tag for ${this.name}->elements. using int value`);
+                this.logger.warn('failed to determine List tag for %s->elements. using int value',
+                                 this.name);
                 break;
         }
 
@@ -685,7 +688,8 @@ export class ListNodeTagVariable extends NodeTagVariable {
                 realType = 'TransactionId';
                 break;
             default:
-                this.logger.warn(`failed to determine List tag for ${this.name}->elements. using int value`);
+                this.logger.warn('failed to determine List tag for %s->elements. using int value',
+                                 this.name);
                 break;
         }
 
@@ -706,7 +710,8 @@ export class ListNodeTagVariable extends NodeTagVariable {
         const castExpression = `(${realType}) (${this.evaluateName})`;
         const response = await context.debug.evaluate(castExpression, this.frameId);
         if (!Number.isInteger(response.variablesReference)) {
-            this.logger.warn(`failed to cast ${this.evaluateName} to List*: ${response.result}`);
+            this.logger.warn('failed to cast %s to List*: %s',
+                             this.evaluateName, response.result);
             return;
         }
 
@@ -780,7 +785,8 @@ export class ListNodeTagVariable extends NodeTagVariable {
                 this.listParent.frameId);
             const length = Number(evalResult.result);
             if (Number.isNaN(length)) {
-                this.logger.warn(`failed to obtain list size for ${this.listParent.name}`);
+                this.logger.warn('failed to obtain list size for %s',
+                                 this.listParent.name);
                 return;
             }
             return length;
@@ -950,7 +956,8 @@ export class ArraySpecialMember extends RealVariable {
                                                         this.frameId);
         const arrayLength = Number(evalResult.result);
         if (Number.isNaN(arrayLength)) {
-            this.logger.warn(`failed to obtain array size using ${lengthExpression}`);
+            this.logger.warn('failed to obtain array size using %s',
+                             lengthExpression);
             return;
         }
 
@@ -1017,7 +1024,8 @@ class BitmapSetSpecialMember extends NodeTagVariable {
                  */
                 if (bp.functionName === 'bms_next_member' ||
                     bp.functionName === 'bms_first_member') {
-                    this.logger.debug(`found breakpoint at ${bp.functionName} - bms elements not shown`);
+                    this.logger.debug('found breakpoint at %s - bms elements not shown',
+                                      bp.functionName);
                     return false;    
                 }
             }
@@ -1073,7 +1081,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
             const response = await debug.evaluate(expression, this.frameId);
             number = Number(response.result);
             if (Number.isNaN(number)) {
-                this.logger.warn(`failed to get set elements for ${this.name}`);
+                this.logger.warn('failed to get set elements for %s', this.name);
                 return;
             }
 
@@ -1116,7 +1124,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
             const response = await debug.evaluate(expression, this.frameId);
             number = Number(response.result);
             if (Number.isNaN(number)) {
-                this.logger.warn(`failed to get set elements for ${this.name}`);
+                this.logger.warn('failed to get set elements for %s', this.name);
                 return;
             }
 

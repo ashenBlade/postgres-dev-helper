@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as dap from "./dap";
 import path from 'path';
+import * as util from 'util';
 import { Stats as FileStats, mkdir, stat, writeFile as fsWritefile } from 'fs';
 
 const nullPointer = '0x0';
@@ -110,10 +111,10 @@ export function isRawStruct(variable: { parent?: {}, value: string }) {
 }
 
 export interface ILogger {
-    debug: (message: string, error?: any) => void;
-    info: (message: string, error?: any) => void;
-    warn: (message: string, error?: any) => void;
-    error: (message: string, error?: any) => void;
+    debug: (message: string, ...args: any[]) => void;
+    info: (message: string, ...args: any[]) => void;
+    warn: (message: string, ...args: any[]) => void;
+    error: (message: string, ...args: any[]) => void;
 }
 
 export enum LogLevel {
@@ -133,49 +134,34 @@ export class VsCodeLogger implements ILogger {
         this.minLogLevel = minLogLevel;
     }
 
-    logGeneric(level: LogLevel, levelStr: string, message: string, error?: any) {
+    logGeneric(level: LogLevel, levelStr: string, message: string, ...args: any[]) {
         if (level < this.minLogLevel) {
             return;
         }
-        
+
         /* YYYY-mm-ddTHH:MM:SS.ffffZ -> YYYY-mm-dd HH:MM:SS.ffff */
         const timestamp = new Date().toISOString()
                                     .replace('T', ' ')
                                     .replace('Z', '');
-        /* TIMESTAMP [LEVEL]: MESSAGE: EXCEPTION */
-        let msg = `${timestamp} [${levelStr}]: ${message}`;
-        if (error) {
-            let errMsg;
-            if (error instanceof Error) {
-                /* Also include stack trace */
-                errMsg = error.message;
-                if (error.stack) {
-                    errMsg += '\n' + error.stack;
-                }
-            } else if (error instanceof String) {
-                errMsg = error;
-            } else if (error.message instanceof String && error.message) {
-                errMsg = error.message;
-            } else {
-                errMsg = JSON.stringify(error);
-            }
+        /* TIMESTAMP [LEVEL]: MESSAGE EXCEPTION */
+        this.channel.append(timestamp);
+        this.channel.append(' [');
+        this.channel.append(levelStr);
+        this.channel.append(']: ');
+        this.channel.appendLine(util.format(message, ...args));
+    }
 
-            msg += `: ${errMsg}`;
-        }
-
-        this.channel.appendLine(msg);
+    debug(message: string, ...args: any[]) {
+        this.logGeneric(LogLevel.Debug, 'DEBUG', message, ...args);
     }
-    debug(message: string, error?: any) {
-        this.logGeneric(LogLevel.Debug, 'DEBUG', message, error);
+    info(message: string, ...args: any[]) {
+        this.logGeneric(LogLevel.Info, 'INFO', message, ...args);
     }
-    info(message: string, error?: any) {
-        this.logGeneric(LogLevel.Info, 'INFO', message, error);
+    warn(message: string, ...args: any[]) {
+        this.logGeneric(LogLevel.Warn, 'WARN', message, ...args);
     }
-    warn(message: string, error?: any) {
-        this.logGeneric(LogLevel.Warn, 'WARN', message, error);
-    }
-    error(message: string, error?: any) {
-        this.logGeneric(LogLevel.Error, 'ERROR', message, error);
+    error(message: string, ...args: any[]) {
+        this.logGeneric(LogLevel.Error, 'ERROR', message, ...args);
     }
 }
 
