@@ -1001,10 +1001,14 @@ class BitmapSetSpecialMember extends NodeTagVariable {
                     return false;
                 }
             } else if (bp instanceof vscode.FunctionBreakpoint) {
-                /* Need to check only bms_next_member */
-                if (bp.functionName === 'bms_next_member') {
-                    this.logger.debug('found breakpoint at bms_next_member - set elements not shown');
-                    return false;
+                /* 
+                 * Need to check functions that are called to
+                 * get set elements
+                 */
+                if (bp.functionName === 'bms_next_member' ||
+                    bp.functionName === 'bms_first_member') {
+                    this.logger.debug(`found breakpoint at ${bp.functionName} - bms elements not shown`);
+                    return false;    
                 }
             }
         }
