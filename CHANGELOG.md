@@ -5,6 +5,19 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1]
+
+### Changed
+
+- `aliases` parameter in configuration file now works for every type, not only
+  Node types.
+
+### Fixed
+
+- Check breakpoint in `bms_first_member` function to avoid infinite loop when
+  evaluating bms elements.
+- Add support for `MemoryContext` Node
+
 ## [1.2.0]
 
 ### Added

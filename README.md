@@ -138,6 +138,12 @@ Known issues:
 
 ## Release Notes
 
+### 1.2.1
+
+Add check for breakpoint in `bms_first_member` to avoid infinite loop.
+
+Add support for `MemoryContext` Node.
+
 ### 1.2.0
 
 Expand range of supported versions both for PostgreSQL (from 8.0) and VS Code
