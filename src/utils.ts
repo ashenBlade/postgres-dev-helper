@@ -116,6 +116,7 @@ export interface ILogger {
     info: (message: string, ...args: any[]) => void;
     warn: (message: string, ...args: any[]) => void;
     error: (message: string, ...args: any[]) => void;
+    focus: () => void;
 }
 
 export enum LogLevel {
@@ -163,6 +164,40 @@ export class VsCodeLogger implements ILogger {
     }
     error(message: string, ...args: any[]) {
         this.logGeneric(LogLevel.Error, 'ERROR', message, ...args);
+    }
+    focus() {
+        this.channel.show(true);
+    }
+}
+
+export class VsCodeLogChannelLogger implements ILogger {
+    constructor(
+        readonly channel: vscode.LogOutputChannel) {
+    }
+
+    debug(message: string, ...args: any[]) {
+        this.channel.debug(message, ...args);
+    }
+
+    info(message: string, ...args: any[]) {
+        this.channel.info(message, ...args);
+    }
+
+    warn(message: string, ...args: any[]) {
+        this.channel.warn(message, ...args);
+    }
+
+    error(message: string, ...args: any[]) {
+        let err = undefined;
+        if (args.length > 0 && args[args.length - 1] instanceof Error) {
+            err = args.pop();
+        }
+
+        this.channel.error(message, args);
+        this.channel.error(err);
+    }
+    focus() {
+        this.channel.show(true);
     }
 }
 
@@ -588,6 +623,7 @@ let hasArrayLengthFeature: boolean | undefined = undefined;
 let logOutputLanguageEnabled: boolean | undefined = undefined;
 let hasWorkspaceFs: boolean | undefined = undefined;
 let hasUriJoinPath: boolean | undefined = undefined;
+let hasLogOutputChannel: boolean | undefined = undefined;
 
 export class Features {
     static versionAtLeast(ver: string) {
@@ -634,6 +670,14 @@ export class Features {
             hasUriJoinPath = this.versionAtLeast('1.45.0');
         }
         return hasUriJoinPath;
+    }
+
+    static hasLogOutputChannel() {
+        if (hasLogOutputChannel === undefined) {
+            hasLogOutputChannel = this.versionAtLeast('1.74.0');
+        }
+
+        return hasLogOutputChannel;
     }
 }
 

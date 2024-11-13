@@ -18,26 +18,32 @@ function createDebugFacade(context: vscode.ExtensionContext) {
     return debug;
 }
 
-function createOutputChannel() {
-    if (utils.Features.logOutputLanguageEnabled()) {
-        return vscode.window.createOutputChannel(config.ExtensionPrettyName, 'log');
+function createLogger(context: vscode.ExtensionContext): utils.ILogger {
+    let outputChannel;
+    let logger;
+    
+    if (utils.Features.hasLogOutputChannel()) {
+        outputChannel = vscode.window.createOutputChannel(config.ExtensionPrettyName, {log: true});
+        logger = new utils.VsCodeLogChannelLogger(outputChannel);
     } else {
-        return vscode.window.createOutputChannel(config.ExtensionPrettyName);
-    }
-}
-
-function createLogger(context: vscode.ExtensionContext): utils.VsCodeLogger {
-    const outputChannel = createOutputChannel();
-    const logger = new utils.VsCodeLogger(outputChannel, getCurrentLogLevel());
-    const logLevel = config.ConfigSections.LogLevel;
-    const fullConfigSectionName = config.getFullConfigSection(logLevel);
-    vscode.workspace.onDidChangeConfiguration(event => {
-        if (!event.affectsConfiguration(fullConfigSectionName)) {
-            return;
+        if (utils.Features.logOutputLanguageEnabled()) {
+            outputChannel = vscode.window.createOutputChannel(config.ExtensionPrettyName, 'log');
+        } else {
+            outputChannel = vscode.window.createOutputChannel(config.ExtensionPrettyName);
         }
-
-        logger.minLogLevel = getCurrentLogLevel();
-    }, undefined, context.subscriptions);
+        
+        const logLevelConfigSection = config.ConfigSections.LogLevel;
+        const fullConfigSectionName = config.getFullConfigSection(logLevelConfigSection);
+        const vsLogger = new utils.VsCodeLogger(outputChannel, getCurrentLogLevel());
+        context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+            if (!event.affectsConfiguration(fullConfigSectionName)) {
+                return;
+            }
+    
+            vsLogger.minLogLevel = getCurrentLogLevel();
+        }, undefined, context.subscriptions));
+        logger = vsLogger;
+    }
 
     context.subscriptions.push(outputChannel);
     return logger;

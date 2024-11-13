@@ -492,7 +492,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
     }
 }
 
-function registerDiffCommand(logger: utils.VsCodeLogger, 
+function registerDiffCommand(logger: utils.ILogger, 
                              formatter: PgindentDocumentFormatterProvider) {
     /* Preview formatter changes command */
     vscode.commands.registerCommand(Configuration.Commands.FormatterDiffView, async () => {
@@ -508,16 +508,16 @@ function registerDiffCommand(logger: utils.VsCodeLogger,
         } catch (err) {
             logger.error('failed to format file %s', document.uri.fsPath, err);
             vscode.window.showErrorMessage('Failed to format document. See error in logs');
-            logger.channel.show(true);
+            logger.focus();
             return;
         }
-
+        
         try {
             await vscode.commands.executeCommand('vscode.diff', document.uri, parsed, 'PostgreSQL formatting')
         } catch (err) {
             logger.error(`failed to show diff for document %s`, document.uri.fsPath, err);
             vscode.window.showErrorMessage('Failed to show diff. See error in logs');
-            logger.channel.show(true);
+            logger.focus();
         } finally {
             if (await utils.fileExists(parsed)) {
                 await utils.deleteFile(parsed);
@@ -526,7 +526,7 @@ function registerDiffCommand(logger: utils.VsCodeLogger,
     });
 }
 
-export async function registerFormatting(logger: utils.VsCodeLogger) {
+export async function registerFormatting(logger: utils.ILogger) {
     const formatter = new PgindentDocumentFormatterProvider(logger);
     for (const lang of ['c', 'h']) {
         languages.registerDocumentFormattingEditProvider({
