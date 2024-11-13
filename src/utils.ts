@@ -130,7 +130,7 @@ export class VsCodeLogger implements ILogger {
     minLogLevel: LogLevel;
 
     constructor(
-        private readonly channel: vscode.OutputChannel,
+        readonly channel: vscode.OutputChannel,
         minLogLevel: LogLevel) {
         this.minLogLevel = minLogLevel;
     }

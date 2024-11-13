@@ -3,6 +3,7 @@ import {languages} from 'vscode';
 import * as utils from './utils';
 import { Configuration } from './extension';
 import * as path from 'path';
+import * as os from 'os';
 
 class LineDiff {
     constructor(public isInsert: boolean, 
@@ -480,13 +481,58 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             return [];
         }
     }
+
+    async indentFileWithTemp(document: vscode.TextDocument) {
+        const workspace = findSuitableWorkspace(document);
+        const indented = await this.runPgindent(document, workspace);
+        const tempFile = utils.joinPath(
+                vscode.Uri.file(os.tmpdir()), path.basename(document.uri.fsPath));
+        await utils.writeFile(tempFile, indented);
+        return tempFile;
+    }
 }
 
-export async function registerFormatting(context: vscode.ExtensionContext, logger: utils.ILogger) {
+function registerDiffCommand(logger: utils.VsCodeLogger, 
+                             formatter: PgindentDocumentFormatterProvider) {
+    /* Preview formatter changes command */
+    vscode.commands.registerCommand(Configuration.Commands.FormatterDiffView, async () => {
+        if (!vscode.window.activeTextEditor) {
+            vscode.window.showWarningMessage('Could not show diff for file - no active document opened');
+            return;
+        }
+
+        const document = vscode.window.activeTextEditor.document;
+        let parsed;
+        try {
+            parsed = await formatter.indentFileWithTemp(document);
+        } catch (err) {
+            logger.error('failed to format file %s', document.uri.fsPath, err);
+            vscode.window.showErrorMessage('Failed to format document. See error in logs');
+            logger.channel.show(true);
+            return;
+        }
+
+        try {
+            await vscode.commands.executeCommand('vscode.diff', document.uri, parsed, 'PostgreSQL formatting')
+        } catch (err) {
+            logger.error(`failed to show diff for document %s`, document.uri.fsPath, err);
+            vscode.window.showErrorMessage('Failed to show diff. See error in logs');
+            logger.channel.show(true);
+        } finally {
+            if (await utils.fileExists(parsed)) {
+                await utils.deleteFile(parsed);
+            }
+        }
+    });
+}
+
+export async function registerFormatting(logger: utils.VsCodeLogger) {
     const formatter = new PgindentDocumentFormatterProvider(logger);
     for (const lang of ['c', 'h']) {
         languages.registerDocumentFormattingEditProvider({
             language: lang,
         }, formatter);
     }
+
+    registerDiffCommand(logger, formatter);
 }

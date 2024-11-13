@@ -92,7 +92,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         config.setExtensionActive(true);
 
-        formatter.registerFormatting(context, logger);
+        formatter.registerFormatting(logger);
 
         logger.info('Extension activated');
     } catch (error) {

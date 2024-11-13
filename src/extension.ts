@@ -656,6 +656,7 @@ export class Configuration {
         OpenConfigFile: `${this.ExtensionName}.openConfigurationFile`,
         RefreshPostgresVariables: `${this.ExtensionName}.refreshPostgresVariablesView`,
         RefreshConfigFile: `${this.ExtensionName}.refreshConfigFile`,
+        FormatterDiffView: `${this.ExtensionName}.formatterShowDiff`,
     };
     static Views = {
         NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`,
