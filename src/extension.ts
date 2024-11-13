@@ -648,6 +648,8 @@ export class Configuration {
         TopLevelSection: this.ExtensionName,
         NodeTagFiles: 'nodeTagFiles',
         LogLevel: 'logLevel',
+        PgindentPath: 'pgindentPath',
+        PgbsdindentPath: 'pgindentPath'
     };
     static Commands = {
         DumpNodeToLog: `${this.ExtensionName}.dumpNodeToLog`,
@@ -666,6 +668,15 @@ export class Configuration {
     static getNodeTagFiles() {
         return this.getConfig<string[]>(this.ConfigSections.NodeTagFiles) ?? [];
     };
+
+    static getPgindentPath() {
+        return this.getConfig<string>(this.ConfigSections.PgindentPath);
+    }
+
+    static getCustomPgbsdindentPath() {
+        return this.getConfig<string>(this.ConfigSections.PgbsdindentPath);
+    }
+
     static getConfig<T>(section: string) {
         const topLevelSection = this.ConfigSections.TopLevelSection
         const config = vscode.workspace.getConfiguration(topLevelSection);

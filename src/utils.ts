@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import * as dap from "./dap";
 import path from 'path';
 import * as util from 'util';
-import { Stats as FileStats, mkdir, stat, writeFile as fsWritefile } from 'fs';
+import * as fs from 'fs';
+import * as child_process from 'child_process';
 
 const nullPointer = '0x0';
 const pointerRegex = /^0x[0-9abcdef]+$/i;
@@ -312,7 +313,7 @@ export class VsCodeDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
     }
 }
 
-function getFileType(stats: FileStats) {
+function getFileType(stats: fs.Stats) {
     if (stats.isFile()) {
         return vscode.FileType.File;
     }
@@ -331,7 +332,7 @@ function statFile(uri: vscode.Uri): Thenable<vscode.FileStat> {
         return vscode.workspace.fs.stat(uri);
     } else {
         return new Promise((resolve, reject) => {
-            stat(uri.fsPath, (err, stats) => {
+            fs.stat(uri.fsPath, (err, stats) => {
                 if (err) {
                     reject(err);
                 } else {
@@ -342,7 +343,7 @@ function statFile(uri: vscode.Uri): Thenable<vscode.FileStat> {
                         type: getFileType(stats),
                     } as vscode.FileStat);
                 }
-            })
+            });
         })
     }
 }
@@ -391,7 +392,7 @@ export async function createDirectory(path: vscode.Uri): Promise<void> {
         return vscode.workspace.fs.createDirectory(path);
     } else {
         return new Promise((resolve, reject) => {
-            mkdir(path.fsPath, null, (err) => {
+            fs.mkdir(path.fsPath, null, (err) => {
                 if (err) {
                     reject(err);
                 } else {
@@ -402,12 +403,124 @@ export async function createDirectory(path: vscode.Uri): Promise<void> {
     }
 }
 
+export async function directoryEmpty(path: vscode.Uri) {
+    if (Features.hasWorkspaceFs()) {
+        const files = await vscode.workspace.fs.readDirectory(path);
+        return files.length === 0;
+    } else {
+        return await new Promise((resolve, reject) => {
+            fs.readdir(path.fsPath, (err, files) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(files.length === 0);
+                }
+            });
+        });
+    }
+}
+
+export async function copyFile(file: vscode.Uri, targetFile: vscode.Uri) {
+    if (Features.hasWorkspaceFs()) {
+        await vscode.workspace.fs.copy(file, targetFile);
+    } else {
+        return await new Promise<void>((resolve, reject) => {
+            fs.copyFile(file.fsPath, targetFile.fsPath, (err) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve();
+                }
+            })
+        })
+    }
+}
+
+export function createTempFileName(template: string) {
+    return template.replace('{}', crypto.randomUUID().toString());
+}
+
+export async function execShell(cmd: string, args?: string[], 
+                options?: { cwd?: string, 
+                            env?: any, 
+                            throwOnError?: boolean,
+                            stdin?: string } ): Promise<{code: number, stdout: string, stderr: string}> {
+    return await new Promise<{code: number, stdout: string, stderr: string}>((resolve, reject) => {
+        const {cwd, env, throwOnError, stdin} = options || {};
+        const child = child_process.spawn(cmd, args, {cwd, env, shell: true, });
+        const stderr: string[] = [];
+        const stdout: string[] = [];
+
+        child.on('error', (err) => {
+            reject(err);
+        });
+
+        child.stderr?.on('data', (chunk) => {
+            stderr.push(chunk);
+        });
+        child.stdout?.on('data', (chunk) => {
+            stdout.push(chunk);
+        });
+
+        child.on('close', (code) => {
+            if (code !== 0 && (throwOnError === undefined || throwOnError)) {
+                reject(new Error(`command failed to execute. error stack: ${stderr.join('')}`));
+            } else {
+                resolve({
+                    code: code ?? 0,
+                    stdout: stdout.join(''),
+                    stderr: stderr.join(''),
+                });
+            }
+        });
+        child.on('error', (err) => {
+            reject(err);
+        });
+
+        if (stdin) {
+            child.stdin.write(stdin, (err) => {
+                if (err) {
+                    reject(err);
+                }
+            });
+            child.stdin.on('error', (err) => {
+                if (err) {
+                    reject(err);
+                }
+            });
+        }
+        child.stdin.end();
+
+        setTimeout(() => {
+            if (child.exitCode !== null) {
+                child.kill('SIGKILL');
+            }
+        }, 60 * 1000);
+    });
+}
+
+export async function deleteFile(file: vscode.Uri) {
+    if (Features.hasWorkspaceFs()) {
+        await vscode.workspace.fs.delete(file, { useTrash: false });
+    } else {
+        return new Promise<void>((resolve, reject) => {
+            fs.unlink(file.fsPath, (err) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve();
+                }
+            })
+        });
+    }
+}
+
 export function writeFile(path: vscode.Uri, data: string): Thenable<void> {
     if (Features.hasWorkspaceFs()) {
         return vscode.workspace.fs.writeFile(path, new TextEncoder().encode(data));
     } else {
         return new Promise((resolve, reject) => {
-            fsWritefile(path.fsPath, data, (err) => {
+            fs.writeFile(path.fsPath, data, (err) => {
                 if (err) {
                     reject(err);
                 } else {

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as vars from './variables';
 import * as utils from './utils';
+import * as formatter from './formatter';
 import {
     NodePreviewTreeViewProvider as PostgresVariablesView,
     Configuration as config,
@@ -90,6 +91,9 @@ export function activate(context: vscode.ExtensionContext) {
         setupDebugger(nodesView, logger, context);
 
         config.setExtensionActive(true);
+
+        formatter.registerFormatting(context, logger);
+
         logger.info('Extension activated');
     } catch (error) {
         logger.error('Failed to activate extension', error);
