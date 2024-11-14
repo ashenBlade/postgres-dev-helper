@@ -2,12 +2,13 @@
     "name": "postgresql-hacker-helper",
     "displayName": "PostgreSQL Hacker Helper",
     "description": "Extension to assist Postgres hackers - source code developers",
-    "version": "1.2.1",
+    "version": "1.3.0",
     "engines": {
         "vscode": "^1.30.0"
     },
     "categories": [
-        "Debuggers"
+        "Debuggers",
+        "Formatters"
     ],
     "icon": "resources/logo.png",
     "activationEvents": [
@@ -27,7 +28,8 @@
         "postgres",
         "pgsql",
         "pg",
-        "c"
+        "c",
+        "pgindent"
     ],
     "contributes": {
         "commands": [
@@ -54,6 +56,12 @@
                 "command": "postgresql-hacker-helper.refreshConfigFile",
                 "title": "Refresh configuration file",
                 "shortTitle": "Refresh config file",
+                "category": "PgSQL"
+            },
+            {
+                "command": "postgresql-hacker-helper.formatterShowDiff",
+                "title": "Show diff preview for PostgreSQL formatter",
+                "shortTitle": "Diff PostgreSQL formatter",
                 "category": "PgSQL"
             }
         ],
@@ -118,6 +126,12 @@
                     ],
                     "default": "INFO",
                     "description": "Minimum level of log messages to display in Output view"
+                },
+                "postgresql-hacker-helper.pg_bsd_indentPath": {
+                    "title": "Path to pg_bsd_indent",
+                    "type": "string",
+                    "default": "src/tools/pg_bsd_indent/pg_bsd_indent",
+                    "description": "Path to pg_bsd_indent executable used to format file. If not specified, pg_bsd_indent will be search in all available location, and maybe built"
                 }
             }
         },

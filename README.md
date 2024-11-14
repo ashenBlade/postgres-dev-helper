@@ -2,9 +2,9 @@
 
 ![Logo](resources/logo.png)
 
-This is a Visual Studio Code extension to assist PostgreSQL source code developers.
-It allows to investigate `Node *` variables to obtain it's real type based on `NodeTag`
-and provide some other utilities.
+This is a Visual Studio Code extension to assist PostgreSQL source code
+developers. It allows to investigate `Node *` variables to obtain it's real type
+based on `NodeTag` and provide some other utilities.
 
 ## Features
 
@@ -18,27 +18,37 @@ They appear in separate action view.
 ![Overview of extension](resources/overview.gif)
 
 It behaves like Debug->Variables view, but no colorization (limitations of VS
-Code Extension framework) and automatically detects real type of `Node *` variables.
+Code Extension framework) and automatically detects real type of `Node *`
+variables.
 
-Also, there are intrinsics for some types:
+### Show contents of containers
 
-- `List` elements are displayed according their types
+Extension support showing contents of containers: `List` (including subtypes)
+and `Bitmapset`.
 
 ![List * expansion](resources/list.gif)
 
-- Support for special members like `PlannerInfo->simple_rel_array` - array is
-  displayed using it's length
+`Bitmapset` elements are displayed:
+
+- `$elements$` - elements of set (array of integers)
+- `$length$` - number of entries in set
+
+![Bitmapset expansion](resources/bitmapset.gif)
+
+Also, there is support for C-arrays (like `PlannerInfo->simple_rel_array`) - 
+array is displayed using it's length.
 
 ![Planner expansion](resources/planner.gif)
 
-Currently, there are 36 registered special members, but you can add your own 
+Currently, there are 36 registered array members, but you can add your own
 using [pgsql_hacker_helper.json](#pgsql_hacker_helperjson) configuration file.
 
-- `Bitmapset` elements are displayed:
-  - `$elements$` - elements of set (array of integers)
-  - `$length$` - number of entries in set
+### Show where Bitmapset references
 
-![Bitmapset expansion](resources/bitmapset.gif)
+`Bitmapset` and `Relids` often store indexes of other elements in other places.
+Extension knows 53 such elements. I.e. `PlannerInfo->all_relids` or `RelOptInfo->eclass_indexes`.
+
+![Bitmapset references](resources/bitmapset-refs.gif)
 
 ### Dump `Node *` state to log
 
@@ -47,6 +57,41 @@ stdout with pretty printing it. Using 'Dump Node to log' option in variable
 context menu you also will be able to do so.
 
 ![call pprint](resources/dump.gif)
+
+### Formatting
+
+Extension uses `pgindent` for formatting C code. It integrates with VS Code
+extension and available with `Format Document` or `Ctrl + Shift + I` shortcut
+(or another key binding if overridden).
+
+To enable this set formatter for C in settings (i.e. `.vscode/settings.json`
+for workspace):
+
+```json
+{
+    "[c]": {
+        "editor.defaultFormatter": "ash-blade.postgresql-hacker-helper"
+    }
+}
+```
+
+Or specify formatter manually using `Format Document With...`. Select
+`PostgreSQL Hacker Helper` in pick up box.
+
+![Formatter work](resources/formatter-work.gif)
+
+Feature supported for PostgreSQL starting from 10 version.
+
+> This feature using tools from `src/tools`. If they are unavailable extension
+> will try to build or download them.
+>
+> Primary tool required is `pg_bsd_indent`. If PostgreSQL version lower than
+> 16 extension will ask you for `pg_config` path - it is required to build
+> `pg_bsd_indent`.
+> Look for warning message from extension in left bottom corner.
+
+Using command `PgSQL: Show diff preview for PostgreSQL formatter` you can
+preview changes made by formatter.
 
 ## Customization
 
@@ -98,12 +143,17 @@ For more info check [configuration file documentation](./docs/config_file.md).
 
 ## Extension Settings
 
-There are 2 settings:
+There are 3 settings:
 
 - Log level - set minimum level of log messages in Output channel.
-  By default - `INFO`
+  By default - `INFO` (if using VS Code 1.74.0 ang greater use `Output` channel
+  logger settings)
 - Files with NodeTag files - list of paths points to files that contain NodeTags.
   By default - `src/include/nodes/nodes.h`, `src/include/nodes/nodetags.h`
+- Custom path to `pg_bsd_indent`. Use it if you have pg_bsd_indent installed
+  globally. If not specified, it will be searched in `src/tools` directory.
+  If required, it will be downloaded and installed (`wget` required to download
+  sources)
 
 ## Compatibility
 
@@ -122,6 +172,8 @@ Also, extension will target latest VS Code version and try to use the full
 functionality of new versions. So, use latest VS Code versions to get new
 features earlier.
 
+For using formatter minimal supported version is `10`.
+
 ## Known Issues
 
 Known issues:
@@ -137,6 +189,16 @@ Known issues:
   extension
 
 ## Release Notes
+
+### 1.3.0
+
+Add formatting functionality using `pg_bsd_indent` integrated with VS Code:
+can use with `Format Document` command or `Ctrl + Shift + I` (keybinding).
+
+Add showing `RangeTblEntry` and `RelOptInfo` to which Bitmapset points.
+`RangeTblEntry` shown from `Query->rtable`, `RelOptInfo` - from
+`PlannerInfo->simple_rel_array`. Referencing also available for other Bitmapsets
+which points not to rte or rel.
 
 ### 1.2.1
 
@@ -194,7 +256,8 @@ Add more special members.
 
 Separate json configuration file to add your own special members.
 
-Specifying real NodeTag in variable name if it differs from declared type. Shows in square brackets.
+Specifying real NodeTag in variable name if it differs from declared type. Shows
+in square brackets.
 
 Setup logging infrastructure. Availability to change minimum log level.
 
@@ -214,4 +277,5 @@ Call `pprint(Node *)` on selected variable in `Variables` view.
 
 ## Contributing
 
-Go to [Issues](https://github.com/ashenBlade/postgres-dev-helper/issues) if you want to say something: bugs, features, etc...
+Go to [Issues](https://github.com/ashenBlade/postgres-dev-helper/issues) if you
+want to say something: bugs, features, etc...
