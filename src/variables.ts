@@ -23,6 +23,12 @@ export class NodeVarRegistry {
     aliases: Map<string, string> = new Map(constants.getDefaultAliases());
 
     /* 
+     * Known references of Bitmapset.
+     * Map: field_name -> BitmapsetReference
+     */
+    bmsRefs: Map<string, constants.BitmapsetReference> = new Map(constants.getWellKnownBitmapsetReferences());
+
+    /* 
      * Update stored node types for internal usage from provided
      * node tag file. i.e. `nodes.h' or `nodetags.h'.
      */
@@ -104,6 +110,10 @@ export class NodeVarRegistry {
      */
     isNodeTag(tag: string) {
         return this.nodeTags.has(tag);
+    }
+
+    findBmsReference(bms: BitmapSetSpecialMember) {
+        return this.bmsRefs.get(bms.name);
     }
 }
 
@@ -190,12 +200,6 @@ export abstract class Variable {
      */
     children: Variable[] | undefined;
 
-    /* 
-     * Hook to call after `doGetChildren` invoked.
-     * Currently, used to pass PlannerInfo to RelOptInfos
-     */
-    childrenHook: ((children: Variable[]) => void) | undefined;
-
     constructor(name: string, value: string, type: string, parent?: Variable) {
         this.parent = parent;
         this.name = name;
@@ -214,7 +218,7 @@ export abstract class Variable {
             /* 
              * return `undefined` if no children - scalar variable
              */
-            return this.children 
+            return this.children.length
                     ? this.children
                     : undefined;
         }
@@ -222,9 +226,6 @@ export abstract class Variable {
         const children = await this.doGetChildren(context);
         if (children) {
             this.children = children;
-            if (this.childrenHook) {
-                this.childrenHook(children);
-            }
         } else {
             this.children = [];
         }
@@ -276,7 +277,7 @@ export abstract class Variable {
 
     static async create(debugVariable: dap.DebugVariable, frameId: number,
                         context: ExecContext, logger: utils.ILogger,
-                        parent?: RealVariable): Promise<RealVariable | undefined> {
+                        parent?: Variable): Promise<RealVariable | undefined> {
         /* 
          * We pass RealVariable - not generic Variable, 
          * because if we want to use this function - if means 
@@ -313,13 +314,13 @@ export abstract class Variable {
         }
 
         /* Special members */
-        if (parent?.type) {
+        if (parent?.type && parent instanceof RealVariable) {
             const specialMember = context.specialMemberRegistry
                 .getArraySpecialMember(parent.type, debugVariable.name);
             if (specialMember) {
                 return new ArraySpecialMember(parent, specialMember, {
                     ...debugVariable,
-                    frameId: parent.frameId,
+                    frameId: frameId,
                     parent: parent,
                 }, logger) as RealVariable;
             }
@@ -350,6 +351,22 @@ export abstract class Variable {
             Variable.create(v, frameId, context, logger, parent))
         ));
         return variables.filter(v => v !== undefined);
+    }
+}
+
+/* 
+ * Special class to store top level variables, extracted from this frame. 
+ * Must not be returned 
+ */
+export class VariablesRoot extends Variable {
+    static variableRootName = '$variables root$'
+    
+    constructor(public topLevelVariables: Variable[]) {
+        super(VariablesRoot.variableRootName, '', '');
+     }
+
+    async doGetChildren(context: ExecContext): Promise<Variable[] | undefined> {
+        return undefined;
     }
 }
 
@@ -632,16 +649,6 @@ export class NodeTagVariable extends RealVariable {
         /* Bitmapset */
         if (realTag === 'Bitmapset') {
             return new BitmapSetSpecialMember(logger, args);
-        }
-
-        /* PlannerInfo */
-        if (realTag === 'PlannerInfo') {
-            return new PlannerInfoSpecialMember(args, logger);
-        }
-
-        /* RelOptInfo */
-        if (realTag === 'RelOptInfo') {
-            return new RelOptInfoSpecialMember(args, logger);
         }
 
         return new NodeTagVariable(realTag, args, logger);
@@ -1035,85 +1042,12 @@ export class ArraySpecialMember extends RealVariable {
     }
 }
 
-class PlannerInfoSpecialMember extends NodeTagVariable {
-    constructor(args: RealVariableArgs, logger: utils.ILogger) {
-        super('PlannerInfo', args, logger);
-    }
-
-    async doGetChildren(context: ExecContext) {
-        const children = await super.doGetChildren(context);
-        if (!children) {
-            return children;
-        }
-
-        let bms: BitmapSetSpecialMember[] = [];
-        for (const child of children) {
-            if (child instanceof BitmapSetSpecialMember) {
-                bms.push(child);
-            } else if (child instanceof ArraySpecialMember) {
-                /* Pass myself to RelOptInfo to further pass to Relids */
-                child.childrenHook = (chldrn) => {
-                    for (const chld of chldrn) {
-                        if (chld instanceof RelOptInfoSpecialMember) {
-                            chld.plannerInfo = this;
-                        }
-                    }
-                }
-            }
-        }
-
-        for (const b of bms) {
-            b.plannerInfo = this;
-        }
-
-        return children;
-    }
-}
-
-class RelOptInfoSpecialMember extends NodeTagVariable {
-    /* 
-     * PlannerInfo to which this RelOptInfo belongs.
-     * Used to display BMS member with RTE and RelOptInfo
-     */
-    plannerInfo: PlannerInfoSpecialMember | undefined;
-    
-    constructor(args: RealVariableArgs, logger: utils.ILogger) {
-        super('RelOptInfo', args, logger)
-    }
-
-    async doGetChildren(context: ExecContext) {
-        const children = await super.doGetChildren(context);
-        if (!children) {
-            return;
-        }
-        
-        /* Inject PlannerInfo to all Relids */
-        for (const child of children) {
-            if (child instanceof BitmapSetSpecialMember) {
-                child.plannerInfo = this.plannerInfo;
-            }
-        }
-
-        return children;
-    }
-}
-
+/* 
+ * Bitmapset* variable
+ */
 class BitmapSetSpecialMember extends NodeTagVariable {
-    /* 
-     * 'Query' variable of parent 'PlannerInfo'.
-     */
-    plannerInfo: PlannerInfoSpecialMember | undefined;
-
     constructor(logger: utils.ILogger, args: RealVariableArgs) {
         super('Bitmapset', args, logger);
-    }
-
-    private isRelids() {
-        if (utils.getStructNameFromType(this.type) === 'Relids' &&
-            utils.getPointersCount(this.type) === 0) {
-            return true;
-        }
-        return false;
     }
 
     async isValidSet(debug: utils.IDebuggerFacade) {
@@ -1278,6 +1212,30 @@ class BitmapSetSpecialMember extends NodeTagVariable {
         return numbers;
     }
 
+    async getBmsRef(context: ExecContext) {
+        if (!this.parent) {
+            return;
+        }
+
+        const ref = context.nodeVarRegistry.findBmsReference(this);
+        if (!ref) {
+            return;
+        }
+
+        let type;
+        if (this.parent instanceof NodeTagVariable) {
+            type = await this.parent.getRealType(context.nodeVarRegistry);
+        } else {
+            type = this.parent.type;
+        }
+        if (!(utils.getStructNameFromType(type) === ref.type &&
+              utils.getPointersCount(type) === 1)) {
+            return;
+        }
+
+        return ref;
+    }
+
     async doGetChildren(context: ExecContext) {
         /* All existing members */
         const members = await Variable.getVariables(this.variablesReference,
@@ -1293,124 +1251,180 @@ class BitmapSetSpecialMember extends NodeTagVariable {
             return members;
         }
 
+        const ref = await this.getBmsRef(context);
+
         members.push(new ScalarVariable('$length$', setMembers.length.toString(),
                                         'int', this));
-        const plannerInfo = this.isRelids() 
-                                ? this.plannerInfo 
-                                : undefined;
-        members.push(new BitmapSetSpecialMember.BmsArrayVariable(this, setMembers, plannerInfo));
+        members.push(new BitmapSetSpecialMember.BmsArrayVariable(this, setMembers, ref));
         return members;
     }
 
     static BmsElementVariable = class extends Variable {
         /* 
-         * `value` as number for cases when we need to find out
-         * rte and RelOptInfo (this.plannerInfo !== undefined)
+         * `value` as number. needed for refs
          */
-        relid: number
+        relid: number;
+
+        bmsParent: BitmapSetSpecialMember;
         
-        constructor(index: number, 
+        constructor(index: number,
                     parent: Variable,
+                    bmsParent: BitmapSetSpecialMember,
                     value: number,
-                    private plannerInfo?: PlannerInfoSpecialMember | undefined) {
+                    private ref?: constants.BitmapsetReference) {
             super(`[${index}]`, value.toString(), 'int', parent);
             this.relid = value;
+            this.bmsParent = bmsParent;
         }
 
-        async getRelOptInfo(plannerInfo: PlannerInfoSpecialMember, 
-                            context: ExecContext) {
-            const members = await plannerInfo.getChildren(context);
-            if (!members) {
-                return;
+        findStartElement() {
+            if (this.ref!.start === 'Self') {
+                return this.bmsParent.parent;
+            } else if (this.ref!.start === 'Parent') {
+                return this.bmsParent.parent?.parent;
             }
 
-            const simpleRelArray = members.find((v) => v.name === 'simple_rel_array');
-            if (!(simpleRelArray && simpleRelArray instanceof ArraySpecialMember)) {
-                return;
+            /* Find PlannerInfo in parents */
+            let parent = this.bmsParent.parent;
+            
+            while (parent) {
+                if (parent.type.indexOf('PlannerInfo') !== -1 && 
+                    parent instanceof NodeTagVariable &&
+                    parent.realNodeTag === 'PlannerInfo') {
+                    return parent;
+                }
+
+                /* 
+                 * If this is last variable, it must be VariablesRoot.
+                 * As last chance, find 'PlannerInfo' in declared variables,
+                 * not direct parent
+                 */
+                if (!parent.parent) {
+                    if (parent.name === VariablesRoot.variableRootName &&
+                        parent instanceof VariablesRoot) {
+                        for (const v of parent.topLevelVariables) {
+                            if (v.type.indexOf('PlannerInfo') !== -1 &&
+                                v instanceof NodeTagVariable &&
+                                v.realNodeTag === 'PlannerInfo') {
+                                return v;
+                            }
+                        }
+                    }
+                }
+
+                parent = parent.parent;
             }
 
-            const arrayMembers = await simpleRelArray.getChildren(context);
-            if (!arrayMembers) {
-                return;
-            }
-
-            if (arrayMembers.length <= this.relid) {
-                return;
-            }
-
-            return arrayMembers[this.relid];
+            return undefined;
         }
 
-        async getRangeTableEntry(plannerInfo: PlannerInfoSpecialMember, context: ExecContext) {
-            const plannerInfoMembers = await plannerInfo.getChildren(context);
-            if (!plannerInfoMembers) {
+        async findReferenceFields(context: ExecContext) {
+            if (!this.ref) {
                 return;
             }
 
-            const query = plannerInfoMembers.find((v) => v.name === 'parse');
-            if (!query) {
+            const root = this.findStartElement();
+            if (!root) {
                 return;
             }
 
-            const queryMembers = await query.getChildren(context);
-            if (!queryMembers) {
-                return;
-            }
+            const resultFields: [Variable, number?][] = [];
 
-            const rtable = queryMembers.find((v) => v.name === 'rtable');
-            if (!rtable) {
-                return;
-            }
+            for (const path of this.ref.paths) {
+                let variable: Variable = root;
+                for (const p of path.path) {
+                    const members = await variable.getChildren(context);
+                    if (!members) {
+                        break;
+                    }
+    
+                    const member = members.find((v) => v.name === p);
+                    if (!member) {
+                        break;
+                    }
+    
+                    variable = member;
+                }
 
-            if (!(rtable instanceof ListNodeTagVariable)) {
-                return;
+                if (variable) {
+                    resultFields.push([variable, path.indexDelta]);
+                }
             }
-
-            const rtes = await rtable.getListElements(context);
-            /* 
-             * rtable is List with 0-based indexing,
-             * but `relid` starts with 1
-             */
-            if (!(rtes && 0 < this.relid && this.relid <= rtes.length)) {
-                return;
+            
+            if (resultFields.length) {
+                return resultFields;
             }
+            return;
+        }
 
-            return rtes[this.relid - 1];
+        async getArrayElement(context: ExecContext, field: Variable, 
+                              indexDelta?: number,) {
+            const index = this.relid + (indexDelta ?? 0);
+
+            if (field instanceof ListNodeTagVariable) {
+                const members = await field.getListElements(context);
+                if (members && index < members.length) {
+                    return members[index];
+                }
+            } else if (field instanceof ArraySpecialMember) {
+                const members = await field.getChildren(context);
+                if (members && index < members.length) {
+                    return members[index];
+                }
+            } else if (field instanceof RealVariable) {
+                const expr = `(${field.evaluateName})[${index}]`;
+                const result = await context.debug.evaluate(expr, this.bmsParent.frameId);
+                if (result.result) {
+                    return await Variable.create({
+                        ...result,
+                        name: `ref(${field.name})`,
+                        value: result.result,
+                        evaluateName: expr 
+                    }, this.bmsParent.frameId, context, this.bmsParent.logger, this);
+                }
+            }
         }
 
         async doGetChildren(context: ExecContext): Promise<Variable[] | undefined> {
-            if (!(this.plannerInfo)) {
-                /* Do not show RangeTable and RelOptInfo */
+            if (!this.ref) {
                 return;
             }
-            
-            const refs = [];
-            const rel = await this.getRelOptInfo(this.plannerInfo, context);
-            if (rel)
-                refs.push(rel);
-            const rte = await this.getRangeTableEntry(this.plannerInfo, context);
-            if (rte)
-                refs.push(rte);
 
-            return refs;
+            const fields = await this.findReferenceFields(context);
+            
+            if (!fields) {
+                return;
+            }
+
+            const values = [];
+            for (const [field, delta] of fields) {
+                const value = await this.getArrayElement(context, field, delta);
+                if (value) {
+                    values.push(value)
+                }
+            }
+
+            return values.length ? values : undefined;
         }
 
         protected isExpandable(): boolean {
-            return this.plannerInfo !== undefined;
+            return this.ref !== undefined;
         }
     }
 
     static BmsArrayVariable = class extends Variable {
         setElements: number[];
+        bmsParent: BitmapSetSpecialMember;
         constructor(parent: BitmapSetSpecialMember, 
                     setElements: number[],
-                    private plannerInfo: PlannerInfoSpecialMember | undefined) {
+                    private ref?: constants.BitmapsetReference) {
             super('$elements$', '', '', parent);
             this.setElements = setElements;
+            this.bmsParent = parent;
         }
 
         async doGetChildren(context: ExecContext): Promise<Variable[] | undefined> {
-            return this.setElements.map((se, i) => new BitmapSetSpecialMember.BmsElementVariable(i, this, se, this.plannerInfo))
+            return this.setElements.map((se, i) => new BitmapSetSpecialMember.BmsElementVariable(i, this, this.bmsParent, se, this.ref))
         }
 
         protected isExpandable(): boolean {

@@ -828,3 +828,136 @@ export function getArraySpecialMembers(): ArraySpecialMember[] {
         _('TestSpec', 'permutations', 'npermutations'),
     ];
 }
+
+/* 
+ * 
+ * Computed like this:
+ * 
+ *     type->field:
+ *        - ind1 = (path->path->path)[ind1 - (indexDelta ?? 0)]
+ *        - ind2 = (path->path->path)[ind2 - (indexDelta ?? 0)]
+ *        - ind3 = (path->path->path)[ind3 - (indexDelta ?? 0)]
+ */
+export interface BitmapsetReference {
+    /* 
+     * Type in which this Bitmapset stored.
+     */
+    type: string;
+    /* 
+     * Field name of this Bitmapset member
+     */
+    field: string;
+    /* 
+     * Paths to fields to which this bitmapset refers.
+     * Examined starting from PlannerInfo.
+     */
+    paths: {
+        /*
+         * One of possible paths to referer  
+         */
+        path: string[],
+        /* 
+         * Delta to apply to result number for element in set.
+         * Useful i.e. for rtable index in RelOptInfo->relids.
+         * By default - 0
+         */
+        indexDelta?: number;
+    }[];
+
+    /* 
+     * From which element search should be started (accessing via `paths').
+     *  'PlannerInfo' - search in parents until reach 'PlannerInfo'
+     *                  (PlannerInfo->...->elem->bms - search PlannerInfo's fields)
+     *  'Parent' - from direct parent of containing element 
+     *             (parent-elem->bms - search parent's fields)
+     *  'Self' - search directly in containing element
+     *           (elem->bms - search in elem's fields)
+     */
+    start?: 'PlannerInfo' | 'Parent' | 'Self' ;
+}
+
+export function getWellKnownBitmapsetReferences(): [string, BitmapsetReference][] {
+    const pathToRangeTable = ['parse', 'rtable'];
+    const pathToRelOptInfos = ['simple_rel_array'];
+    const pathToRteAndRelOptInfos =  [{path: pathToRangeTable, indexDelta: -1}, 
+                                      {path: pathToRelOptInfos}];
+    const ref = (type: string, field: string, 
+                 paths: {path: string[], indexDelta?: number}[],
+                 start?: 'PlannerInfo' | 'Parent' | 'Self'): [string, BitmapsetReference] => 
+                    [ field, { type, field, paths, start } ];
+    
+    return [
+        ref('RelOptInfo', 'relids', pathToRteAndRelOptInfos),
+        ref('RelOptInfo', 'eclass_indexes', [{path: ['eclasses']}]),
+        ref('RelOptInfo', 'nulling_relids', pathToRteAndRelOptInfos),
+        ref('RelOptInfo', 'direct_lateral_relids', pathToRteAndRelOptInfos),
+        ref('RelOptInfo', 'lateral_relids', pathToRteAndRelOptInfos),
+        ref('RelOptInfo', 'lateral_referencers', pathToRteAndRelOptInfos),
+        ref('RelOptInfo', 'top_parent_relids', pathToRteAndRelOptInfos),
+        ref('RelOptInfo', 'live_parts', [{path: ['part_rels']}], 'Self'),
+        ref('RelOptInfo', 'all_partrels', pathToRteAndRelOptInfos),
+        
+        ref('JoinDomain', 'jd_relids', pathToRteAndRelOptInfos),
+        
+        ref('EquivalenceClass', 'ec_relids', pathToRteAndRelOptInfos),
+
+        ref('EquivalenceMember', 'em_relids', pathToRteAndRelOptInfos),
+
+        ref('PlannerInfo', 'all_baserels', pathToRteAndRelOptInfos, 'Self'),
+        ref('PlannerInfo', 'outer_join_rels', pathToRteAndRelOptInfos, 'Self'),
+        ref('PlannerInfo', 'all_query_rels', pathToRteAndRelOptInfos, 'Self'),
+        ref('PlannerInfo', 'all_result_relids', pathToRteAndRelOptInfos, 'Self'),
+        ref('PlannerInfo', 'leaf_result_relids', pathToRteAndRelOptInfos, 'Self'),
+        ref('PlannerInfo', 'curOuterRels', pathToRteAndRelOptInfos, 'Self'),
+
+        ref('ParamPathInfo', 'ppi_req_outer', pathToRteAndRelOptInfos),
+
+        ref('RestrictInfo', 'required_relids', pathToRteAndRelOptInfos),
+        ref('RestrictInfo', 'clause_relids', pathToRteAndRelOptInfos),
+        ref('RestrictInfo', 'incompatible_relids', pathToRteAndRelOptInfos),
+        ref('RestrictInfo', 'outer_relids', pathToRteAndRelOptInfos),
+        ref('RestrictInfo', 'left_relids', pathToRteAndRelOptInfos),
+        ref('RestrictInfo', 'right_relids', pathToRteAndRelOptInfos),
+
+        ref('PlaceHolderVar', 'phrelds', pathToRteAndRelOptInfos),
+        ref('PlaceHolderVar', 'phnullingrels', pathToRteAndRelOptInfos),
+
+        ref('SpecialJoinInfo', 'min_lefthand', pathToRteAndRelOptInfos),
+        ref('SpecialJoinInfo', 'min_righthand', pathToRteAndRelOptInfos),
+        ref('SpecialJoinInfo', 'syn_lefthand', pathToRteAndRelOptInfos),
+        ref('SpecialJoinInfo', 'syn_righthand', pathToRteAndRelOptInfos),
+        ref('SpecialJoinInfo', 'compute_above_l', pathToRteAndRelOptInfos),
+        ref('SpecialJoinInfo', 'compute_above_r', pathToRteAndRelOptInfos),
+        ref('SpecialJoinInfo', 'compute_below_l', pathToRteAndRelOptInfos),
+        ref('SpecialJoinInfo', 'compute_below_r', pathToRteAndRelOptInfos),
+
+        ref('RowIdentifyVarInfo', 'rowidrels', pathToRteAndRelOptInfos),
+
+        ref('PlaceHolderInfo', 'ph_evalat', pathToRteAndRelOptInfos),
+        ref('PlaceHolderInfo', 'ph_lateral', pathToRteAndRelOptInfos),
+        ref('PlaceHolderInfo', 'ph_needed', pathToRteAndRelOptInfos),
+
+        ref('JoinPathExtraData', 'param_source_rels', pathToRteAndRelOptInfos),
+
+        ref('PlannedStmt', 'rewindPlanIDs', [{path: ['subplans']}], 'Self'),
+
+        ref('ModifyTable', 'fdwDirectModifyPlans', [{path: ['resultRelations']}], 'Self'),
+        
+        ref('Append', 'apprelids', pathToRteAndRelOptInfos),
+        ref('MergeAppend', 'apprelids', pathToRteAndRelOptInfos),
+
+        ref('ForeignScan', 'fs_relids', pathToRteAndRelOptInfos),
+        ref('ForeignScan', 'fs_base_relids', pathToRteAndRelOptInfos),
+
+        ref('CustomScan', 'custom_relids', pathToRteAndRelOptInfos),
+
+        ref('Var', 'varnullingrels', pathToRteAndRelOptInfos),
+
+        ref('AppendState', 'as_asyncplans', [{path: ['as_asyncrequests']}], 'Self'),
+        ref('AppendState', 'as_needrequest', [{path: ['as_asyncrequests']}], 'Self'),
+        ref('AppendState', 'as_valid_subplans', [{path: ['as_asyncrequests']}], 'Self'),
+        ref('AppendState', 'as_valid_asyncplans', [{path: ['as_asyncrequests']}], 'Self'),
+
+        ref('MergeAppendState', 'ms_valid_subplans', [{path: ['mergeplans']}], 'Self'),
+    ]
+}

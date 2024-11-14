@@ -42,9 +42,18 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
         }
 
         try {
-            return element
-                ? await element.getChildren(this.context)
-                : await this.getTopLevelVariables();
+            if (element) {
+                return await element.getChildren(this.context);
+            } else {
+                const topLevel = await this.getTopLevelVariables();
+                if (!topLevel) {
+                    return;
+                }
+
+                const topLevelVariable = new vars.VariablesRoot(topLevel);
+                topLevel.forEach(v => v.parent = topLevelVariable);
+                return topLevel;
+            }
         } catch (err) {
             /* 
              * There may be race condition when our state of debugger 
