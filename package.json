@@ -13,8 +13,8 @@
     "icon": "resources/logo.png",
     "activationEvents": [
         "workspaceContains:.vscode/pgsql_hacker_helper.json",
-        "workspaceContains:src/include/nodes/nodes.h",
-        "workspaceContains:src/include/nodes/nodetags.h"
+        "workspaceContains:**/src/include/nodes/nodes.h",
+        "workspaceContains:**/src/include/nodes/nodetags.h"
     ],
     "main": "./out/entrypoint.js",
     "publisher": "ash-blade",
@@ -76,7 +76,7 @@
                 {
                     "command": "postgresql-hacker-helper.refreshPostgresVariablesView",
                     "group": "navigation",
-                    "when": "inDebugMode && debugState == stopped"
+                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated"
                 }
             ],
             "commandPalette": [
@@ -108,11 +108,8 @@
                 "postgresql-hacker-helper.nodeTagFiles": {
                     "title": "Files with NodeTags",
                     "type": "array",
-                    "default": [
-                        "src/include/nodes/nodes.h",
-                        "src/include/nodes/nodetags.h"
-                    ],
-                    "description": "Files, where NodeTag values defined. It will be used to check if variable can have NodeTag. Can be either relative or absolute path. Relative paths used within current workspace"
+                    "default": null,
+                    "description": "Files, where NodeTag values defined. It will be used to check if variable can have NodeTag.\nCan be either relative or absolute path. Relative paths used within current workspace"
                 },
                 "postgresql-hacker-helper.logLevel": {
                     "title": "Log level",
@@ -131,7 +128,12 @@
                     "title": "Path to pg_bsd_indent",
                     "type": "string",
                     "default": "src/tools/pg_bsd_indent/pg_bsd_indent",
-                    "description": "Path to pg_bsd_indent executable used to format file. If not specified, pg_bsd_indent will be search in all available location, and maybe built"
+                    "description": "Path to pg_bsd_indent executable used to format file.\nIf not specified, pg_bsd_indent will be search in all available location, and maybe built"
+                },
+                "postgresql-hacker-helper.srcPath": {
+                    "title": "Path to root of PostgreSQL source files",
+                    "type": "string",
+                    "description": "Path to source files of PostgreSQL. Set it if you have sources in separate sub-directory from root of project.\nIf not set search will start in project root directory"
                 }
             }
         },

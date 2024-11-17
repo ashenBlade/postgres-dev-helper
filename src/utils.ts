@@ -4,6 +4,7 @@ import path from 'path';
 import * as util from 'util';
 import * as fs from 'fs';
 import * as child_process from 'child_process';
+import { Configuration } from './extension';
 
 const nullPointer = '0x0';
 const pointerRegex = /^0x[0-9abcdef]+$/i;
@@ -172,8 +173,7 @@ export class VsCodeLogger implements ILogger {
 
 export class VsCodeLogChannelLogger implements ILogger {
     constructor(
-        readonly channel: vscode.LogOutputChannel) {
-    }
+        readonly channel: vscode.LogOutputChannel) { }
 
     debug(message: string, ...args: any[]) {
         this.channel.debug(message, ...args);
@@ -572,6 +572,24 @@ const builtInTypes = new Set<string>([
 
 export function isBuiltInType(type: string) {
     return builtInTypes.has(getStructNameFromType(type));
+}
+
+export function getWorkspacePgSrcFile(workspace: vscode.Uri, ...paths: string[]) {
+    const customDir = Configuration.getSrcPath();
+    if (customDir) {
+        return joinPath(workspace, customDir, ...paths);
+    }
+
+    return joinPath(workspace, ...paths);
+}
+
+export function getPgSrcFile(...paths: string[]) {
+    const customDir = Configuration.getSrcPath();
+    if (customDir) {
+        return path.join(customDir, ...paths);
+    }
+
+    return path.join(...paths);
 }
 
 /**

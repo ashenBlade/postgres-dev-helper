@@ -280,7 +280,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          *  - src/tools/pgindent/pg_bsd_indent (PG <16)
          *      - not exist: download + build
          */
-        let pg_bsd_indent_dir = utils.joinPath(workspace.uri, 'src', 'tools', 'pg_bsd_indent');
+        let pg_bsd_indent_dir = utils.getWorkspacePgSrcFile(workspace.uri, 'src', 'tools', 'pg_bsd_indent');
         if (await utils.directoryExists(pg_bsd_indent_dir)) {
             /* src/tools/pg_bsd_indent */
             let pg_bsd_indent = utils.joinPath(pg_bsd_indent_dir, 'pg_bsd_indent');
@@ -307,8 +307,8 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         }
 
         /* src/tools/pgindent/pg_bsd_indent */
-        pg_bsd_indent_dir = utils.joinPath(workspace.uri, 
-                                           'src', 'tools', 'pgindent', 'pg_bsd_indent');
+        pg_bsd_indent_dir = utils.getWorkspacePgSrcFile(workspace.uri, 
+                                               'src', 'tools', 'pgindent', 'pg_bsd_indent');
         const pg_bsd_indent = utils.joinPath(pg_bsd_indent_dir, 'pg_bsd_indent');
         if (await utils.fileExists(pg_bsd_indent)) {
             return pg_bsd_indent;
@@ -348,7 +348,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
                 this.logger.info('cloning pg_bsd_indent repository');
                 await utils.execShell(
                     'git', ['clone', 'https://git.postgresql.org/git/pg_bsd_indent.git'],
-                    {cwd: utils.joinPath(workspace.uri, 'src', 'tools', 'pgindent').fsPath});
+                    {cwd: utils.getWorkspacePgSrcFile(workspace.uri, 'src', 'tools', 'pgindent').fsPath});
             } catch (error) {
                 throw new Error(`failed to git clone pg_bsd_indent repository: ${error}`);
             }
@@ -363,8 +363,6 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         } catch (error) {
             throw new Error(`failed to build pg_bsd_indent after clone: ${error}`);
         }
-
-        return pg_bsd_indent;
     }
 
     private async getPgbsdindent(workspace: vscode.WorkspaceFolder) {

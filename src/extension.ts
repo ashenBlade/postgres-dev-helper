@@ -569,20 +569,26 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
 
 async function setupNodeTagFiles(execCtx: vars.ExecContext, log: utils.ILogger,
     context: vscode.ExtensionContext): Promise<undefined> {
-    const nodeTagFiles = Configuration.getNodeTagFiles();
 
-    if (!nodeTagFiles?.length) {
-        log.error('no NodeTag files defined in configuration');
-        return;
+    const getNodeTagFiles = () => {
+        const customNodeTagFiles = Configuration.getCustomNodeTagFiles();
+        if (customNodeTagFiles?.length) {
+            return customNodeTagFiles;
+        }
+
+        return [
+            utils.getPgSrcFile('src', 'include', 'nodes', 'nodes.h'),
+            utils.getPgSrcFile('src', 'include', 'nodes', 'nodetags.h'),
+        ]
     }
-
+    
     const handleNodeTagFile = async (path: vscode.Uri) => {
         if (!await utils.fileExists(path)) {
             return;
         }
 
         log.debug('processing %s NodeTags file', path.fsPath);
-        const document = await vscode.workspace.openTextDocument(path)
+        const document = await vscode.workspace.openTextDocument(path);
         try {
             const added = execCtx.nodeVarRegistry.updateNodeTypesFromFile(document);
             log.debug('added %i NodeTags from %s file', added, path.fsPath);
@@ -592,21 +598,22 @@ async function setupNodeTagFiles(execCtx: vars.ExecContext, log: utils.ILogger,
     }
 
     const setupSingleFolder = async (folder: vscode.WorkspaceFolder) => {
-        for (const file of nodeTagFiles) {
-            const filePath = utils.joinPath(folder.uri, file);
-            await handleNodeTagFile(filePath);
+        const nodeTagFiles = getNodeTagFiles();
 
-            7
-            const filePattern = new vscode.RelativePattern(folder, file);
-            const watcher = vscode.workspace.createFileSystemWatcher(filePattern,
-                false, false, true);
-            watcher.onDidChange(uri => {
+        for (const filePath of nodeTagFiles) {
+            const file = utils.joinPath(folder.uri, filePath);
+            await handleNodeTagFile(file);
+            const pattern = new vscode.RelativePattern(folder, filePath);
+            const watcher = vscode.workspace.createFileSystemWatcher(pattern,
+                false, false, 
+                /* ignoreDeleteEvents */ true);
+            watcher.onDidChange(async uri => {
                 log.info('detected change in NodeTag file: %s', uri);
-                handleNodeTagFile(uri);
+                await handleNodeTagFile(uri);
             }, context.subscriptions);
-            watcher.onDidCreate(uri => {
+            watcher.onDidCreate(async uri => {
                 log.info('detected creation of NodeTag file: %s', uri);
-                handleNodeTagFile(uri);
+                await handleNodeTagFile(uri);
             }, context.subscriptions);
     
             context.subscriptions.push(watcher);
@@ -631,9 +638,6 @@ async function setupNodeTagFiles(execCtx: vars.ExecContext, log: utils.ILogger,
 
 export function getCurrentLogLevel() {
     const configValue = Configuration.getLogLevel();
-    if (typeof configValue !== 'string') {
-        return utils.LogLevel.Info;
-    }
     switch (configValue) {
         case 'INFO':
             return utils.LogLevel.Info;
@@ -658,7 +662,8 @@ export class Configuration {
         NodeTagFiles: 'nodeTagFiles',
         LogLevel: 'logLevel',
         PgindentPath: 'pgindentPath',
-        PgbsdindentPath: 'pgindentPath'
+        PgbsdindentPath: 'pgindentPath',
+        SrcPath: 'srcPath'
     };
     static Commands = {
         DumpNodeToLog: `${this.ExtensionName}.dumpNodeToLog`,
@@ -673,10 +678,10 @@ export class Configuration {
     static ExtensionSettingsFileName = 'pgsql_hacker_helper.json';
 
     static getLogLevel() {
-        return this.getConfig<string>(this.ConfigSections.LogLevel) ?? '';
+        return this.getConfig<string>(this.ConfigSections.LogLevel);
     };
-    static getNodeTagFiles() {
-        return this.getConfig<string[]>(this.ConfigSections.NodeTagFiles) ?? [];
+    static getCustomNodeTagFiles() {
+        return this.getConfig<string[]>(this.ConfigSections.NodeTagFiles);
     };
 
     static getPgindentPath() {
@@ -685,6 +690,10 @@ export class Configuration {
 
     static getCustomPgbsdindentPath() {
         return this.getConfig<string>(this.ConfigSections.PgbsdindentPath);
+    }
+
+    static getSrcPath() {
+        return this.getConfig<string>(this.ConfigSections.SrcPath);
     }
 
     static getConfig<T>(section: string) {
