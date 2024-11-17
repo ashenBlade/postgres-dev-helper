@@ -143,17 +143,38 @@ For more info check [configuration file documentation](./docs/config_file.md).
 
 ## Extension Settings
 
-There are 3 settings:
+There are 4 settings:
 
-- Log level - set minimum level of log messages in Output channel.
-  By default - `INFO` (if using VS Code 1.74.0 ang greater use `Output` channel
-  logger settings)
-- Files with NodeTag files - list of paths points to files that contain NodeTags.
-  By default - `src/include/nodes/nodes.h`, `src/include/nodes/nodetags.h`
-- Custom path to `pg_bsd_indent`. Use it if you have pg_bsd_indent installed
-  globally. If not specified, it will be searched in `src/tools` directory.
-  If required, it will be downloaded and installed (`wget` required to download
-  sources)
+- `postgresql-hacker-helper.logLevel` - Log level
+
+  Minimum level of log messages in Output channel.
+  By default - `INFO`. If using VS Code 1.74.0 ang greater use `Output` channel
+  logger settings.
+
+- `postgresql-hacker-helper.srcPath` - Path to source code directory
+  
+  *Relative* path to custom PostgreSQL source code directory. Use it, if source
+  code files are not in your workspace root (i.e. in `${workspaceFolder}/postgresql`). Used for searching for
+  required files (node tag files, `pg_bsd_indent` and so on). If not specified
+  search starts from workspace root. (Next, this settings will be used as `*SrcPath*`).
+
+- `postgresql-hacker-helper.nodeTagFiles` - Files with NodeTag files
+  
+  List of paths points to files that contain NodeTags.
+  
+  - If path is absolute - specified files will be used directly.
+  - If path is relative, search starts from source files directory (see
+  `postgresql-hacker-helper.srcPath`).
+  - If not specified, `*SrcPath*/src/include/nodes/nodes.h`
+  and `*SrcPath*/src/include/nodes/nodetags.h` will be used.
+
+- `postgresql-hacker-helper.pg_bsd_indentPath` - Path to `pg_bsd_indent`
+  
+  Path to `pg_bsd_indent` tool. Required for formatting support. Use it if you have `pg_bsd_indent` installed globally or want to use specific version.
+
+  - If not specified, it will be searched in `*SrcPath*/src/tools` directory.
+  - If specified, and failed to run extension will try to build it.
+  NOTE: If required, it will be downloaded (`wget` is required) and built.
 
 ## Compatibility
 
@@ -189,6 +210,13 @@ Known issues:
   extension
 
 ## Release Notes
+
+### 1.4.0
+
+Add support for custom PostgreSQL source code directories. Custom directory can
+be specified using `postgresql-hacker-helper.srcPath` setting.
+
+Fix invalid logging for VS Code with version greater 1.74.0.
 
 ### 1.3.0
 

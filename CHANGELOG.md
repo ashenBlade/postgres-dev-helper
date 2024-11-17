@@ -5,6 +5,18 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0]
+
+### Added
+
+- Support for custom PostgreSQL source code directories. It can be set using `postgresql-hacker-helper.srcPath` in settings.
+  This setting is used to start searching for required files (i.e. default node tag files or `pg_bsd_indent`).
+  NOTE: if custom NodeTag files are set with relative path - search start from *workspace* directory, not your custom `srcPath`.
+
+### Fixed
+
+- Invalid message formatting for VS Code greater than 1.74.0. Caused by incompatible (with extension's) formatting logic used.
+
 ## [1.3.0]
 
 ### Added
