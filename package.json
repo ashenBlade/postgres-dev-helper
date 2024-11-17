@@ -127,7 +127,6 @@
                 "postgresql-hacker-helper.pg_bsd_indentPath": {
                     "title": "Path to pg_bsd_indent",
                     "type": "string",
-                    "default": "src/tools/pg_bsd_indent/pg_bsd_indent",
                     "description": "Path to pg_bsd_indent executable used to format file.\nIf not specified, pg_bsd_indent will be search in all available location, and maybe built"
                 },
                 "postgresql-hacker-helper.srcPath": {
