@@ -96,9 +96,9 @@ export function activate(context: vscode.ExtensionContext) {
                 
         setupDebugger(nodesView, logger, context);
 
-        config.setExtensionActive(true);
-
         formatter.registerFormatting(logger);
+
+        config.setExtensionActive(true);
 
         logger.info('Extension activated');
     } catch (error) {
