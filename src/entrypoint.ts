@@ -24,7 +24,7 @@ function createLogger(context: vscode.ExtensionContext): utils.ILogger {
     
     if (utils.Features.hasLogOutputChannel()) {
         outputChannel = vscode.window.createOutputChannel(config.ExtensionPrettyName, {log: true});
-        logger = new utils.VsCodeLogChannelLogger(outputChannel);
+        logger = new utils.VsCodeLogger(outputChannel);
     } else {
         if (utils.Features.logOutputLanguageEnabled()) {
             outputChannel = vscode.window.createOutputChannel(config.ExtensionPrettyName, 'log');
@@ -34,7 +34,7 @@ function createLogger(context: vscode.ExtensionContext): utils.ILogger {
         
         const logLevelConfigSection = config.ConfigSections.LogLevel;
         const fullConfigSectionName = config.getFullConfigSection(logLevelConfigSection);
-        const vsLogger = new utils.VsCodeLogger(outputChannel, getCurrentLogLevel());
+        const vsLogger = new utils.ObsoleteVsCodeLogger(outputChannel, getCurrentLogLevel());
         context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
             if (!event.affectsConfiguration(fullConfigSectionName)) {
                 return;
@@ -70,10 +70,10 @@ function setupDebugger(
             undefined, context.subscriptions);
     } else {
         logger.warn(
-            `Current version of VS Code (${vscode.version}) do not support ` +
+            'Current version of VS Code (%s) do not support ' +
             'debugFocus API, falling back to compatible event-based implementation. ' +
             'Some features might be not accessible. ' +
-            'Please update VS Code to version 1.90 or higher',
+            'Please update VS Code to version 1.90 or higher', vscode.version
         );
 
         dataProvider.switchToEventBasedRefresh(context);

@@ -120,91 +120,113 @@ export interface ILogger {
     focus: () => void;
 }
 
+/* Start with 2 as in vscode.LogLevel */
 export enum LogLevel {
-    Debug = 0,
-    Info = 1,
-    Warn = 2,
-    Error = 3,
-    Disable = 4,
+    Debug = 2,
+    Info = 3,
+    Warn = 4,
+    Error = 5,
+    Disable = 6,
 }
 
-export class VsCodeLogger implements ILogger {
-    minLogLevel: LogLevel;
+abstract class BaseLogger implements ILogger {
+    constructor(protected channel: vscode.OutputChannel) { }
+    
+    protected format(msg: string, args: any[]) {
+        if (args.length && args[args.length - 1] instanceof Error) {
+            const err: Error = args.pop();
+            return `${util.format(msg, ...args)}\n${err.stack}`;
+        } else {
+            return util.format(msg, ...args);
+        }
+    }
+    
+    focus() {
+        this.channel.show(true);
+    }
+    
+    abstract debug(message: string, ...args: any[]): void;
+    abstract info(message: string, ...args: any[]): void;
+    abstract warn(message: string, ...args: any[]): void;
+    abstract error(message: string, ...args: any[]): void;
+}
 
+export class ObsoleteVsCodeLogger extends BaseLogger implements ILogger {
     constructor(
-        readonly channel: vscode.OutputChannel,
-        minLogLevel: LogLevel) {
-        this.minLogLevel = minLogLevel;
+        channel: vscode.OutputChannel,
+        public minLogLevel: LogLevel) {
+        super(channel);
     }
 
-    logGeneric(level: LogLevel, levelStr: string, message: string, ...args: any[]) {
+    logGeneric(level: LogLevel, levelStr: string, message: string, args: any[]) {
         if (level < this.minLogLevel) {
             return;
         }
+        /* 
+         * VS Code prior to 1.74.0 does not have LogOutputChannel
+         * with builtin level/timing features
+         */
 
         /* YYYY-mm-ddTHH:MM:SS.ffffZ -> YYYY-mm-dd HH:MM:SS.ffff */
         const timestamp = new Date().toISOString()
                                     .replace('T', ' ')
                                     .replace('Z', '');
-        /* TIMESTAMP [LEVEL]: MESSAGE EXCEPTION */
+        /* TIMESTAMP [LEVEL]: MESSAGE \n EXCEPTION */
         this.channel.append(timestamp);
         this.channel.append(' [');
         this.channel.append(levelStr);
         this.channel.append(']: ');
-        this.channel.appendLine(util.format(message, ...args));
+        this.channel.appendLine(super.format(message, args));
     }
 
     debug(message: string, ...args: any[]) {
-        this.logGeneric(LogLevel.Debug, 'DEBUG', message, ...args);
+        this.logGeneric(LogLevel.Debug, 'debug', message, args);
     }
     info(message: string, ...args: any[]) {
-        this.logGeneric(LogLevel.Info, 'INFO', message, ...args);
+        this.logGeneric(LogLevel.Info, 'info', message, args);
     }
     warn(message: string, ...args: any[]) {
-        this.logGeneric(LogLevel.Warn, 'WARN', message, ...args);
+        this.logGeneric(LogLevel.Warn, 'warn', message, args);
     }
     error(message: string, ...args: any[]) {
-        this.logGeneric(LogLevel.Error, 'ERROR', message, ...args);
-    }
-    focus() {
-        this.channel.show(true);
+        this.logGeneric(LogLevel.Error, 'error', message, args);
     }
 }
 
-export class VsCodeLogChannelLogger implements ILogger {
-    constructor(
-        readonly channel: vscode.LogOutputChannel) { }
+export class VsCodeLogger extends BaseLogger implements ILogger {
+    constructor(private logOutput: vscode.LogOutputChannel) {
+        super(logOutput);
+    }
+
+    protected canLog(level: LogLevel): boolean {
+        return this.logOutput.logLevel != vscode.LogLevel.Off && 
+               this.logOutput.logLevel <= level;
+    }
+
+    logGeneric(level: LogLevel, handler: any, msg: string, args: any[]) {
+        if (this.canLog(level)) {
+            handler(super.format(msg, args));
+        }
+    }
 
     debug(message: string, ...args: any[]) {
-        this.channel.debug(message, ...args);
+        this.logGeneric(LogLevel.Debug, this.logOutput.debug, message, args);
     }
-
     info(message: string, ...args: any[]) {
-        this.channel.info(message, ...args);
+        this.logGeneric(LogLevel.Info, this.logOutput.info, message, args);
     }
-
     warn(message: string, ...args: any[]) {
-        this.channel.warn(message, ...args);
+        this.logGeneric(LogLevel.Warn, this.logOutput.warn, message, args);
     }
-
     error(message: string, ...args: any[]) {
-        let err = undefined;
-        if (args.length > 0 && args[args.length - 1] instanceof Error) {
-            err = args.pop();
-        }
-
-        this.channel.error(message, args);
-        this.channel.error(err);
-    }
-    focus() {
-        this.channel.show(true);
+        this.logGeneric(LogLevel.Error, this.logOutput.error, message, args);
     }
 }
 
 export interface IDebuggerFacade {
     readonly isInDebug: boolean;
     evaluate: (expression: string, frameId: number | undefined,
-        context?: string) => Promise<dap.EvaluateResponse>;
+               context?: string) => Promise<dap.EvaluateResponse>;
     getVariables: (frameId: number) => Promise<dap.DebugVariable[]>;
     getMembers: (variablesReference: number) => Promise<dap.DebugVariable[]>;
     getTopStackFrameId: (threadId: number) => Promise<number | undefined>;

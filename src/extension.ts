@@ -374,7 +374,13 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
         try {
             text = doc.getText();
         } catch (err: any) {
-            logger.error('failed to read settings file %s', doc.uri, err);
+            logger.error('failed to read settings file %s', doc.uri.fsPath, err);
+            return;
+        }
+
+        if (text.length === 0) {
+            /* JSON file can be used as activation event */
+            logger.debug('JSON settings file %s is empty', doc.uri.fsPath);
             return;
         }
 
@@ -382,7 +388,7 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
         try {
             data = JSON.parse(text);
         } catch (err: any) {
-            logger.error('failed to parse JSON settings file %s', doc.uri, err);
+            logger.error('failed to parse JSON settings file %s', doc.uri.fsPath, err);
             return;
         }
 
@@ -390,7 +396,7 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
         try {
             parseResult = parseConfigurationFile(data);
         } catch (err: any) {
-            logger.error('failed to parse JSON settings file %s', doc.uri, err);
+            logger.error('failed to parse JSON settings file %s', doc.uri.fsPath, err);
             return;
         }
 
