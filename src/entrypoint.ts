@@ -91,7 +91,7 @@ export function activate(context: vscode.ExtensionContext) {
             specialMemberRegistry: new vars.SpecialMemberRegistry(),
         } as vars.ExecContext;
         const nodesView = createPostgresVariablesView(context, logger, execContext);
-        
+
         setupExtension(context, execContext, logger, nodesView);
                 
         setupDebugger(nodesView, logger, context);

@@ -102,7 +102,7 @@ export function substituteStructName(type: string, target: string) {
  * @param variable Variable to test
  * @returns true if variable is raw struct
  */
-export function isRawStruct(variable: { parent?: {}, value: string }) {
+export function isRawStruct(variable: { parent?: {}, value: string, type: string }) {
     /* 
      * Check that variable is plain struct - not pointer.
      * Figured out - top level variables has {...} in value, but
@@ -110,7 +110,27 @@ export function isRawStruct(variable: { parent?: {}, value: string }) {
      */
     return variable.parent instanceof VariablesRoot
             ? variable.value === '{...}'
-            : variable.value === '';
+            : variable.value === '' && !variable.type.endsWith('[]');
+}
+
+export function isFixedSizeArray(variable: {parent?: {}, type: string, value: string}): boolean {
+    /*
+     * Find pattern: type[size]
+     * But not: type[] - vla is not expanded
+     */
+    if (variable.type.length < 2) {
+        return false;
+    }
+
+    if (variable.type[variable.type.length - 1] !== ']') {
+        return false;
+    }
+    
+    if (variable.type[variable.type.length - 2] === '[') {
+        return false;
+    }
+
+    return true;
 }
 
 export interface ILogger {

@@ -235,10 +235,22 @@ export abstract class Variable {
 
     abstract doGetChildren(context: ExecContext): Promise<Variable[] | undefined>;
     protected isExpandable() {
-        /* First check it is valid pointer - they appear more often */
-        return (
-            utils.isValidPointer(this.value) && !utils.isBuiltInType(this.type)
-        ) || utils.isRawStruct(this);
+        /* Pointer to struct */
+        if (utils.isValidPointer(this.value) && !utils.isBuiltInType(this.type)) {
+            return true;
+        }
+        
+        /* Embedded or top level structs */
+        if (utils.isRawStruct(this)) {
+            return true;
+        }
+        
+        /* Fixed size array: type[size] */
+        if (utils.isFixedSizeArray(this)) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
