@@ -63,6 +63,12 @@
                 "title": "Show diff preview for PostgreSQL formatter",
                 "shortTitle": "Diff PostgreSQL formatter",
                 "category": "PgSQL"
+            },
+            {
+                "command": "postgresql-hacker-helper.bootstrapExtension",
+                "title": "Bootstrap extension",
+                "shortTitle": "Bootstrap extension",
+                "category": "PgSQL"
             }
         ],
         "menus": {

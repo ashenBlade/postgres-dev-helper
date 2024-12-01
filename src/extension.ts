@@ -353,6 +353,272 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
     }
 }
 
+async function promptWorkspace() {
+    if (!vscode.workspace.workspaceFolders) {
+        throw new Error('No workspaces opened');
+    }
+
+    if (vscode.workspace.workspaceFolders.length === 1) {
+        return vscode.workspace.workspaceFolders[0];
+    }
+
+    const name = await vscode.window.showQuickPick(
+                        vscode.workspace.workspaceFolders.map(wf => wf.name), {
+                            title: 'Choose workspace',
+                            placeHolder: vscode.workspace.workspaceFolders[0].name
+                        });
+    if (!name) {
+        throw new Error('No workspaces chosen');
+    }
+
+    return vscode.workspace.workspaceFolders.find(wf => wf.name === name)!;
+}
+
+async function promptExtensionName() {
+    const extensionName = await vscode.window.showInputBox({
+        prompt: 'Enter extension name'
+    });
+    if (!extensionName) {
+        throw new Error('User did not specified extension name');
+    }
+
+    const workspace = await promptWorkspace();
+    return {
+        path: utils.getWorkspacePgSrcFile(workspace.uri, 'contrib', extensionName),
+        name: extensionName,
+    };
+}
+
+async function promptExtensionFlags() {
+    async function promptFlag(title: string) {
+        const result = await vscode.window.showQuickPick([
+            'Yes', 'No'
+        ], {title, placeHolder: 'Yes'});
+        if (!result) {
+            throw new Error('User declined to answer');
+        }
+
+        return result === 'Yes';
+    }
+
+    async function promptString(title: string) {
+        const result = await vscode.window.showInputBox({
+            prompt: title,
+        });
+
+        return result ?? '';
+    }
+
+    return {
+        c: await promptFlag('Use C sources?'),
+        sql: await promptFlag('Use SQL sources?'),
+        tap: await promptFlag('Include TAP tests?'),
+        regress: await promptFlag('Include regress tests?'),
+        comment: await promptString('Enter extension description'),
+    }
+}
+
+async function bootstrapExtensionCommand() {
+    async function bootstrapFile(name: string, contents: string[]) {
+        const filePath = utils.joinPath(path, name);
+        await utils.writeFile(filePath, contents.join('\n'));
+    }
+
+    const {path, name} = await promptExtensionName();
+
+    if (await utils.directoryExists(path)) {
+        if (!await utils.directoryEmpty(path)) {
+            vscode.window.showErrorMessage(`Extension ${name} directory already exists and is not empty`);
+            return;
+        }
+    } else {
+        await utils.createDirectory(path);
+    }
+
+    const flags = await promptExtensionFlags();
+
+    /* 
+     * Makefile
+     * *.control
+     * *.sql
+     * *.c
+     * README
+     */
+    const makefile = [];
+    if (flags.c) {
+        makefile.push(`EXTENSION = ${name}`,
+                      '',
+                      `MODULE_big = ${name}`,
+                      `OBJS = $(WIN32RES) ${name}.o`,
+                      '');
+    }
+
+    if (flags.sql) {
+        makefile.push(`DATA = ${name}--0.1.0.sql`, '');
+    }
+
+    if (flags.regress) {
+        makefile.push(`REGRESS = init`, '');
+    }
+    
+    if (flags.tap) {
+        makefile.push(`TAP_TESTS = 1`, '');
+    }
+
+    makefile.push(
+        'ifdef USE_PGXS',
+        'PG_CONFIG = pg_config',
+        'PGXS := $(shell $(PG_CONFIG) --pgxs)',
+        'include $(PGXS)',
+        'else',
+        `subdir = contrib/${name}`,
+        'top_builddir = ../..',
+        'include $(top_builddir)/src/Makefile.global',
+        'include $(top_srcdir)/contrib/contrib-global.mk',
+        'endif',
+        ''
+    );
+
+    await bootstrapFile('Makefile', makefile);
+
+    const control = [
+        `# ${name} extension`,
+        "default_version = '0.1.0'"
+    ];
+
+    if (flags.comment) {
+        control.push(`comment = '${flags.comment}'`);
+    }
+
+    if (flags.c) {
+        control.push(`module_pathname = '$libdir/${name}'`);
+    }
+    
+    control.push('relocatable = false');
+    await bootstrapFile(`${name}.control`, control);
+
+    await bootstrapFile('README', [
+        `# ${name}`,
+        '',
+        flags.comment
+    ]);
+
+    if (flags.c) {
+        await bootstrapFile(`${name}.c`, [
+            '#include "postgres.h"',
+            '#include "fmgr.h"',
+            '#include "utils/builtins.h"',
+            '',
+            '#ifdef PG_MODULE_MAGIC',
+            'PG_MODULE_MAGIC;',
+            '#endif',
+            '',
+            'void _PG_init(void);',
+            'void _PG_fini(void);',
+            '',
+            'PG_FUNCTION_INFO_V1(hello_world);',
+            '',
+            'Datum',
+            'hello_world(PG_FUNCTION_ARGS)',
+            '{',
+            '\tPG_RETURN_TEXT_P(cstring_to_text("hello, world!"));',
+            '}',
+            '',
+            'void',
+            '_PG_init(void)',
+            '{',
+            '}',
+            '',
+            'void',
+            '_PG_fini(void)',
+            '{',
+            '}',
+            ''
+        ]);
+    }
+
+    if (flags.sql) {
+        const sql = [
+            'CREATE FUNCTION hello_world()',
+            'RETURNS text',
+        ];
+
+        if (flags.c) {
+            sql.push(
+                'AS \'MODULE_PATHNAME\'',
+                'LANGUAGE C IMMUTABLE;'
+            );
+        } else {
+            sql.push(
+                'AS $$',
+                '\tSELECT \'hello, world!\';',
+                '$$ LANGUAGE SQL IMMUTABLE;'
+            );
+        }
+
+        await bootstrapFile(`${name}--0.1.0.sql`, sql);
+    }
+
+    if (flags.regress) {
+        const regressDir = utils.joinPath(path, 'sql');
+        const expectedDir = utils.joinPath(path, 'expected');
+
+        await utils.createDirectory(regressDir);
+        await utils.createDirectory(expectedDir);
+
+        await utils.writeFile(
+                utils.joinPath(regressDir, 'init.sql'), [
+                    `CREATE EXTENSION ${name};`,
+                    'SELECT hello_world() as text;'
+                ].join('\n'));
+
+        await utils.writeFile(
+                utils.joinPath(expectedDir, 'init.out'), [
+                    `CREATE EXTENSION ${name};`,
+                    'SELECT hello_world() as text;',
+                    '     text      ',
+                    '---------------',
+                    ' hello, world!',
+                    '(1 row)',
+                    '',
+                    '',
+                ].join('\n'));
+    }
+
+    if (flags.tap) {
+        const tapDir = utils.joinPath(path, 't');
+        await utils.createDirectory(tapDir);
+
+        await utils.writeFile(
+            utils.joinPath(tapDir, '001_basic.pl'), [
+                'use strict;',
+                'use warnings;',
+                '',
+                'use PostgreSQL::Test::Cluster;',
+                'use PostgreSQL::Test::Utils;',
+                'use Test::More tests => 1;',
+                '',
+                'my $node = PostgreSQL::Test::Cluster->new(\'main\');',
+                '$node->init;',
+                flags.c 
+                    ? `$node->append_conf(\'postgresql.conf\', qq{shared_preload_libraries=\'${name}\'});` 
+                    : '',
+                '$node->start;',
+                '',
+                `$node->safe_psql('postgres', q(CREATE EXTENSION ${name}));`,
+                "my $out = $node->safe_psql('postgres', 'SELECT hello_world();');",
+                "is($out, 'hello, world!', 'Unexpected string');",
+                '',
+                'done_testing();',
+                '',
+            ].join('\n')
+        );
+    }
+
+    const td = await vscode.workspace.openTextDocument(utils.joinPath(path, 'Makefile'));
+    await vscode.window.showTextDocument(td);
+}
+
 export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.ExecContext,
     logger: utils.ILogger, nodesView: NodePreviewTreeViewProvider) {
 
@@ -510,6 +776,14 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
         }
     };
 
+    const bootstrapExtensionCmd = async () => {
+        try {
+            await bootstrapExtensionCommand();
+        } catch (err) {
+            logger.error('Failed to bootstrap extension', err);
+        }
+    }
+
     /* Refresh config file command register */
     const refreshConfigCmd = async () => {
         if (!vscode.workspace.workspaceFolders?.length) {
@@ -551,6 +825,7 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
     registerCommand(Configuration.Commands.OpenConfigFile, openConfigFileCmd);
     registerCommand(Configuration.Commands.DumpNodeToLog, pprintVarToLogCmd);
     registerCommand(Configuration.Commands.RefreshPostgresVariables, refreshVariablesCommand);
+    registerCommand(Configuration.Commands.BootstrapExtension, bootstrapExtensionCmd);
 
     /* Process config files immediately */
     if (vscode.workspace.workspaceFolders) {
@@ -677,6 +952,7 @@ export class Configuration {
         RefreshPostgresVariables: `${this.ExtensionName}.refreshPostgresVariablesView`,
         RefreshConfigFile: `${this.ExtensionName}.refreshConfigFile`,
         FormatterDiffView: `${this.ExtensionName}.formatterShowDiff`,
+        BootstrapExtension: `${this.ExtensionName}.bootstrapExtension`,
     };
     static Views = {
         NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`,
