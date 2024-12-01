@@ -5,6 +5,7 @@ import * as util from 'util';
 import * as fs from 'fs';
 import * as child_process from 'child_process';
 import { Configuration } from './extension';
+import { VariablesRoot } from './variables';
 
 const nullPointer = '0x0';
 const pointerRegex = /^0x[0-9abcdef]+$/i;
@@ -107,9 +108,9 @@ export function isRawStruct(variable: { parent?: {}, value: string }) {
      * Figured out - top level variables has {...} in value, but
      * struct members are empty strings. (For raw structs).
      */
-    return variable.parent
-        ? variable.value === ''
-        : variable.value === '{...}';
+    return variable.parent instanceof VariablesRoot
+            ? variable.value === '{...}'
+            : variable.value === '';
 }
 
 export interface ILogger {
