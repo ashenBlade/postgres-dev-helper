@@ -5,6 +5,24 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1]
+
+### Added
+
+Add extension files bootstrapping: Makefile, \*.c, \*.sql, \*.control, tests.
+To create extension this way need to run command `Bootstrap extension` from
+command palette.
+
+Support for fixed size array expansion. Type of field must be in form `type[size]`.
+
+### Fixed
+
+Fix invalid struct detection in variables view: top level structs are not
+expandable.
+
+Fix variable length arrays fields displayed as expandable. I.e. for `List` last
+field previously was displayed as expandable, but there are no elements shown.
+
 ## [1.4.0]
 
 ### Added

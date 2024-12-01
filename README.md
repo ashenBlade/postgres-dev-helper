@@ -93,6 +93,15 @@ Feature supported for PostgreSQL starting from 10 version.
 Using command `PgSQL: Show diff preview for PostgreSQL formatter` you can
 preview changes made by formatter.
 
+### Extension bootstrapping
+
+Extension can help with creation of basic PostgreSQL extension files: Makefile,
+control file, source files (C, SQL) and tests.
+
+Just run command `Bootstrap extension` and enter initial values (extension
+name, description, required files). Extension will be created inside `contrib`
+directory.
+
 ## Customization
 
 ### pgsql_hacker_helper.json
@@ -208,8 +217,22 @@ Known issues:
   process.
 - Tested only with [ms-vscode.cpptools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools)
   extension
+- Sometimes formatting can misbehave. This is due to `pg_bsd_indent` internal
+  logic. If formatting is not applied try run command again. If file after
+  formatting is a mess this can be due to errors in logic.
 
 ## Release Notes
+
+### 1.4.1
+
+Fix invalid struct detection in variables view: top level structs are not
+expandable.
+
+Add extension files bootstrapping: Makefile, \*.c, \*.sql, \*.control, tests.
+
+Fix variable length arrays fields displayed as expandable.
+
+Support for fixed size array expansion.
 
 ### 1.4.0
 

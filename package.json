@@ -2,13 +2,14 @@
     "name": "postgresql-hacker-helper",
     "displayName": "PostgreSQL Hacker Helper",
     "description": "Extension to assist Postgres hackers - source code developers",
-    "version": "1.4.0",
+    "version": "1.4.1",
     "engines": {
         "vscode": "^1.30.0"
     },
     "categories": [
         "Debuggers",
-        "Formatters"
+        "Formatters",
+        "Other"
     ],
     "icon": "resources/logo.png",
     "activationEvents": [
@@ -29,7 +30,9 @@
         "pgsql",
         "pg",
         "c",
-        "pgindent"
+        "pgindent",
+        "formatter",
+        "format"
     ],
     "contributes": {
         "commands": [
