@@ -619,6 +619,27 @@ async function bootstrapExtensionCommand() {
     await vscode.window.showTextDocument(td);
 }
 
+function addElogErrorBreakpoint() {
+    /* 
+     * Check that such breakpoint already exists, otherwise
+     * it will be added again on new extension activation
+     */
+    if (vscode.debug.breakpoints
+                    .find(bp => bp instanceof vscode.FunctionBreakpoint &&
+                                bp.functionName === 'errstart')) {
+        return;
+    }
+
+    /* Breakpoint on `elog' or `ereport' with ERROR or greater */
+    vscode.debug.addBreakpoints([
+        new vscode.FunctionBreakpoint(
+            'errstart',
+            false,
+            'ERROR <= elevel',
+        )
+    ]);
+}
+
 export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.ExecContext,
     logger: utils.ILogger, nodesView: NodePreviewTreeViewProvider) {
 
@@ -846,6 +867,7 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
 
     /* Read files with NodeTags */
     setupNodeTagFiles(execCtx, logger, context);
+    addElogErrorBreakpoint();
 }
 
 async function setupNodeTagFiles(execCtx: vars.ExecContext, log: utils.ILogger,
