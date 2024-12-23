@@ -964,8 +964,7 @@ export class Configuration {
         TopLevelSection: this.ExtensionName,
         NodeTagFiles: 'nodeTagFiles',
         LogLevel: 'logLevel',
-        PgindentPath: 'pgindentPath',
-        PgbsdindentPath: 'pgindentPath',
+        PgbsdindentPath: 'pg_bsd_indentPath',
         SrcPath: 'srcPath'
     };
     static Commands = {
@@ -984,13 +983,10 @@ export class Configuration {
     static getLogLevel() {
         return this.getConfig<string>(this.ConfigSections.LogLevel);
     };
+
     static getCustomNodeTagFiles() {
         return this.getConfig<string[]>(this.ConfigSections.NodeTagFiles);
     };
-
-    static getPgindentPath() {
-        return this.getConfig<string>(this.ConfigSections.PgindentPath);
-    }
 
     static getCustomPgbsdindentPath() {
         return this.getConfig<string>(this.ConfigSections.PgbsdindentPath);

@@ -373,7 +373,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         const userPgbsdindent = Configuration.getCustomPgbsdindentPath();
         if (userPgbsdindent) {
             return path.isAbsolute(userPgbsdindent) 
-                            ? vscode.Uri.file(userPgbsdindent) 
+                            ? vscode.Uri.file(userPgbsdindent)
                             : utils.joinPath(workspace.uri, userPgbsdindent)
         }
 
