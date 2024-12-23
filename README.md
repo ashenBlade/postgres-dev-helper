@@ -202,26 +202,29 @@ Also, extension will target latest VS Code version and try to use the full
 functionality of new versions. So, use latest VS Code versions to get new
 features earlier.
 
-For using formatter minimal supported version is `10`.
+For using formatter minimal supported version Postgres is `10`.
 
 ## Known Issues
 
 Known issues:
 
-- Only tested on gdb debugger, UB for other debuggers (i.e. lldb)
 - If in pointer variable was garbage, extension will not detect it and expand
-  this variable (may be garbage)
+  this variable (may be garbage).
 - To get NodeTags extension reads all available NodeTag files (from settings),
   but these files may be not created (./configure or make not run). I assume by
   time of debugging start files will be created, so extension catch them and
   process.
 - Tested only with [ms-vscode.cpptools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools)
-  extension
+  extension. Currently, no support for other DAP adapters (i.e. Code LLDB)
 - Sometimes formatting can misbehave. This is due to `pg_bsd_indent` internal
   logic. If formatting is not applied try run command again. If file after
   formatting is a mess this can be due to errors in logic.
 
 ## Release Notes
+
+### 1.4.2
+
+Fix invalid handling of `pg_bsd_indentPath` setting. [#2](https://github.com/ashenBlade/postgres-dev-helper/issues/2)
 
 ### 1.4.1
 

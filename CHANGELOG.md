@@ -5,6 +5,12 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2]
+
+### Fixed
+
+Fix `pg_bsd_indent Path` setting not handled due to code constants misuse. Relates to bug [#2](https://github.com/ashenBlade/postgres-dev-helper/issues/2).
+
 ## [1.4.1]
 
 ### Added
