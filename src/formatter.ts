@@ -379,23 +379,77 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
 
         return await this.findExistingPgbsdindent(workspace);
     }
-    
+
+    private runPreIndent(contents: string): string {
+        function replace(regex: any, replacement: any) {
+            contents = contents.replace(regex, replacement)
+        }
+
+        // Convert // comments to /* */
+        replace(/^([ \t]*)\/\/(.*)$/gm, '$1/* $2 */');
+
+        // Adjust dash-protected block comments so indent won't change them
+        replace(/\/\* \+---/gm, '/*---X_X');
+
+        // Prevent indenting of code in 'extern "C"' blocks
+        // we replace the braces with comments which we'll reverse later
+        replace(/(^#ifdef[ \t]+__cplusplus.*\nextern[ \t]+"C"[ \t]*\n)\{[ \t]*$/gm, 
+                '$1/\* Open extern "C" */');
+        replace(/(^#ifdef[ \t]+__cplusplus.*\n)\}[ \t]*$/gm,
+                '$1/\* Close extern "C" */');
+
+        // Protect wrapping in CATALOG()
+        replace(/^(CATALOG\(.*)$/gm, '/*$1*/');
+
+        return contents;
+    }
+
+    private runPostIndent(contents: string): string {
+        function replace(regex: any, replacement: any) {
+            contents = contents.replace(regex, replacement);
+        }
+
+        // Restore CATALOG lines
+        replace(/^\/\*(CATALOG\(.*)\*\/$/gm, '$1');
+
+        // put back braces for extern "C"
+        replace(/^\/\* Open extern "C" \*\//gm, '{');
+        replace(/^\/\* Close extern "C" \*\/$/gm, '}');
+
+        // Undo change of dash-protected block comments
+        replace(/\/\*---X_X/gm, '/* ---');
+
+        // Fix run-together comments to have a tab between them
+        replace(/\*\/(\/\*.*\*\/)$/gm, '*/\t$1');
+
+        // Use a single space before '*' in function return types
+        replace(/^([A-Za-z_]\S*)[ \t]+\*$/gm, '$1 *');
+
+        return contents;
+    }
+
     private async runPgindentInternal(document: vscode.TextDocument, 
                                       pg_bsd_indent: vscode.Uri) {
         /* 
          * We use pg_bsd_indent directly instead of pgindent because:
          *  - different pgindent versions behaves differently
          *  - direct call to pg_bsd_indent is faster
+         *  - pgindent creates temp files which are not removed if error
+         *    happens - we can not track these files (main reason)
          */
+
         let typedefs = await this.getTypedefs(utils.joinPath(pg_bsd_indent, '..'));
+        const contents = this.runPreIndent(document.getText());
         const {stdout} = await utils.execShell(
             pg_bsd_indent.fsPath, [
                 ...PgindentDocumentFormatterProvider.pg_bsd_indentDefaultFlags,
                 `-U${typedefs.fsPath}`],
-            {stdin: document.getText()});
+            {stdin: contents});
+        const result = this.runPostIndent(stdout);
+
         /* On success cache pg_bsd_indent path */
         this.savedPgbsdPath = pg_bsd_indent;
-        return stdout;
+        return result;
     }
 
     private async runPgindent(document: vscode.TextDocument, 
