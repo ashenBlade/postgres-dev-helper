@@ -222,6 +222,10 @@ Known issues:
 
 ## Release Notes
 
+### 1.4.3
+
+Add missing formatting rules when running `pg_bsd_indent`. [#3](https://github.com/ashenBlade/postgres-dev-helper/issues/3).
+
 ### 1.4.2
 
 Fix invalid handling of `pg_bsd_indentPath` setting. [#2](https://github.com/ashenBlade/postgres-dev-helper/issues/2)
