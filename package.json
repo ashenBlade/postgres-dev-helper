@@ -2,7 +2,7 @@
     "name": "postgresql-hacker-helper",
     "displayName": "PostgreSQL Hacker Helper",
     "description": "Extension to assist Postgres hackers - source code developers",
-    "version": "1.4.4",
+    "version": "1.4.5",
     "engines": {
         "vscode": "^1.30.0"
     },
@@ -100,6 +100,16 @@
                 }
             ]
         },
+        "colors": [
+            {
+                "id": "pghelper.sample.color",
+                "description": "Color for ",
+                "defaults": {
+                    "dark": "errorForeground",
+                    "light": "errorForeground"
+                }
+            }
+        ],
         "views": {
             "debug": [
                 {
@@ -162,14 +172,14 @@
         "deploy": "vsce publish"
     },
     "devDependencies": {
-        "@types/vscode": "^1.30.0",
         "@types/mocha": "^10.0.7",
         "@types/node": "20.x",
+        "@types/vscode": "^1.30.0",
         "@typescript-eslint/eslint-plugin": "^7.14.1",
         "@typescript-eslint/parser": "^7.11.0",
-        "eslint": "^8.57.0",
-        "typescript": "^5.4.5",
         "@vscode/test-cli": "^0.0.9",
-        "@vscode/test-electron": "^2.4.0"
+        "@vscode/test-electron": "^2.4.0",
+        "eslint": "^8.57.0",
+        "typescript": "^5.4.5"
     }
 }

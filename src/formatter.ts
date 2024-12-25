@@ -389,14 +389,20 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
 
             this.savedProcessedTypedef = undefined;
         } else if (await utils.fileExists(processedTypedef)) {
-            /* After restart be  */
+            /* 
+             * This file is cache in /tmp, so may be created
+             * in another VS Code session
+             */
             this.savedProcessedTypedef = processedTypedef;
             return processedTypedef;
         }
         
         /* 
          * Add and remove some entries from `typedefs.list` file
-         * downloaded from buildfarm
+         * downloaded from buildfarm.
+         * 
+         * This data did not change since PG 10 and i don't think
+         * it will change in near future.
          */
         const rawTypedef = await this.getTypedefs(pg_bsd_indent);
         const contents = await utils.readFile(rawTypedef);
@@ -507,7 +513,6 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
                 throwOnError: false,
             });
         const postProcessed = this.runPostIndent(processed);
-        // const result = stdout;
 
         /* On success cache pg_bsd_indent path */
         this.savedPgbsdPath = pg_bsd_indent;
@@ -525,8 +530,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
                 throw err;
             }
         }
-        
-        /* Second attempt */
+
         this.logger.info('pg_bsd_indent seems not installed. trying to install');
         this.savedPgbsdPath = undefined;
         pg_bsd_indent = await this.findExistingPgbsdindent(workspace);
