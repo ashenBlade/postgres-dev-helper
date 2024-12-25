@@ -542,7 +542,7 @@ export async function execShell(cmd: string, args?: string[],
 
         child.on('close', (code) => {
             if (code !== 0 && (throwOnError === undefined || throwOnError)) {
-                reject(new Error(`command failed to execute. error stack: ${stderr.join('')}`));
+                reject(new Error(`command failed to execute. error stack: ${stdout.join('')}`));
             } else {
                 resolve({
                     code: code ?? 0,
@@ -590,6 +590,28 @@ export async function deleteFile(file: vscode.Uri) {
                 }
             })
         });
+    }
+}
+
+export function readFile(path: vscode.Uri) {
+    if (Features.hasWorkspaceFs()) {
+        return vscode.workspace.fs.readFile(path)
+                .then(value => new TextDecoder().decode(value));
+    } else {
+        return new Promise<string>((resolve, reject) => {
+            fs.readFile(path.fsPath, (err, value) => {
+                if (err) {
+                    reject(err);
+                    return;
+                }
+
+                try {
+                    resolve(new TextDecoder().decode(value));
+                } catch (err: any) {
+                    reject(err);
+                }
+            })
+        })
     }
 }
 

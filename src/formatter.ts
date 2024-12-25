@@ -21,9 +21,22 @@ class LineDiffGroup {
                 /* Small trick to make all lines end with new line */
                 diff.lines.push('');
                 edits.push(vscode.TextEdit.insert(document.lineAt(diff.num).range.start, 
-                           diff.lines.join('\n')));
+                            diff.lines.join('\n')));
+                try {
+                    continue;
+                } catch (err: any) {
+                    if (!(document.lineCount < diff.num && diff.lines[0].startsWith('/**INDENT')))
+                        throw err;
+                }
+
+                /* 
+                 * pg_bsd_indent complains if there is no new line 
+                 * at the end of file, so we add it ourselves
+                 */
+                const lastLine = document.lineAt(document.lineCount - 1);
+                const lastPos = document.lineAt(document.lineCount - 1).range.start;
+                edits.push(vscode.TextEdit.insert(lastPos, `${lastLine.text}\n`));
             } else {
-                
                 /* 
                  * document.lineAt().range returns range of line 
                  * NOT including new line, so just passing it
@@ -269,6 +282,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         ];
 
     private savedPgbsdPath?: vscode.Uri;
+    private savedProcessedTypedef?: vscode.Uri;
     constructor(private logger: utils.ILogger) {}
 
     private async findExistingPgbsdindent(workspace: vscode.WorkspaceFolder) {
@@ -365,6 +379,45 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         }
     }
 
+    private async getProcessedTypedefs(pg_bsd_indent: vscode.Uri) {
+        const processedTypedef = utils.joinPath(vscode.Uri.file(os.tmpdir()),
+                                                'pg-hacker-helper.typedefs.list');
+
+        if (this.savedProcessedTypedef) {
+            if (await utils.fileExists(this.savedProcessedTypedef))
+                return this.savedProcessedTypedef;
+
+            this.savedProcessedTypedef = undefined;
+        } else if (await utils.fileExists(processedTypedef)) {
+            /* After restart be  */
+            this.savedProcessedTypedef = processedTypedef;
+            return processedTypedef;
+        }
+        
+        /* 
+         * Add and remove some entries from `typedefs.list` file
+         * downloaded from buildfarm
+         */
+        const rawTypedef = await this.getTypedefs(pg_bsd_indent);
+        const contents = await utils.readFile(rawTypedef);
+        const entries = new Set(contents.split('\n'));
+
+        [
+            'ANY', 'FD_SET', 'U', 'abs', 'allocfunc', 'boolean', 'date',
+            'digit', 'ilist', 'interval', 'iterator', 'other', 'pointer',
+            'printfunc', 'reference', 'string', 'timestamp', 'type', 'wrap'
+        ].forEach(e => entries.delete(e));
+
+        entries.add('bool');
+        entries.delete('');
+        const arr = Array.from(entries.values());
+        arr.sort();
+
+        await utils.writeFile(processedTypedef, arr.join('\n'));
+        this.savedProcessedTypedef = processedTypedef;
+        return processedTypedef;
+    }
+
     private async getPgbsdindent(workspace: vscode.WorkspaceFolder) {
         if (this.savedPgbsdPath) {
             return this.savedPgbsdPath;
@@ -394,9 +447,9 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         // Prevent indenting of code in 'extern "C"' blocks
         // we replace the braces with comments which we'll reverse later
         replace(/(^#ifdef[ \t]+__cplusplus.*\nextern[ \t]+"C"[ \t]*\n)\{[ \t]*$/gm, 
-                '$1/\* Open extern "C" */');
+                '$1/* Open extern "C" */');
         replace(/(^#ifdef[ \t]+__cplusplus.*\n)\}[ \t]*$/gm,
-                '$1/\* Close extern "C" */');
+                '$1/* Close extern "C" */');
 
         // Protect wrapping in CATALOG()
         replace(/^(CATALOG\(.*)$/gm, '/*$1*/');
@@ -438,18 +491,27 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          *    happens - we can not track these files (main reason)
          */
 
-        let typedefs = await this.getTypedefs(utils.joinPath(pg_bsd_indent, '..'));
-        const contents = this.runPreIndent(document.getText());
-        const {stdout} = await utils.execShell(
+        let typedefs = await this.getProcessedTypedefs(pg_bsd_indent);
+        const preProcessed = this.runPreIndent(document.getText());
+        const {stdout: processed} = await utils.execShell(
             pg_bsd_indent.fsPath, [
                 ...PgindentDocumentFormatterProvider.pg_bsd_indentDefaultFlags,
                 `-U${typedefs.fsPath}`],
-            {stdin: contents});
-        const result = this.runPostIndent(stdout);
+            {
+                stdin: preProcessed,
+                /* 
+                 * pg_bsd_indent returns non-zero code if it encountered some
+                 * errors, but for us they are not important. i.e. no newline
+                 * at end of file causes to return code 1
+                 */
+                throwOnError: false,
+            });
+        const postProcessed = this.runPostIndent(processed);
+        // const result = stdout;
 
         /* On success cache pg_bsd_indent path */
         this.savedPgbsdPath = pg_bsd_indent;
-        return result;
+        return postProcessed;
     }
 
     private async runPgindent(document: vscode.TextDocument, 
@@ -490,7 +552,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
 
     private async getTypedefs(pg_bsd_indent: vscode.Uri) {
         try {
-            const typedefsFile = utils.joinPath(pg_bsd_indent, 'typedefs.list');
+            const typedefsFile = utils.joinPath(pg_bsd_indent, '..', 'typedefs.list');
             if (await utils.fileExists(typedefsFile)) {
                 return typedefsFile;    
             }
