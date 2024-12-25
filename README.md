@@ -222,6 +222,10 @@ Known issues:
 
 ## Release Notes
 
+### 1.4.4
+
+Add `typedefs.list` file preprocessing for feeding to `pg_bsd_indent`. Processed file saved in `/tmp/pg-hacker-helper.typedefs.list` file and may be reused between different sessions.
+
 ### 1.4.3
 
 Add missing formatting rules when running `pg_bsd_indent`. [#3](https://github.com/ashenBlade/postgres-dev-helper/issues/3).
