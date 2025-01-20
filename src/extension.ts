@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as utils from './utils';
 import * as dap from './dap';
 import * as vars from './variables';
+import path from 'path';
 
 
 export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars.Variable> {
@@ -182,8 +183,12 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
 }
 
 class ConfigFileParseResult {
+    /* Array special members */
     arrayInfos?: vars.ArraySpecialMemberInfo[];
+    /* Information about type aliases */
     aliasInfos?: vars.AliasInfo[];
+    /* Path to custom typedef's file */
+    typedefs?: string;
 }
 
 function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefined {
@@ -299,7 +304,7 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
 
     const configVersion = Number(configFile.version);
     if (Number.isNaN(configVersion) ||
-        !(configVersion == 1 || configVersion == 2)) {
+        !(configVersion === 1 || configVersion === 2 || configVersion === 3)) {
         throw new Error(`unknown version of config file: ${configFile.version}`);
     }
 
@@ -332,6 +337,18 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
         }
     }
 
+    const parseTypedefs = (obj: any): string | undefined => {
+        if (!obj) {
+            return undefined;
+        }
+        
+        if (typeof obj !== 'string') {
+            throw new Error('"typedefs" field must be string');
+        }
+
+        return (obj as string).trim();
+    }
+
     const arrayMemberParser = configVersion == 1
         ? parseArraySm1
         : parseArraySm2;
@@ -341,15 +358,20 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
         ? configFile.specialMembers.array.map(arrayMemberParser)
         : undefined;
 
-    const aliasInfos = configVersion == 2
+    const aliasInfos = configVersion >= 2
         && Array.isArray(configFile.aliases)
         && configFile.aliases.length > 0
         ? configFile.aliases.map(parseAliasV2)
         : undefined;
 
+    const typedefs = configVersion >= 3
+        ? parseTypedefs(configFile.typedefs)
+        : undefined;
+
     return {
         arrayInfos,
         aliasInfos,
+        typedefs
     }
 }
 
@@ -696,6 +718,26 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
                 logger.debug('adding %i aliases from config file', parseResult.aliasInfos.length);
                 execCtx.nodeVarRegistry.addAliases(parseResult.aliasInfos);
             }
+            if (parseResult.typedefs) {
+                let typedefs: vscode.Uri;
+                if (path.isAbsolute(parseResult.typedefs)) {
+                    typedefs = vscode.Uri.file(parseResult.typedefs);
+                } else {
+                    const workspace = vscode.workspace.getWorkspaceFolder(pathToFile);
+                    if (!workspace) {
+                        logger.error('failed to determine workspace folder for configuration file %s', pathToFile.fsPath);
+                        return;
+                    }
+
+                    typedefs = utils.getWorkspacePgSrcFile(workspace.uri, parseResult.typedefs);
+                }
+
+                if (await utils.fileExists(typedefs)) {
+                    Configuration.CustomTypedefsFile = typedefs;
+                } else {
+                    vscode.window.showErrorMessage(`typedefs file ${parseResult.typedefs} does not exist`);
+                }
+            }
         }
     }
 
@@ -979,6 +1021,8 @@ export class Configuration {
         NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`,
     };
     static ExtensionSettingsFileName = 'pgsql_hacker_helper.json';
+    /* Path to custom typedefs file in pgsql_hacker_helper.json file */
+    static CustomTypedefsFile: vscode.Uri | undefined = undefined;
 
     static getLogLevel() {
         return this.getConfig<string>(this.ConfigSections.LogLevel);

@@ -380,12 +380,18 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
     }
 
     private async getProcessedTypedefs(pg_bsd_indent: vscode.Uri) {
+        if (Configuration.CustomTypedefsFile) {
+            this.logger.debug('custom typedefs file is specified - using this');
+            return Configuration.CustomTypedefsFile;
+        }
+    
         const processedTypedef = utils.joinPath(vscode.Uri.file(os.tmpdir()),
                                                 'pg-hacker-helper.typedefs.list');
 
         if (this.savedProcessedTypedef) {
-            if (await utils.fileExists(this.savedProcessedTypedef))
+            if (await utils.fileExists(this.savedProcessedTypedef)) {
                 return this.savedProcessedTypedef;
+            }
 
             this.savedProcessedTypedef = undefined;
         } else if (await utils.fileExists(processedTypedef)) {
@@ -393,6 +399,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
              * This file is cache in /tmp, so may be created
              * in another VS Code session
              */
+            this.logger.debug('found cached typedefs file in tmp');
             this.savedProcessedTypedef = processedTypedef;
             return processedTypedef;
         }

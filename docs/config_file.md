@@ -8,7 +8,7 @@ It stored inside `.vscode` folder.
 There are 2 versions of config file layout.
 Version is specified using top level `"version"` field.
 
-Current version - 2.
+Current version - 3.
 
 > This file belongs to latest schema version.
 
@@ -73,6 +73,7 @@ Examples:
 
 ```json
 {
+    "version": 3,
     "specialMembers": {
         "array": [
             {
@@ -123,12 +124,43 @@ Example:
 
 ```json
 {
-    "version": 2,
+    "version": 3,
     "aliases": [
         {
             "alias": "Relids",
             "type": "Bitmapset *"
         }
     ]
+}
+```
+
+### Custom typedef file
+
+typedef file is required for correct `pg_bsd_indent` work. It contains list of types that treated by formatter differently. Usually, it does not change, but sometimes you may want to change it manually. I.e. when creating new patches or testing new features.
+
+By default, extension manages to create this file and cache for later you (optimization). But when this file should be changed it is not very handy to edit global file. So this setting is created for such cases - you just create own copy of typedefs file, edit it and use for specific workspace.
+
+Path to this file can be in 2 forms:
+
+- Absolute - specified file is used
+- Relative - file with base folder as [postgresql-hacker-helper.srcPath](../README.md#extension-settings) is used
+
+Example:
+
+Read typedefs file `custom.typedefs.list` in current src path.
+
+```json
+{
+    "version": 3,
+    "typedefs": "custom.typedefs.list"
+}
+```
+
+Read global typedefs file stored in temporary directory
+
+```json
+{
+    "version": 3,
+    "typedefs": "/tmp/cached.custom.typedefs.list"
 }
 ```
