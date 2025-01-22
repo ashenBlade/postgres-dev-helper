@@ -115,7 +115,7 @@ Example json:
 
 ```json
 {
-    "version": 2,
+    "version": 3,
     "specialMembers": {
         "array": [
             {
@@ -140,7 +140,8 @@ Example json:
             "alias": "PlannerRef",
             "type": "PlannerInfo *"
         }
-    ]
+    ],
+    "typedefs": "my.typedefs.file"
 }
 ```
 
@@ -221,6 +222,16 @@ Known issues:
   formatting is a mess this can be due to errors in logic.
 
 ## Release Notes
+
+### 1.5.1
+
+Update contents of created configuration file (by command).
+
+### 1.5.0 (pre-release)
+
+Add custom typedefs file setting in configuration file. This may be useful, if you want to change it and do not affect another workspaces. This is configured in `typedefs` member.
+
+Update configuration file layout version to 3.
 
 ### 1.4.5
 
