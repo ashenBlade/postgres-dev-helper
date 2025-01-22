@@ -806,10 +806,11 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
                     await utils.writeFile(configFilePath, JSON.stringify(
                         /* Example config file */
                         {
-                            version: 2,
+                            version: 3,
                             specialMembers: {
                                 array: []
-                            }
+                            },
+                            aliases: []
                         },
                         undefined, '    '));
                 } catch (err: any) {
