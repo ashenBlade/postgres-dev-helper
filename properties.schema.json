@@ -78,12 +78,17 @@
                 ]
             }
         },
+        "typedefs": {
+            "type": "string",
+            "description": "Path to file with custom typdefs processed file"
+        },
         "version": {
             "type": "integer",
-            "default": 1,
+            "default": 3,
             "enum": [
                 1,
-                2
+                2,
+                3
             ],
             "description": "Version of configuration file layout. Managed by extension"
         }
@@ -133,6 +138,34 @@
                 },
                 "aliases": {
                     "$ref": "#/definitions/aliasesV2"
+                }
+            }
+        },
+        {
+            "type": "object",
+            "properties": {
+                "version": {
+                    "const": 3,
+                    "$ref": "#/definitions/version"
+                },
+                "specialMembers": {
+                    "type": "object",
+                    "description": "Configurations for special members",
+                    "properties": {
+                        "array": {
+                            "type": "array",
+                            "description": "Special members that represent arrays - separate fields for array and it's length",
+                            "items": {
+                                "$ref": "#/definitions/arraySpecialMemberV2"
+                            }
+                        }
+                    }
+                },
+                "aliases": {
+                    "$ref": "#/definitions/aliasesV2"
+                },
+                "typedefs": {
+                    "$ref": "#/definitions/typedefs"
                 }
             }
         }
