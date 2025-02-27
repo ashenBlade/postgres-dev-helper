@@ -18,6 +18,12 @@ export class NodeVarRegistry {
     nodeTags: Set<string> = new Set<string>(constants.getDefaultNodeTags());
 
     /**
+     * Known NodeTags that represents Expr nodes.
+     * Required for Exprs representation in tree view as expressions
+     */
+    exprs: Set<string> = new Set<string>(constants.getDefaultExprs())
+
+    /**
      * Known aliases for Node variables - `typedef RealType* Alias'
      */
     aliases: Map<string, string> = new Map(constants.getDefaultAliases());
@@ -283,7 +289,6 @@ export abstract class Variable {
         }
 
         const resultType = utils.substituteStructName(debugVariable.type, alias);
-        // debugVariable.type = resultType;
         return resultType;
     }
 
@@ -383,12 +388,20 @@ export class VariablesRoot extends Variable {
 }
 
 class ScalarVariable extends Variable {
-    constructor(name: string, value: string, type: string, parent?: Variable) {
+    tooltip?: string;
+    constructor(name: string, value: string, type: string, parent?: Variable, tooltip?: string) {
         super(name, value, type, parent);
+        this.tooltip = tooltip;
     }
 
     async doGetChildren(_: ExecContext): Promise<Variable[] | undefined> {
         return;
+    }
+
+    getTreeItem(): vscode.TreeItem {
+        const item = super.getTreeItem();
+        item.tooltip = this.tooltip;
+        return item;
     }
 }
 
@@ -532,6 +545,10 @@ export class NodeTagVariable extends RealVariable {
         return this.realType;
     }
 
+    protected isExpr(context: NodeVarRegistry) {
+        return context.exprs.has(this.realNodeTag);
+    }
+
     /**
      * Whether real NodeTag match with declared type
      */
@@ -543,7 +560,7 @@ export class NodeTagVariable extends RealVariable {
         return this.isValidPointer();
     }
 
-    getTreeItem(): vscode.TreeItem {
+    getTreeItem() {
         return {
             label: this.tagsMatch()
                 ? `${this.name}: ${this.type} = `
@@ -663,10 +680,130 @@ export class NodeTagVariable extends RealVariable {
             return new BitmapSetSpecialMember(logger, args);
         }
 
+        /* Expressions with it's representation */
+        if (context.nodeVarRegistry.exprs.has(realTag)) {
+            return new ExprNodeVariable(realTag, args, logger);
+        }
+
         return new NodeTagVariable(realTag, args, logger);
     }
 }
 
+class ExprNodeVariable extends NodeTagVariable {
+    /**
+     * String representation of expression.
+     */
+    protected repr?: string;
+    /** 
+     * If repr evaluation is not possible, we will continue getting undefined each time.
+     * So use separate flag to indicate, that 'repr' is done.
+     */
+    private reprEvaluated: boolean = false;
+    protected async getRepr(context: ExecContext) {
+        if (this.reprEvaluated) {
+            return this.repr;
+        }
+        this.reprEvaluated = true;
+
+        const rtable = await this.findRtable(context);
+        if (!rtable) {
+            return;
+        }
+
+        /* Using function from my contrib */
+        const res = await context.debug.evaluate(`pg_hacker_helper_format_expr((Expr *)(${this.evaluateName}), (List *)(${rtable}))`, this.frameId);
+        if (utils.isNull(res.result)) {
+            return;
+        }
+        
+        /* 
+         * 'result' is in form: 0xFFFFFF "EXPR"
+         * 
+         * So we need to remove pointer and enclosing double quotes.
+         * But if evaluation failed, we will have NULL (0x0) pointer.
+         */
+        const leftQuoteIndex = res.result.indexOf('"');
+        if (leftQuoteIndex === -1) {
+            return;
+        }
+
+        const rightQuoteIndex = res.result.lastIndexOf('"');
+        if (rightQuoteIndex === -1) {
+            return;
+        }
+
+        if (leftQuoteIndex === rightQuoteIndex) {
+            return;
+        }
+        
+        const repr = res.result.substring(leftQuoteIndex + 1, rightQuoteIndex);
+
+        const resultPtr = res.result.substring(0, leftQuoteIndex - 1).trim();
+        await context.debug.evaluate(`pfree((void *)${resultPtr})`, this.frameId);
+
+        this.repr = repr;
+        return repr;
+    }
+
+    private async findRtable(context: ExecContext) {
+        /* Find PlannerInfo */
+        let parent = this.parent;
+        while (parent) {
+            if (parent instanceof VariablesRoot) {
+                let found = false;
+                for (const v of parent.topLevelVariables) {
+                    if (v instanceof NodeTagVariable && v.realNodeTag === 'PlannerInfo') {
+                        parent = v;
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) {
+                    /* Found PlannerInfo in top variables */
+                    break;
+                } else {
+                    /* No more variables */
+                    return null;
+                }
+            } else if (parent instanceof NodeTagVariable && parent.realNodeTag === 'PlannerInfo') {
+                break;
+            }
+
+            parent = parent.parent;
+        }
+
+        if (!parent) {
+            return null;
+        }
+
+        const plannerInfo = parent as NodeTagVariable;
+
+        /* Get rtable from Query */
+        const rtable = await context.debug.evaluate(`(${plannerInfo.evaluateName})->parse->rtable`, this.frameId);
+        if (!utils.isValidPointer(rtable.result)) {
+            return null;
+        }
+
+        return rtable.result;
+    }
+
+    protected isExpr(context: NodeVarRegistry): boolean {
+        return true;
+    }
+
+    async doGetChildren(context: ExecContext) {
+        const expr = await this.getRepr(context);
+        if (!expr) {
+            return await super.doGetChildren(context);
+        }
+        
+        /* Add representation field first in a row */
+        const exprVariable = new ScalarVariable('$expr$', expr, '', this as Variable, expr)
+        const children = await super.doGetChildren(context) ?? [];
+        children.unshift(exprVariable);
+        return children;
+    }
+}
 
 class ListElementsMember extends RealVariable {
     /* 

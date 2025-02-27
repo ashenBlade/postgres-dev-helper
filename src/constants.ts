@@ -570,6 +570,15 @@ export function getDefaultNodeTags(): string[] {
     ]
 }
 
+export function getDefaultExprs(): string[] {
+    return [
+        'Var',
+        'Const',
+        'OpExpr',
+        'FuncExpr',
+    ]
+}
+
 
 /**
  * Return array of known Node `typedef's.

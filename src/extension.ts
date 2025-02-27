@@ -4,7 +4,6 @@ import * as dap from './dap';
 import * as vars from './variables';
 import path from 'path';
 
-
 export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars.Variable> {
     subscriptions: vscode.Disposable[] = [];
 
@@ -489,7 +488,7 @@ async function bootstrapExtensionCommand() {
 
     makefile.push(
         'ifdef USE_PGXS',
-        'PG_CONFIG = pg_config',
+        'PG_CONFIG := pg_config',
         'PGXS := $(shell $(PG_CONFIG) --pgxs)',
         'include $(PGXS)',
         'else',
