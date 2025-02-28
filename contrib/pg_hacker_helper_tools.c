@@ -12,8 +12,26 @@ PG_MODULE_MAGIC;
 #endif
 
 PGDLLEXPORT char *pg_hacker_helper_format_expr(const Expr *expr, const List *rtable);
-PGDLLEXPORT int pg_hacker_helper_version();
+PGDLLEXPORT int pg_hacker_helper_version(void);
+
 static void format_expr_inner(StringInfo str, const Expr *expr, const List *rtable);
+
+char *
+pg_hacker_helper_format_expr(const Expr *expr, const List *rtable)
+{
+	StringInfoData str;
+
+	if (expr == NULL)
+	{
+		return NULL;
+	}
+
+	initStringInfo(&str);
+
+	format_expr_inner(&str, expr, rtable);
+	
+	return str.data;
+}
 
 static void format_expr_inner(StringInfo str, const Expr *expr, const List *rtable)
 {
@@ -112,25 +130,9 @@ static void format_expr_inner(StringInfo str, const Expr *expr, const List *rtab
 		appendStringInfo(str, "unknown expr");
 }
 
-char *
-pg_hacker_helper_format_expr(const Expr *expr, const List *rtable)
-{
-	StringInfoData str;
-
-	if (expr == NULL)
-	{
-		return NULL;
-	}
-
-	initStringInfo(&str);
-
-	format_expr_inner(&str, expr, rtable);
-	
-	return str.data;
-}
 
 int
-pg_hacker_helper_version()
+pg_hacker_helper_version(void)
 {
 	return 1;
 }
