@@ -1072,3 +1072,12 @@ export class Configuration {
         vscode.commands.executeCommand('setContext', context, status);
     }
 }
+
+export class ContribFeatures {
+    /**
+     * Has function to get representation of Expr
+     */
+    static exprRepresentation(version: number) {
+        return 0 < version;
+    }
+}

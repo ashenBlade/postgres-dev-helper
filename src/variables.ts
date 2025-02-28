@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as utils from "./utils";
 import * as dap from "./dap";
 import * as constants from './constants';
+import { ContribFeatures } from './extension';
 
 export interface AliasInfo {
     alias: string;
@@ -583,10 +584,6 @@ export class NodeTagVariable extends RealVariable {
         return this.realType;
     }
 
-    protected isExpr(context: NodeVarRegistry) {
-        return context.exprs.has(this.realNodeTag);
-    }
-
     /**
      * Whether real NodeTag match with declared type
      */
@@ -742,6 +739,7 @@ class ExprNodeVariable extends NodeTagVariable {
         if (this.reprEvaluated) {
             return this.repr;
         }
+
         this.reprEvaluated = true;
 
         const rtable = await this.findRtable();
@@ -782,6 +780,10 @@ class ExprNodeVariable extends NodeTagVariable {
 
         this.repr = repr;
         return repr;
+    }
+
+    private canRepr() {
+        return ContribFeatures.exprRepresentation(this.context.contribVersion);
     }
 
     private async findRtable() {
@@ -826,16 +828,16 @@ class ExprNodeVariable extends NodeTagVariable {
         return rtable.result;
     }
 
-    protected isExpr(context: NodeVarRegistry): boolean {
-        return true;
-    }
-
     async doGetChildren() {
+        if (!this.canRepr()) {
+            return await super.doGetChildren();
+        }
+
         const expr = await this.getRepr();
         if (!expr) {
             return await super.doGetChildren();
         }
-        
+
         /* Add representation field first in a row */
         const exprVariable = new ScalarVariable('$expr$', expr, '', this.context, this as Variable, expr)
         const children = await super.doGetChildren() ?? [];
