@@ -338,8 +338,7 @@ export class VsCodeDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
         return this.session;
     }
 
-    async evaluate(expression: string, frameId: number | undefined,
-        context?: string): Promise<dap.EvaluateResponse> {
+    async evaluate(expression: string, frameId: number | undefined, context?: string) {
         context ??= 'repl';
         return await this.getSession().customRequest('evaluate', {
             expression,

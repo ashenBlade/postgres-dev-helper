@@ -7,14 +7,16 @@ import path from 'path';
 export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars.Variable> {
     subscriptions: vscode.Disposable[] = [];
 
-    private getCurrentFrameId = async (_: vars.ExecContext) => {
+    private getCurrentFrameId = async (_: utils.IDebuggerFacade) => {
         /* debugFocus API */
         return (vscode.debug.activeStackItem as vscode.DebugStackFrame | undefined)?.frameId;
     }
 
     constructor(
         private log: utils.ILogger,
-        private context: vars.ExecContext) { }
+        private nodeVars: vars.NodeVarRegistry,
+        private specialMembers: vars.SpecialMemberRegistry,
+        private debug: utils.IDebuggerFacade) { }
 
     /* https://code.visualstudio.com/api/extension-guides/tree-view#updating-tree-view-content */
     private _onDidChangeTreeData = new vscode.EventEmitter<vars.Variable | undefined | null | void>();
@@ -28,8 +30,23 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
             return;
         }
 
-        return this.context.specialMemberRegistry
-            .getArraySpecialMember(variable.parent.type, variable.name)
+        return this.specialMembers.getArraySpecialMember(variable.parent.type, variable.name)
+    }
+
+    private async createExecContext(frameId: number) {
+        let contribVersion;
+        try {
+            const result = await this.debug.evaluate('pg_hacker_helper_version()', frameId);
+            contribVersion = Number.parseInt(result.result);
+        } catch (e) {
+            contribVersion = 0;
+         }
+        return {
+            debug: this.debug,
+            nodeVarRegistry: this.nodeVars,
+            specialMemberRegistry: this.specialMembers,
+            contribVersion
+        }
     }
 
     async getTreeItem(variable: vars.Variable) {
@@ -37,20 +54,26 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
     }
 
     async getChildren(element?: vars.Variable | undefined) {
-        if (!this.context.debug.isInDebug) {
+        if (!this.debug.isInDebug) {
             return;
         }
 
         try {
             if (element) {
-                return await element.getChildren(this.context);
+                return await element.getChildren();
             } else {
-                const topLevel = await this.getTopLevelVariables();
-                if (!topLevel) {
+                const frameId = await this.getCurrentFrameId(this.debug);
+                if (!frameId) {
                     return;
                 }
 
-                const topLevelVariable = new vars.VariablesRoot(topLevel);
+                const exec = await this.createExecContext(frameId);
+                const topLevel = await this.getTopLevelVariables(exec, frameId);
+                if (!topLevel) {
+                    return;
+                }
+                
+                const topLevelVariable = new vars.VariablesRoot(topLevel, exec);
                 topLevel.forEach(v => v.parent = topLevelVariable);
                 return topLevel;
             }
@@ -71,14 +94,9 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
         }
     }
 
-    async getTopLevelVariables() {
-        const frameId = await this.getCurrentFrameId(this.context);
-        if (!frameId) {
-            return;
-        }
-
-        const variables = await this.context.debug.getVariables(frameId);
-        return await vars.Variable.mapVariables(variables, frameId, this.context,
+    async getTopLevelVariables(context: vars.ExecContext, frameId: number) {
+        const variables = await context.debug.getVariables(frameId);
+        return await vars.Variable.mapVariables(variables, frameId, context,
             this.log, undefined);
     }
 
@@ -135,15 +153,15 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
             },
         });
         context.subscriptions.push(disposable);
-        this.getCurrentFrameId = async (context: vars.ExecContext) => {
+        this.getCurrentFrameId = async (debug: utils.IDebuggerFacade) => {
             /* 
              * We can not track selected stack frame - return last (top)
              */
-            if (!(context.debug.isInDebug && savedThreadId)) {
+            if (!(debug.isInDebug && savedThreadId)) {
                 return;
             }
 
-            return await context.debug.getTopStackFrameId(savedThreadId);
+            return await debug.getTopStackFrameId(savedThreadId);
         }
     }
 }
@@ -661,8 +679,9 @@ function addElogErrorBreakpoint() {
     ]);
 }
 
-export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.ExecContext,
-    logger: utils.ILogger, nodesView: NodePreviewTreeViewProvider) {
+export function setupExtension(context: vscode.ExtensionContext, specialMembers: vars.SpecialMemberRegistry,
+                               nodeVars: vars.NodeVarRegistry, debug: utils.IDebuggerFacade,
+                               logger: utils.ILogger, nodesView: NodePreviewTreeViewProvider) {
 
     function registerCommand(name: string, command: (...args: any[]) => void) {
         const disposable = vscode.commands.registerCommand(name, command);
@@ -711,11 +730,11 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
         if (parseResult) {
             if (parseResult.arrayInfos?.length) {
                 logger.debug('adding %i array special members from config file', parseResult.arrayInfos.length);
-                execCtx.specialMemberRegistry.addArraySpecialMembers(parseResult.arrayInfos);
+                specialMembers.addArraySpecialMembers(parseResult.arrayInfos);
             }
             if (parseResult.aliasInfos?.length) {
                 logger.debug('adding %i aliases from config file', parseResult.aliasInfos.length);
-                execCtx.nodeVarRegistry.addAliases(parseResult.aliasInfos);
+                nodeVars.addAliases(parseResult.aliasInfos);
             }
             if (parseResult.typedefs) {
                 let typedefs: vscode.Uri;
@@ -765,7 +784,7 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
     /* Register command to dump variable to log */
     const pprintVarToLogCmd = async (args: any) => {
         try {
-            await dumpVariableToLogCommand(args, logger, execCtx.debug);
+            await dumpVariableToLogCommand(args, logger, debug);
         } catch (err: any) {
             logger.error('error while dumping node to log', err);
         }
@@ -908,11 +927,11 @@ export function setupExtension(context: vscode.ExtensionContext, execCtx: vars.E
     }
 
     /* Read files with NodeTags */
-    setupNodeTagFiles(execCtx, logger, context);
+    setupNodeTagFiles(logger, nodeVars, context);
     addElogErrorBreakpoint();
 }
 
-async function setupNodeTagFiles(execCtx: vars.ExecContext, log: utils.ILogger,
+async function setupNodeTagFiles(log: utils.ILogger, nodeVars: vars.NodeVarRegistry,
     context: vscode.ExtensionContext): Promise<undefined> {
 
     const getNodeTagFiles = () => {
@@ -935,7 +954,7 @@ async function setupNodeTagFiles(execCtx: vars.ExecContext, log: utils.ILogger,
         log.debug('processing %s NodeTags file', path.fsPath);
         const document = await vscode.workspace.openTextDocument(path);
         try {
-            const added = execCtx.nodeVarRegistry.updateNodeTypesFromFile(document);
+            const added = nodeVars.updateNodeTypesFromFile(document);
             log.debug('added %i NodeTags from %s file', added, path.fsPath);
         } catch (err: any) {
             log.error('could not initialize node tags array', err);

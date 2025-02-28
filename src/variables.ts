@@ -169,10 +169,30 @@ export class SpecialMemberRegistry {
     }
 }
 
+/**
+ * Context of current execution.
+ */
 export interface ExecContext {
+    /**
+     * Registry about NodeTag variables information
+     */
     nodeVarRegistry: NodeVarRegistry;
+
+    /**
+     * Registry with information of Special Members
+     */
     specialMemberRegistry: SpecialMemberRegistry;
+
+    /**
+     * Facade for debugger interface (TAP)
+     */
     debug: utils.IDebuggerFacade;
+
+    /**
+     * Version of installed pg_hacker_helper_tools contrib in database.
+     * Otherwise 0
+     */
+    contribVersion: number;
 }
 
 export abstract class Variable {
@@ -206,11 +226,24 @@ export abstract class Variable {
      */
     children: Variable[] | undefined;
 
-    constructor(name: string, value: string, type: string, parent?: Variable) {
-        this.parent = parent;
+    /**
+     * Execution context for current session.
+     */
+    context: ExecContext;
+
+    /**
+     * Shortcut for `this.context.debug`
+     */
+    get debug() {
+        return this.context.debug;
+    }
+
+    constructor(name: string, value: string, type: string, context: ExecContext, parent: Variable | undefined) {
+        this.parent = parent ?? undefined;
         this.name = name;
         this.value = value;
         this.type = type;
+        this.context = context;
     }
 
     /**
@@ -219,7 +252,7 @@ export abstract class Variable {
      * @param debug Debugger facade
      * @returns Array of child variables or undefined if no children
      */
-    async getChildren(context: ExecContext) {
+    async getChildren() {
         if (this.children != undefined) {
             /* 
              * return `undefined` if no children - scalar variable
@@ -229,7 +262,7 @@ export abstract class Variable {
                     : undefined;
         }
 
-        const children = await this.doGetChildren(context);
+        const children = await this.doGetChildren();
         if (children) {
             this.children = children;
         } else {
@@ -239,7 +272,7 @@ export abstract class Variable {
         return children;
     }
 
-    abstract doGetChildren(context: ExecContext): Promise<Variable[] | undefined>;
+    abstract doGetChildren(): Promise<Variable[] | undefined>;
     protected isExpandable() {
         /* Pointer to struct */
         if (utils.isValidPointer(this.value) && !utils.isBuiltInType(this.type)) {
@@ -304,7 +337,8 @@ export abstract class Variable {
         const args: RealVariableArgs = {
             ...debugVariable,
             frameId,
-            parent
+            parent,
+            context
         };
         if (utils.isRawStruct(debugVariable) ||
             !utils.isValidPointer(debugVariable.value)) {
@@ -339,6 +373,7 @@ export abstract class Variable {
                     ...debugVariable,
                     frameId: frameId,
                     parent: parent,
+                    context
                 }, logger) as RealVariable;
             }
         }
@@ -361,8 +396,10 @@ export abstract class Variable {
         return variables.filter(x => x !== undefined);
     }
 
-    static async mapVariables(debugVariables: dap.DebugVariable[], frameId: number,
-                              context: ExecContext, logger: utils.ILogger,
+    static async mapVariables(debugVariables: dap.DebugVariable[],
+                              frameId: number,
+                              context: ExecContext,
+                              logger: utils.ILogger,
                               parent?: RealVariable): Promise<Variable[] | undefined> {
         const variables = await (Promise.all(debugVariables.map(v =>
             Variable.create(v, frameId, context, logger, parent))
@@ -378,23 +415,23 @@ export abstract class Variable {
 export class VariablesRoot extends Variable {
     static variableRootName = '$variables root$'
     
-    constructor(public topLevelVariables: Variable[]) {
-        super(VariablesRoot.variableRootName, '', '');
+    constructor(public topLevelVariables: Variable[], context: ExecContext) {
+        super(VariablesRoot.variableRootName, '', '', context, undefined);
      }
 
-    async doGetChildren(context: ExecContext): Promise<Variable[] | undefined> {
+    async doGetChildren(): Promise<Variable[] | undefined> {
         return undefined;
     }
 }
 
 class ScalarVariable extends Variable {
     tooltip?: string;
-    constructor(name: string, value: string, type: string, parent?: Variable, tooltip?: string) {
-        super(name, value, type, parent);
+    constructor(name: string, value: string, type: string, context: ExecContext, parent?: Variable, tooltip?: string) {
+        super(name, value, type, context, parent);
         this.tooltip = tooltip;
     }
 
-    async doGetChildren(_: ExecContext): Promise<Variable[] | undefined> {
+    async doGetChildren(): Promise<Variable[] | undefined> {
         return;
     }
 
@@ -414,6 +451,7 @@ interface RealVariableArgs {
     variablesReference: number;
     frameId: number;
     parent?: Variable;
+    context: ExecContext;
 }
 
 /**
@@ -445,7 +483,7 @@ export class RealVariable extends Variable {
     frameId: number;
 
     constructor(args: RealVariableArgs, logger: utils.ILogger) {
-        super(args.name, args.value, args.type, args.parent);
+        super(args.name, args.value, args.type, args.context, args.parent);
         this.logger = logger;
         this.evaluateName = args.evaluateName;
         this.memoryReference = args.memoryReference;
@@ -464,6 +502,7 @@ export class RealVariable extends Variable {
             variablesReference: this.variablesReference,
             frameId: this.frameId,
             parent: this.parent,
+            context: this.context
         }
     }
 
@@ -478,16 +517,15 @@ export class RealVariable extends Variable {
      * Base implementation which just get variables using 
      * {@link variablesReference variablesReference } field
      */
-    async doGetChildren(context: ExecContext): Promise<Variable[] | undefined> {
+    async doGetChildren(): Promise<Variable[] | undefined> {
         return Variable.getVariables(this.variablesReference, this.frameId,
-                                     context, this.logger, this);
+                                     this.context, this.logger, this);
     }
 
-    protected async getArrayMembers(expression: string, length: number,
-                                    context: ExecContext) {
-        const variables = await context.debug.getArrayVariables(expression,
-                                                                length, this.frameId);
-        return await Variable.mapVariables(variables, this.frameId, context,
+    protected async getArrayMembers(expression: string, length: number) {
+        const variables = await this.debug.getArrayVariables(expression,
+                                                             length, this.frameId);
+        return await Variable.mapVariables(variables, this.frameId, this.context,
                                            this.logger, this);
     }
 }
@@ -520,7 +558,7 @@ export class NodeTagVariable extends RealVariable {
         this.realNodeTag = realNodeTag.replace('T_', '');
     }
 
-    protected computeRealType(registry: NodeVarRegistry) {
+    protected computeRealType() {
         const tagFromType = utils.getStructNameFromType(this.type);
         if (tagFromType === this.realNodeTag) {
             return this.type;
@@ -529,7 +567,7 @@ export class NodeTagVariable extends RealVariable {
         /* 
          * Also try find aliases for some NodeTags
          */
-        const alias = registry.aliases.get(this.realNodeTag);
+        const alias = this.context.nodeVarRegistry.aliases.get(this.realNodeTag);
         if (alias) {
             return utils.substituteStructName(this.type, alias);
         }
@@ -537,9 +575,9 @@ export class NodeTagVariable extends RealVariable {
         return utils.substituteStructName(this.type, this.realNodeTag);
     }
 
-    getRealType(registry: NodeVarRegistry): string {
+    getRealType(): string {
         if (!this.realType) {
-            this.realType = this.computeRealType(registry);
+            this.realType = this.computeRealType();
         }
 
         return this.realType;
@@ -572,33 +610,33 @@ export class NodeTagVariable extends RealVariable {
         };
     }
 
-    private async castToType(debug: utils.IDebuggerFacade, type: string) {
+    private async castToType(type: string) {
         const newVarExpression = `((${type})${this.evaluateName})`;
-        const response = await debug.evaluate(newVarExpression, this.frameId);
+        const response = await this.debug.evaluate(newVarExpression, this.frameId);
         this.variablesReference = response.variablesReference;
     }
 
-    private async castToTag(debug: utils.IDebuggerFacade, tag: string) {
+    private async castToTag(tag: string) {
         /* 
          * We should substitute current type with target, because 
          * there may be qualifiers such `struct' or `const'
          */
         const resultType = utils.substituteStructName(this.type, tag);
-        await this.castToType(debug, resultType);
+        await this.castToType(resultType);
     }
 
-    private async getMembersImpl(context: ExecContext) {
-        const debugVariables = await context.debug.getMembers(this.variablesReference);
-        return await Variable.mapVariables(debugVariables, this.frameId, context,
+    private async getMembersImpl() {
+        const debugVariables = await this.context.debug.getMembers(this.variablesReference);
+        return await Variable.mapVariables(debugVariables, this.frameId, this.context,
                                            this.logger, this);
     }
 
-    async doGetChildren(context: ExecContext) {
+    async doGetChildren() {
         if (!this.tagsMatch()) {
-            await this.castToTag(context.debug, this.realNodeTag);
+            await this.castToTag(this.realNodeTag);
         }
         
-        let members = await this.getMembersImpl(context);
+        let members = await this.getMembersImpl();
 
         if (members?.length) {
             return members;
@@ -614,8 +652,8 @@ export class NodeTagVariable extends RealVariable {
          */
         if (this.type.indexOf('struct') !== -1) {
             const structLessType = this.type.replace('struct', '');
-            await this.castToType(context.debug, structLessType);
-            members = await this.getMembersImpl(context);
+            await this.castToType(structLessType);
+            members = await this.getMembersImpl();
         }
         return members;
     }
@@ -659,6 +697,7 @@ export class NodeTagVariable extends RealVariable {
             ...variable,
             frameId,
             parent,
+            context
         };
 
         realTag = realTag.replace('T_', '');
@@ -699,19 +738,19 @@ class ExprNodeVariable extends NodeTagVariable {
      * So use separate flag to indicate, that 'repr' is done.
      */
     private reprEvaluated: boolean = false;
-    protected async getRepr(context: ExecContext) {
+    protected async getRepr() {
         if (this.reprEvaluated) {
             return this.repr;
         }
         this.reprEvaluated = true;
 
-        const rtable = await this.findRtable(context);
+        const rtable = await this.findRtable();
         if (!rtable) {
             return;
         }
 
         /* Using function from my contrib */
-        const res = await context.debug.evaluate(`pg_hacker_helper_format_expr((Expr *)(${this.evaluateName}), (List *)(${rtable}))`, this.frameId);
+        const res = await this.debug.evaluate(`pg_hacker_helper_format_expr((Expr *)(${this.evaluateName}), (List *)(${rtable}))`, this.frameId);
         if (utils.isNull(res.result)) {
             return;
         }
@@ -739,13 +778,13 @@ class ExprNodeVariable extends NodeTagVariable {
         const repr = res.result.substring(leftQuoteIndex + 1, rightQuoteIndex);
 
         const resultPtr = res.result.substring(0, leftQuoteIndex - 1).trim();
-        await context.debug.evaluate(`pfree((void *)${resultPtr})`, this.frameId);
+        await this.debug.evaluate(`pfree((void *)${resultPtr})`, this.frameId);
 
         this.repr = repr;
         return repr;
     }
 
-    private async findRtable(context: ExecContext) {
+    private async findRtable() {
         /* Find PlannerInfo */
         let parent = this.parent;
         while (parent) {
@@ -779,7 +818,7 @@ class ExprNodeVariable extends NodeTagVariable {
         const plannerInfo = parent as NodeTagVariable;
 
         /* Get rtable from Query */
-        const rtable = await context.debug.evaluate(`(${plannerInfo.evaluateName})->parse->rtable`, this.frameId);
+        const rtable = await this.debug.evaluate(`(${plannerInfo.evaluateName})->parse->rtable`, this.frameId);
         if (!utils.isValidPointer(rtable.result)) {
             return null;
         }
@@ -791,15 +830,15 @@ class ExprNodeVariable extends NodeTagVariable {
         return true;
     }
 
-    async doGetChildren(context: ExecContext) {
-        const expr = await this.getRepr(context);
+    async doGetChildren() {
+        const expr = await this.getRepr();
         if (!expr) {
-            return await super.doGetChildren(context);
+            return await super.doGetChildren();
         }
         
         /* Add representation field first in a row */
-        const exprVariable = new ScalarVariable('$expr$', expr, '', this as Variable, expr)
-        const children = await super.doGetChildren(context) ?? [];
+        const exprVariable = new ScalarVariable('$expr$', expr, '', this.context, this as Variable, expr)
+        const children = await super.doGetChildren() ?? [];
         children.unshift(exprVariable);
         return children;
     }
@@ -833,20 +872,19 @@ class ListElementsMember extends RealVariable {
         this.realType = realType;
     }
 
-    async getNodeElements(context: ExecContext) {
-        const length = await this.listParent.getListLength(context);
+    async getNodeElements() {
+        const length = await this.listParent.getListLength();
         if (!length) {
             return;
         }
 
-        const listType = this.listParent.getMemberExpression('elements',
-                                                             context.nodeVarRegistry);
+        const listType = this.listParent.getMemberExpression('elements');
         const expression = `(Node **)(${listType})`;
-        return super.getArrayMembers(expression, length, context);
+        return super.getArrayMembers(expression, length);
     }
 
-    async getIntegerElements(context: ExecContext) {
-        const length = await this.listParent.getListLength(context);
+    async getIntegerElements() {
+        const length = await this.listParent.getListLength();
         if (!length) {
             return;
         }
@@ -859,7 +897,7 @@ class ListElementsMember extends RealVariable {
         const elements: RealVariable[] = [];
         for (let i = 0; i < length; i++) {
             const expression = `(${this.evaluateName})[${i}].${this.cellValue}`;
-            const response = await context.debug.evaluate(expression, this.frameId);
+            const response = await this.debug.evaluate(expression, this.frameId);
             elements.push(new RealVariable({
                 name: `[${i}]` /* array elements behaviour */,
                 type: this.realType,
@@ -868,21 +906,22 @@ class ListElementsMember extends RealVariable {
                 value: response.result,
                 memoryReference: response.memoryReference,
                 frameId: this.frameId,
-                parent: this
+                context: this.context,
+                parent: this,
             }, this.logger));
         }
 
         return elements;
     }
 
-    async doGetChildren(context: ExecContext) {
+    async doGetChildren() {
         if (this.members !== undefined) {
             return this.members;
         }
 
         this.members = await (this.listParent.realNodeTag === 'List'
-            ? this.getNodeElements(context)
-            : this.getIntegerElements(context));
+            ? this.getNodeElements()
+            : this.getIntegerElements());
 
         return this.members;
     }
@@ -924,29 +963,28 @@ class LinkedListElementsMember extends Variable {
     }
 
     constructor(listParent: ListNodeTagVariable, cellValue: string,
-                realType: string, logger: utils.ILogger) {
-        super('$elements$', '', '', listParent);
+                realType: string, context: ExecContext, logger: utils.ILogger) {
+        super('$elements$', '', '', context, listParent);
         this.logger = logger; 
         this.listParent = listParent;
         this.cellValue = cellValue;
         this.realType = realType;
     }
 
-    async getLinkedListElements(context: ExecContext) {
+    async getLinkedListElements() {
         /* 
         * Traverse through linked list until we get NULL
         * and read each element from List manually.
         * So we do not need to evaluate length.
         */
         const elements: dap.DebugVariable[] = [];
-        const headExpression = this.listParent.getMemberExpression('head',
-                                                                context.nodeVarRegistry);
+        const headExpression = this.listParent.getMemberExpression('head');
         let evaluateName = headExpression;
-        let cell = await context.debug.evaluate(headExpression, this.frameId);
+        let cell = await this.debug.evaluate(headExpression, this.frameId);
         let i = 0;
         do {
             const valueExpression = `(${this.realType})((${evaluateName})->data.${this.cellValue})`;
-            const response = await context.debug.evaluate(valueExpression, this.frameId);
+            const response = await this.debug.evaluate(valueExpression, this.frameId);
             elements.push({
                 name: `[${i}]`,
                 value: response.result,
@@ -956,20 +994,20 @@ class LinkedListElementsMember extends Variable {
                 memoryReference: response.memoryReference,
             });
             evaluateName = `${evaluateName}->next`;
-            cell = await context.debug.evaluate(evaluateName, this.frameId);
+            cell = await this.debug.evaluate(evaluateName, this.frameId);
             ++i;
         } while (!utils.isNull(cell.result));
 
-        return await Variable.mapVariables(elements, this.frameId, context,
+        return await Variable.mapVariables(elements, this.frameId, this.context,
                                         this.logger, this.listParent);
     }
 
-    async doGetChildren(context: ExecContext) {
+    async doGetChildren() {
         if (this.members !== undefined) {
             return this.members;
         }
 
-        this.members = await this.getLinkedListElements(context);
+        this.members = await this.getLinkedListElements();
         return this.members;
     }
 
@@ -988,8 +1026,8 @@ export class ListNodeTagVariable extends NodeTagVariable {
         super(nodeTag, args, logger);
     }
 
-    getMemberExpression(member: string, registry: NodeVarRegistry) {
-        return `((${this.getRealType(registry)})${this.value})->${member}`
+    getMemberExpression(member: string) {
+        return `((${this.getRealType()})${this.value})->${member}`
     }
 
     protected isExpandable(): boolean {
@@ -1026,6 +1064,7 @@ export class ListNodeTagVariable extends NodeTagVariable {
             ...dv,
             frameId: this.frameId,
             parent: this,
+            context: this.context
         });
     }
 
@@ -1055,7 +1094,8 @@ export class ListNodeTagVariable extends NodeTagVariable {
                 break;
         }
 
-        return new LinkedListElementsMember(this, cellValue, realType, this.logger);
+        return new LinkedListElementsMember(this, cellValue, realType, 
+                                            this.context, this.logger);
     }
 
     override computeRealType(): string {
@@ -1066,10 +1106,10 @@ export class ListNodeTagVariable extends NodeTagVariable {
         return this.type;
     }
 
-    private async castToList(context: ExecContext) {
-        const realType = this.getRealType(context.nodeVarRegistry);
+    private async castToList() {
+        const realType = this.getRealType();
         const castExpression = `(${realType}) (${this.evaluateName})`;
-        const response = await context.debug.evaluate(castExpression, this.frameId);
+        const response = await this.debug.evaluate(castExpression, this.frameId);
         if (!Number.isInteger(response.variablesReference)) {
             this.logger.warn('failed to cast %s to List*: %s',
                              this.evaluateName, response.result);
@@ -1080,12 +1120,12 @@ export class ListNodeTagVariable extends NodeTagVariable {
         this.variablesReference = response.variablesReference;
     }
 
-    async doGetChildren(context: ExecContext) {
+    async doGetChildren() {
         if (!this.tagsMatch()) {
-            await this.castToList(context);
+            await this.castToList();
         }
 
-        const debugVariables = await context.debug.getMembers(this.variablesReference);
+        const debugVariables = await this.debug.getMembers(this.variablesReference);
         if (!debugVariables) {
             return;
         }
@@ -1100,8 +1140,8 @@ export class ListNodeTagVariable extends NodeTagVariable {
                 members.push(this.members);
                 isArrayImplementation = true;
             } else {
-                const v = await Variable.create(dv, this.frameId, context,
-                                                        this.logger, this);
+                const v = await Variable.create(dv, this.frameId, this.context,
+                                                this.logger, this);
                 if (v) {
                     members.push(v);
                 }
@@ -1116,10 +1156,9 @@ export class ListNodeTagVariable extends NodeTagVariable {
         return members;
     }
 
-    async getListLength(context: ExecContext) {
-        const lengthExpression = this.getMemberExpression('length',
-                                                        context.nodeVarRegistry);
-        const evalResult = await context.debug.evaluate(lengthExpression, this.frameId);
+    async getListLength() {
+        const lengthExpression = this.getMemberExpression('length');
+        const evalResult = await this.debug.evaluate(lengthExpression, this.frameId);
         const length = Number(evalResult.result);
         if (Number.isNaN(length)) {
             this.logger.warn('failed to obtain list size for %s', this.name);
@@ -1128,17 +1167,17 @@ export class ListNodeTagVariable extends NodeTagVariable {
         return length;
     }
 
-    async getListElements(context: ExecContext) {
+    async getListElements() {
         if (!this.members) {
             /* Initialize members */
-            await this.getChildren(context);
+            await this.getChildren();
             if (!this.members) {
                 /* Failed to initialize */
                 return;
             }
         }
 
-        return await this.members.getChildren(context);
+        return await this.members.getChildren();
     }
 }
 
@@ -1168,9 +1207,9 @@ export class ArraySpecialMember extends RealVariable {
         return `(${this.parent.evaluateName})->${this.info.memberName}`;
     }
 
-    async doGetChildren(context: ExecContext) {
+    async doGetChildren() {
         const lengthExpression = this.formatLengthExpression();
-        const evalResult = await context.debug.evaluate(lengthExpression,
+        const evalResult = await this.debug.evaluate(lengthExpression,
                                                         this.frameId);
         const arrayLength = Number(evalResult.result);
         if (Number.isNaN(arrayLength)) {
@@ -1184,9 +1223,9 @@ export class ArraySpecialMember extends RealVariable {
         }
 
         const memberExpression = this.formatMemberExpression();
-        const debugVariables = await context.debug.getArrayVariables(memberExpression,
+        const debugVariables = await this.debug.getArrayVariables(memberExpression,
                                                                      arrayLength, this.frameId);
-        return await Variable.mapVariables(debugVariables, this.frameId, context,
+        return await Variable.mapVariables(debugVariables, this.frameId, this.context,
                                            this.logger, this);
     }
 }
@@ -1199,9 +1238,9 @@ class BitmapSetSpecialMember extends NodeTagVariable {
         super('Bitmapset', args, logger);
     }
 
-    async isValidSet(debug: utils.IDebuggerFacade) {
+    async isValidSet() {
         const expression = `bms_is_valid_set(${this.evaluateName})`;
-        const response = await debug.evaluate(expression, this.frameId);
+        const response = await this.debug.evaluate(expression, this.frameId);
         if (!response.type) {
             /* 
              * `bms_is_valid_set' introduced in 17.
@@ -1255,7 +1294,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
     }
 
 
-    async getSetElements(debug: utils.IDebuggerFacade): Promise<number[] | undefined> {
+    async getSetElements(): Promise<number[] | undefined> {
         /* 
          * Must check we do not have breakpoints set in `bms_next_member`.
          * Otherwise, we will get infinite recursion and backend will crash.
@@ -1268,7 +1307,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
          * We MUST check validity of set, because otherwise
          * `Assert` will fail and whole backend will crash
          */
-        if (!await this.isValidSet(debug)) {
+        if (!await this.isValidSet()) {
             return;
         }
 
@@ -1276,14 +1315,14 @@ class BitmapSetSpecialMember extends NodeTagVariable {
          * Most likely, we use new Bitmapset API, 
          * but fallback with old-styled 
          */
-        let result = await this.getSetElementsNextMember(debug);
+        let result = await this.getSetElementsNextMember();
         if (result === undefined) {
-            result = await this.getSetElementsFirstMember(debug);
+            result = await this.getSetElementsFirstMember();
         }
         return result;
     }
 
-    private async getSetElementsNextMember(debug: utils.IDebuggerFacade): Promise<number[] | undefined> {
+    private async getSetElementsNextMember(): Promise<number[] | undefined> {
         /* 
          * Current style (from 9.3) of reading Bitmapset values:
          * 
@@ -1299,7 +1338,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
         const numbers = [];
         do {
             const expression = `bms_next_member(${this.evaluateName}, ${number})`;
-            const response = await debug.evaluate(expression, this.frameId);
+            const response = await this.debug.evaluate(expression, this.frameId);
             number = Number(response.result);
             if (Number.isNaN(number)) {
                 this.logger.warn('failed to get set elements for %s', this.name);
@@ -1315,7 +1354,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
         return numbers;
     }
 
-    private async getSetElementsFirstMember(debug: utils.IDebuggerFacade): Promise<number[] | undefined> {
+    private async getSetElementsFirstMember(): Promise<number[] | undefined> {
         /*
          * Old style (prior to 9.2) of reading Bitmapset values:
          * 
@@ -1331,8 +1370,8 @@ class BitmapSetSpecialMember extends NodeTagVariable {
          * 
          * pfree(tmp);
          */
-        const tmpSet = await debug.evaluate(`bms_copy(${this.evaluateName})`,
-                                            this.frameId);
+        const tmpSet = await this.debug.evaluate(`bms_copy(${this.evaluateName})`,
+                                                 this.frameId);
 
         if (!utils.isValidPointer(tmpSet.result)) {
             return;
@@ -1342,7 +1381,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
         const numbers = [];
         do {
             const expression = `bms_first_member((Bitmapset*)${tmpSet.result})`;
-            const response = await debug.evaluate(expression, this.frameId);
+            const response = await this.debug.evaluate(expression, this.frameId);
             number = Number(response.result);
             if (Number.isNaN(number)) {
                 this.logger.warn('failed to get set elements for %s', this.name);
@@ -1356,24 +1395,24 @@ class BitmapSetSpecialMember extends NodeTagVariable {
             numbers.push(number);
         } while (number > 0);
 
-        await debug.evaluate(`pfree((Bitmapset*)${tmpSet.result})`, this.frameId);
+        await this.debug.evaluate(`pfree((Bitmapset*)${tmpSet.result})`, this.frameId);
 
         return numbers;
     }
 
-    async getBmsRef(context: ExecContext) {
+    async getBmsRef() {
         if (!this.parent) {
             return;
         }
 
-        const ref = context.nodeVarRegistry.findBmsReference(this);
+        const ref = this.context.nodeVarRegistry.findBmsReference(this);
         if (!ref) {
             return;
         }
 
         let type;
         if (this.parent instanceof NodeTagVariable) {
-            type = await this.parent.getRealType(context.nodeVarRegistry);
+            type = await this.parent.getRealType();
         } else {
             type = this.parent.type;
         }
@@ -1385,25 +1424,25 @@ class BitmapSetSpecialMember extends NodeTagVariable {
         return ref;
     }
 
-    async doGetChildren(context: ExecContext) {
+    async doGetChildren() {
         /* All existing members */
         const members = await Variable.getVariables(this.variablesReference,
-                                                    this.frameId, context,
+                                                    this.frameId, this.context,
                                                     this.logger, this);
         if (members === undefined || members.length === 0) {
             return;
         }
 
         /* + Set elements */
-        const setMembers = await this.getSetElements(context.debug);
+        const setMembers = await this.getSetElements();
         if (setMembers === undefined) {
             return members;
         }
 
-        const ref = await this.getBmsRef(context);
+        const ref = await this.getBmsRef();
 
         members.push(new ScalarVariable('$length$', setMembers.length.toString(),
-                                        'int', this));
+                                        'int', this.context, this));
         members.push(new BitmapSetSpecialMember.BmsArrayVariable(this, setMembers, ref));
         return members;
     }
@@ -1420,8 +1459,9 @@ class BitmapSetSpecialMember extends NodeTagVariable {
                     parent: Variable,
                     bmsParent: BitmapSetSpecialMember,
                     value: number,
+                    context: ExecContext,
                     private ref?: constants.BitmapsetReference) {
-            super(`[${index}]`, value.toString(), 'int', parent);
+            super(`[${index}]`, value.toString(), 'int', context, parent);
             this.relid = value;
             this.bmsParent = bmsParent;
         }
@@ -1467,7 +1507,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
             return undefined;
         }
 
-        async findReferenceFields(context: ExecContext) {
+        async findReferenceFields() {
             if (!this.ref) {
                 return;
             }
@@ -1482,7 +1522,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
             for (const path of this.ref.paths) {
                 let variable: Variable = root;
                 for (const p of path.path) {
-                    const members = await variable.getChildren(context);
+                    const members = await variable.getChildren();
                     if (!members) {
                         break;
                     }
@@ -1506,40 +1546,39 @@ class BitmapSetSpecialMember extends NodeTagVariable {
             return;
         }
 
-        async getArrayElement(context: ExecContext, field: Variable, 
-                              indexDelta?: number,) {
+        async getArrayElement(field: Variable, indexDelta?: number,) {
             const index = this.relid + (indexDelta ?? 0);
 
             if (field instanceof ListNodeTagVariable) {
-                const members = await field.getListElements(context);
+                const members = await field.getListElements();
                 if (members && index < members.length) {
                     return members[index];
                 }
             } else if (field instanceof ArraySpecialMember) {
-                const members = await field.getChildren(context);
+                const members = await field.getChildren();
                 if (members && index < members.length) {
                     return members[index];
                 }
             } else if (field instanceof RealVariable) {
                 const expr = `(${field.evaluateName})[${index}]`;
-                const result = await context.debug.evaluate(expr, this.bmsParent.frameId);
+                const result = await this.debug.evaluate(expr, this.bmsParent.frameId);
                 if (result.result) {
                     return await Variable.create({
                         ...result,
                         name: `ref(${field.name})`,
                         value: result.result,
                         evaluateName: expr 
-                    }, this.bmsParent.frameId, context, this.bmsParent.logger, this);
+                    }, this.bmsParent.frameId, this.context, this.bmsParent.logger, this);
                 }
             }
         }
 
-        async doGetChildren(context: ExecContext): Promise<Variable[] | undefined> {
+        async doGetChildren(): Promise<Variable[] | undefined> {
             if (!this.ref) {
                 return;
             }
 
-            const fields = await this.findReferenceFields(context);
+            const fields = await this.findReferenceFields();
             
             if (!fields) {
                 return;
@@ -1547,7 +1586,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
 
             const values = [];
             for (const [field, delta] of fields) {
-                const value = await this.getArrayElement(context, field, delta);
+                const value = await this.getArrayElement(field, delta);
                 if (value) {
                     values.push(value)
                 }
@@ -1567,13 +1606,13 @@ class BitmapSetSpecialMember extends NodeTagVariable {
         constructor(parent: BitmapSetSpecialMember, 
                     setElements: number[],
                     private ref?: constants.BitmapsetReference) {
-            super('$elements$', '', '', parent);
+            super('$elements$', '', '', parent.context, parent);
             this.setElements = setElements;
             this.bmsParent = parent;
         }
 
-        async doGetChildren(context: ExecContext): Promise<Variable[] | undefined> {
-            return this.setElements.map((se, i) => new BitmapSetSpecialMember.BmsElementVariable(i, this, this.bmsParent, se, this.ref))
+        async doGetChildren(): Promise<Variable[] | undefined> {
+            return this.setElements.map((se, i) => new BitmapSetSpecialMember.BmsElementVariable(i, this, this.bmsParent, se, this.context, this.ref))
         }
 
         protected isExpandable(): boolean {
