@@ -293,13 +293,17 @@ export abstract class Variable {
         return false;
     }
 
+    protected async getDescription() {
+        return this.value;
+    }
+
     /**
      * Create {@link vscode.TreeItem TreeItem} for variables view
      */
-    getTreeItem(): vscode.TreeItem {
+    async getTreeItem(): Promise<vscode.TreeItem> {
         return {
             label: `${this.name}: ${this.type} = `,
-            description: this.value,
+            description: await this.getDescription(),
             collapsibleState: this.isExpandable()
                 ? vscode.TreeItemCollapsibleState.Collapsed
                 : vscode.TreeItemCollapsibleState.None,
@@ -436,8 +440,8 @@ class ScalarVariable extends Variable {
         return;
     }
 
-    getTreeItem(): vscode.TreeItem {
-        const item = super.getTreeItem();
+    async getTreeItem() {
+        const item = await super.getTreeItem();
         item.tooltip = this.tooltip;
         return item;
     }
@@ -595,12 +599,12 @@ export class NodeTagVariable extends RealVariable {
         return this.isValidPointer();
     }
 
-    getTreeItem() {
+    async getTreeItem() {
         return {
             label: this.tagsMatch()
                 ? `${this.name}: ${this.type} = `
                 : `${this.name}: ${this.type} [${this.realNodeTag}] = `,
-            description: this.value,
+            description: await this.getDescription(),
             collapsibleState: this.isExpandable()
                 ? vscode.TreeItemCollapsibleState.Collapsed
                 : vscode.TreeItemCollapsibleState.None,
@@ -721,6 +725,11 @@ export class NodeTagVariable extends RealVariable {
             return new ExprNodeVariable(realTag, args, logger);
         }
 
+        /* Display expression in EquivalenceMember */
+        if (realTag === 'EquivalenceMember') {
+            return new EquivalenceMemberVariable(realTag, args, logger);
+        }
+
         return new NodeTagVariable(realTag, args, logger);
     }
 }
@@ -735,8 +744,13 @@ class ExprNodeVariable extends NodeTagVariable {
      * So use separate flag to indicate, that 'repr' is done.
      */
     private reprEvaluated: boolean = false;
-    protected async getRepr() {
+    async getRepr() {
         if (this.reprEvaluated) {
+            return this.repr;
+        }
+
+        if (!this.canRepr()) {
+            this.reprEvaluated = true;
             return this.repr;
         }
 
@@ -829,10 +843,6 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 
     async doGetChildren() {
-        if (!this.canRepr()) {
-            return await super.doGetChildren();
-        }
-
         const expr = await this.getRepr();
         if (!expr) {
             return await super.doGetChildren();
@@ -843,6 +853,48 @@ class ExprNodeVariable extends NodeTagVariable {
         const children = await super.doGetChildren() ?? [];
         children.unshift(exprVariable);
         return children;
+    }
+}
+
+class EquivalenceMemberVariable extends NodeTagVariable {
+    /* 
+     * 1. Получаю children
+     * 2. Нахожу em_expr
+     * 3. Это ExprNodeVariable
+     * 4. Получаю его repr
+     * 5. Ставлю в название
+     */
+
+    private async findExpr(children: Variable[]): Promise<ExprNodeVariable | null> {
+        for (const child of children) {
+            if (child.name === 'em_expr') {
+                if (child instanceof ExprNodeVariable) {
+                    return child;
+                } else {
+                    break;
+                }
+            }
+        }
+        return null;
+    }
+    
+    async getDescription() {
+        const children = await this.getChildren();
+        if (!children) {
+            return await super.getDescription();
+        }
+
+        const expr = await this.findExpr(children);
+        if (!expr) {
+            return await super.getDescription();
+        }
+
+        const repr = await expr.getRepr();
+        if (!repr) {
+            return await super.getDescription();
+        }
+
+        return repr;
     }
 }
 
@@ -1621,11 +1673,11 @@ class BitmapSetSpecialMember extends NodeTagVariable {
             return true;
         }
 
-        getTreeItem(): vscode.TreeItem {
+        async getTreeItem() {
             return {
                 label: '$elements$',
                 collapsibleState: vscode.TreeItemCollapsibleState.Collapsed,
-            }
+            } as vscode.TreeItem;
         }
     }
 
