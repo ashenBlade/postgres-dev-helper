@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import * as utils from "./utils";
 import * as dap from "./dap";
 import * as constants from './constants';
-import { ContribFeatures } from './extension';
 
 export interface AliasInfo {
     alias: string;
@@ -188,12 +187,6 @@ export interface ExecContext {
      * Facade for debugger interface (TAP)
      */
     debug: utils.IDebuggerFacade;
-
-    /**
-     * Version of installed pg_hacker_helper_tools contrib in database.
-     * Otherwise 0
-     */
-    contribVersion: number;
 }
 
 export abstract class Variable {
@@ -253,24 +246,45 @@ export abstract class Variable {
      * @param debug Debugger facade
      * @returns Array of child variables or undefined if no children
      */
-    async getChildren() {
-        if (this.children != undefined) {
+    async getChildren(): Promise<Variable[] | undefined> {
+        try {
+            if (this.children != undefined) {
+                /* 
+                * return `undefined` if no children - scalar variable
+                */
+                return this.children.length
+                        ? this.children
+                        : undefined;
+            }
+
+            const children = await this.doGetChildren();
+            if (children) {
+                this.children = children;
+            } else {
+                this.children = [];
+            }
+
+            return children;
+        } catch (error: any) {
             /* 
-             * return `undefined` if no children - scalar variable
-             */
-            return this.children.length
-                    ? this.children
-                    : undefined;
+            * Calls to debugger with some evaluations might be time consumptive
+            * and user will perform step before we end up computation.
+            * In such case, we will get exception with messages like:
+            * - "Cannot evaluate expression on the specified stack frame."
+            * - "Unable to perform this action because the process is running."
+            * 
+            * I do not know whether these messages are translated, so
+            * just checking 'error.message' does not look like a solid solution.
+            * In the end, we just catch all VS Code exceptions (they have
+            * 'CodeExpectedError' in name, at least exceptions with messages
+            * above).
+            */
+            if (error.name === 'CodeExpectedError') {
+                return;
+            } else {
+                throw error;
+            }
         }
-
-        const children = await this.doGetChildren();
-        if (children) {
-            this.children = children;
-        } else {
-            this.children = [];
-        }
-
-        return children;
     }
 
     abstract doGetChildren(): Promise<Variable[] | undefined>;
@@ -487,6 +501,11 @@ export class RealVariable extends Variable {
      */
     frameId: number;
 
+    /**
+     * Cached members of this variable
+     */
+    members?: Variable[];
+
     constructor(args: RealVariableArgs, logger: utils.ILogger) {
         super(args.name, args.value, args.type, args.context, args.parent);
         this.logger = logger;
@@ -523,8 +542,36 @@ export class RealVariable extends Variable {
      * {@link variablesReference variablesReference } field
      */
     async doGetChildren(): Promise<Variable[] | undefined> {
-        return Variable.getVariables(this.variablesReference, this.frameId,
-                                     this.context, this.logger, this);
+        if (this.members) {
+            return this.members;
+        }
+
+        this.members = await Variable.getVariables(this.variablesReference, this.frameId,
+                                                   this.context, this.logger, this);
+        return this.members;        
+    }
+
+    /**
+     * Function, used to get only members of this variable - without any artificial members.
+     * This is required in situations, when getting children from the code to
+     * prevent infinite loops.
+     * 
+     * NOTE: code is the same as in 'doGetChildren' to prevent future errors,
+     *       if someday i decide to override default implementation of one
+     *       of these functions (work in both sides)
+     */
+    async getRealMembers(): Promise<Variable[] | undefined> {
+        if (this.members) {
+            return this.members;
+        }
+
+        this.members = await this.doGetRealMembers();
+        return this.members;
+    }
+
+    protected async doGetRealMembers() {
+        return await Variable.getVariables(this.variablesReference, this.frameId,
+                                           this.context, this.logger, this)
     }
 
     protected async getArrayMembers(expression: string, length: number) {
@@ -532,6 +579,10 @@ export class RealVariable extends Variable {
                                                              length, this.frameId);
         return await Variable.mapVariables(variables, this.frameId, this.context,
                                            this.logger, this);
+    }
+
+    protected async evaluate(expr: string) {
+        return await this.debug.evaluate(expr, this.frameId);
     }
 }
 
@@ -626,8 +677,8 @@ export class NodeTagVariable extends RealVariable {
         await this.castToType(resultType);
     }
 
-    private async getMembersImpl() {
-        const debugVariables = await this.context.debug.getMembers(this.variablesReference);
+    private async getMembersImpl(): Promise<Variable[] | undefined> {
+        const debugVariables = await this.debug.getMembers(this.variablesReference);
         return await Variable.mapVariables(debugVariables, this.frameId, this.context,
                                            this.logger, this);
     }
@@ -636,7 +687,34 @@ export class NodeTagVariable extends RealVariable {
         if (!this.tagsMatch()) {
             await this.castToTag(this.realNodeTag);
         }
-        
+
+        let members = await this.getMembersImpl();
+
+        if (members?.length) {
+            return members;
+        }
+
+        /*
+         * If declared type has `struct' qualifier, we
+         * can fail cast, because of invalid type specifier.
+         * i.e. declared - `struct Path*' and real node tag
+         * is `T_NestPath'. This will create `struct NestPath*',
+         * but in versions prior to 14 NestPath is typedef
+         * for another struct, so there is no struct NestPath.
+         */
+        if (this.type.indexOf('struct') !== -1) {
+            const structLessType = this.type.replace('struct', '');
+            await this.castToType(structLessType);
+            members = await this.getMembersImpl();
+        }
+        return members;
+    }
+
+    protected async doGetRealMembers() {
+        if (!this.tagsMatch()) {
+            await this.castToTag(this.realNodeTag);
+        }
+
         let members = await this.getMembersImpl();
 
         if (members?.length) {
@@ -684,7 +762,7 @@ export class NodeTagVariable extends RealVariable {
 
     static async create(variable: dap.DebugVariable, frameId: number,
                         context: ExecContext, logger: utils.ILogger,
-                        parent?: Variable) {
+                        parent?: Variable): Promise<NodeTagVariable | undefined> {
         if (!context.nodeVarRegistry.isNodeVar(variable.type)) {
             return;
         }
@@ -739,65 +817,294 @@ class ExprNodeVariable extends NodeTagVariable {
      * String representation of expression.
      */
     protected repr?: string;
-    /** 
-     * If repr evaluation is not possible, we will continue getting undefined each time.
-     * So use separate flag to indicate, that 'repr' is done.
-     */
-    private reprEvaluated: boolean = false;
+
+    static EvalError = class extends Error { }
+
+    private async evalStringResult(expr: string) {
+        const result = await this.debug.evaluate(expr, this.frameId);
+        const str = utils.extractStringFromResult(result.result);
+        if (str === null) {
+            throw new ExprNodeVariable.EvalError(`failed to get string from expr: ${expr}`);
+        }
+        return str;
+    }
+
+    private async evalStringWithPtrResult(expr: string) {
+        const result = await this.debug.evaluate(expr, this.frameId);
+        const str = utils.extractStringFromResult(result.result);
+        if (str === null) {
+            throw new ExprNodeVariable.EvalError(`failed to get string from expr: ${expr}`);
+        }
+        
+        const ptr = utils.extractPtrFromStringResult(result.result);
+        if (ptr === null) {
+            throw new ExprNodeVariable.EvalError(`failed to get pointer from expr: ${expr}`);
+        }
+        return [str, ptr];
+    }
+
+    private async evalBoolResult(expr: string) {
+        const result = await this.debug.evaluate(expr, this.frameId);
+        switch (result.result.toLowerCase()) {
+            case 'true':
+                return true;
+            case 'false':
+                return false;
+        }
+        throw new ExprNodeVariable.EvalError(`failed to get bool from expr: ${expr}`);
+    }
+
+    private async palloc(size: string) {
+        const result = await this.debug.evaluate(`palloc0(${size})`, this.frameId);
+        if (!utils.isValidPointer(result.result)) {
+            throw new ExprNodeVariable.EvalError('failed to allocate memory using palloc');
+        }
+        return result.result;
+    }
+
+    private async pfree(ptr: string) {
+        await this.debug.evaluate(`pfree((void *)${ptr})`, this.frameId);
+    }
+
+    private async formatVarExpr(rtable: NodeTagVariable[]) {
+        const varnoMember = (await this.getRealMembers() ?? []).find(v => v.name === 'varno');
+        if (!varnoMember) {
+            throw new ExprNodeVariable.EvalError('failed to get varno of Var')
+        }
+
+        const varno = Number(varnoMember.value);
+        if (Number.isNaN(varno)) {
+            throw new ExprNodeVariable.EvalError('varno of Var is not a valid number');
+        }
+
+        let relname, attname;
+        switch (varno) {
+            case -1:
+            case 65000:
+                /* INNER_VAR */
+                relname = 'INNER';
+                attname = '?';
+                break;
+            case -2:
+            case 65001:
+                /* OUTER_VAR */
+                relname = 'OUTER';
+                attname = '?';
+                break;
+            case -3:
+            case 65002:
+                /* INDEX_VAR */
+                relname = 'INDEX';
+                attname = '?';
+                break;
+            default:
+                if (!(varno > 0 && varno <= rtable.length)) {
+                    /* This was an Assert */
+                    throw new ExprNodeVariable.EvalError('failed to get RTEs from range table');
+                }
+
+                const rte = rtable[varno - 1];
+                /* 'rte.value' will be pointer to RTE struct */
+                relname = await this.evalStringResult(`((RangeTblEntry *)${rte.value})->eref->aliasname`);
+                attname = await this.evalStringResult(`get_rte_attribute_name(((RangeTblEntry *)${rte.value}), ((Var *)${this.value})->varattno)`);
+                break;
+        }
+
+        return `${relname}.${attname}`;
+    }
+
+    private async formatConstExpr(rtable: NodeTagVariable[]) {
+        if (await this.evalBoolResult(`((Const *)${this.value})->constisnull`)) {
+            return 'NULL';
+        }
+
+        /* Use 'int' because of errors during evaluation of 'sizeof(bool)' */
+        const tupoutput = await this.palloc('8');
+        const tupIsVarlena = await this.palloc('8');
+
+        /* 
+         * WARN: I do not why, but you MUST specify pointers as 'void *',
+         *       not 'Oid *' or '_Bool *'. Otherwise, passed pointers
+         *       will have some offset (*orig_value* + offset), so written
+         *       values will be stored in random place.
+         */
+        await this.evaluate(`getTypeOutputInfo(((Const *)${this.value})->consttype, ((void *)${tupoutput}), ((void *)${tupIsVarlena}))`);
+
+        const [str, ptr] = await this.evalStringWithPtrResult(
+                        `OidOutputFunctionCall(*((Oid *)${tupoutput}), ((Const *)${this.value})->constvalue)`);
+
+        await this.pfree(ptr);
+        await this.pfree(tupoutput);
+        await this.pfree(tupIsVarlena);
+
+        return str;
+    }
+
+    private async formatOpExprInner(rtable: NodeTagVariable[]) {
+        const opExpr = `((OpExpr *)(${this.value}))`;
+
+        let opname;
+        try {
+            opname = await this.evalStringResult(`get_opname(${opExpr}->opno)`);
+        } catch (e) {
+            if (e instanceof ExprNodeVariable.EvalError) {
+                opname = '(invalid operator)';
+            } else {
+                throw e;
+            }
+        }
+
+        const members = await this.getRealMembers();
+        if (!members) {
+            throw new ExprNodeVariable.EvalError('failed to get children of Expr');;
+        }
+
+        const argsMember = members.find(v => v.name === 'args');
+        if (!argsMember) {
+            throw new ExprNodeVariable.EvalError('failed to get args of Expr');
+        }
+        
+        if (!(argsMember instanceof ListNodeTagVariable)) {
+            throw new ExprNodeVariable.EvalError('Expr->args is not a ListNodeTagVariable');
+        }
+        
+        const args = await argsMember.getListElements();
+        if (!args) {
+            throw new ExprNodeVariable.EvalError('No arguments in Expr->args');
+        }
+
+        const data: string[] = [];
+        if (args.length > 1) {
+            const leftArg = args[0];
+            if (leftArg instanceof ExprNodeVariable) {
+                data.push(await leftArg.getReprInner(rtable));
+            } else {
+                data.push('???');
+            }
+
+            data.push(opname);
+            const rightArg = args[1];
+            if (rightArg instanceof ExprNodeVariable) {
+                data.push(await rightArg.getReprInner(rtable));
+            } else {
+                data.push('???');
+            }
+        } else {
+            data.push(opname);
+            const leftArg = args[0];
+            if (leftArg instanceof ExprNodeVariable) {
+                data.push(await leftArg.getReprInner(rtable))
+            } else {
+                data.push('???');
+            }
+        }
+
+        return data.join(' ');
+    }
+
+    private async formatFuncExprInner(rtable: NodeTagVariable[]) {
+        let funcname;
+        try {
+            funcname = await this.evalStringResult(`get_func_name(((FuncExpr *)${this.value})->funcid)`);
+        } catch (e) {
+            if (e instanceof ExprNodeVariable.EvalError) {
+                funcname = '(invalid function)';
+            } else {
+                throw e;
+            }
+        }
+
+        const argsMember = (await this.getRealMembers() ?? []).find(v => v.name === 'args');
+        if (!(argsMember && argsMember instanceof ListNodeTagVariable)) {
+            throw new ExprNodeVariable.EvalError('failed to get args member of FuncExpr');
+        }
+
+        const args = await argsMember.getListElements();
+        if (args === undefined) {
+            throw new ExprNodeVariable.EvalError('failed to get function arguments');
+        }
+
+        const argsExpressions: string[] = [];
+        for (const arg of args) {
+            if (arg instanceof ExprNodeVariable) {
+                argsExpressions.push(await arg.getReprInner(rtable));
+            } else {
+                argsExpressions.push('???');
+            }
+        }
+
+        return `${funcname}(${argsExpressions.join(', ')})`;
+    }
+
+    private async formatExprInner(rtable: NodeTagVariable[]) {
+        let placeholder = 'EXPR';
+        try {
+            switch (this.realNodeTag) {
+                case 'Var':
+                    placeholder = 'VAR';
+                    return await this.formatVarExpr(rtable);
+                case 'Const':
+                    placeholder = 'CONST';
+                    return await this.formatConstExpr(rtable);
+                case 'OpExpr':
+                    placeholder = 'OP_EXPR';
+                    return await this.formatOpExprInner(rtable);
+                case 'FuncExpr':
+                    placeholder = 'FUNC_EXPR';
+                    return await this.formatFuncExprInner(rtable);
+                default:
+                    return '???';
+            }
+        } catch (error) {
+            if (!(error instanceof ExprNodeVariable.EvalError)) {
+                throw error;
+            }
+        }
+        return placeholder;
+    }
+
+    private async getReprInner(rtable: NodeTagVariable[]) {
+        if (this.repr) {
+            return this.repr;
+        }
+
+        const repr = await this.formatExprInner(rtable);
+        this.repr = repr;
+        return repr;
+    }
+
     async getRepr() {
-        if (this.reprEvaluated) {
+        if (this.repr) {
             return this.repr;
         }
-
-        if (!this.canRepr()) {
-            this.reprEvaluated = true;
-            return this.repr;
-        }
-
-        this.reprEvaluated = true;
 
         const rtable = await this.findRtable();
         if (!rtable) {
             return;
         }
 
-        /* Using function from my contrib */
-        const res = await this.debug.evaluate(`pg_hacker_helper_format_expr((Expr *)(${this.evaluateName}), (List *)(${rtable}))`, this.frameId);
-        if (utils.isNull(res.result)) {
-            return;
+        return await this.getReprInner(rtable as NodeTagVariable[]);
+        try {
+        } catch (error: any) {
+            /* 
+             * Evaluation of expression representation might be time consumptive
+             * and user will perform step before we end up computation.
+             * In such case, we will get exception with messages like:
+             * - "Cannot evaluate expression on the specified stack frame."
+             * - "Unable to perform this action because the process is running."
+             * 
+             * I do not know whether these messages are translated, so
+             * just checking 'error.message' does not look like a solid solution.
+             * In the end, we just catch all VS Code exceptions (they have
+             * 'CodeExpectedError' in name, at least exceptions with messages
+             * above).
+             */
+            if (error.name === 'CodeExpectedError') {
+                return;
+            } else {
+                throw error;
+            }
         }
-        
-        /* 
-         * 'result' is in form: 0xFFFFFF "EXPR"
-         * 
-         * So we need to remove pointer and enclosing double quotes.
-         * But if evaluation failed, we will have NULL (0x0) pointer.
-         */
-        const leftQuoteIndex = res.result.indexOf('"');
-        if (leftQuoteIndex === -1) {
-            return;
-        }
-
-        const rightQuoteIndex = res.result.lastIndexOf('"');
-        if (rightQuoteIndex === -1) {
-            return;
-        }
-
-        if (leftQuoteIndex === rightQuoteIndex) {
-            return;
-        }
-        
-        const repr = res.result.substring(leftQuoteIndex + 1, rightQuoteIndex);
-
-        const resultPtr = res.result.substring(0, leftQuoteIndex - 1).trim();
-        await this.debug.evaluate(`pfree((void *)${resultPtr})`, this.frameId);
-
-        this.repr = repr;
-        return repr;
-    }
-
-    private canRepr() {
-        return ContribFeatures.exprRepresentation(this.context.contribVersion);
     }
 
     private async findRtable() {
@@ -827,19 +1134,29 @@ class ExprNodeVariable extends NodeTagVariable {
             parent = parent.parent;
         }
 
-        if (!parent) {
+        if (!(parent && parent instanceof NodeTagVariable)) {
             return null;
         }
 
-        const plannerInfo = parent as NodeTagVariable;
+        const plannerInfo = parent;
 
         /* Get rtable from Query */
-        const rtable = await this.debug.evaluate(`(${plannerInfo.evaluateName})->parse->rtable`, this.frameId);
-        if (!utils.isValidPointer(rtable.result)) {
+        const parse = (await plannerInfo.getChildren() ?? []).find(v => v.name === 'parse');
+        if (!parse) {
             return null;
         }
 
-        return rtable.result;
+        const rtable = (await parse.getChildren() ?? []).find(v => v.name === 'rtable');
+        if (!(rtable && rtable instanceof ListNodeTagVariable)) {
+            return null;
+        }
+
+        const rtes = await rtable.getListElements();
+        if (!rtes) {
+            return null;
+        }
+
+        return rtes;
     }
 
     async doGetChildren() {
@@ -857,14 +1174,6 @@ class ExprNodeVariable extends NodeTagVariable {
 }
 
 class EquivalenceMemberVariable extends NodeTagVariable {
-    /* 
-     * 1. Получаю children
-     * 2. Нахожу em_expr
-     * 3. Это ExprNodeVariable
-     * 4. Получаю его repr
-     * 5. Ставлю в название
-     */
-
     private async findExpr(children: Variable[]): Promise<ExprNodeVariable | null> {
         for (const child of children) {
             if (child.name === 'em_expr') {
@@ -879,7 +1188,7 @@ class EquivalenceMemberVariable extends NodeTagVariable {
     }
     
     async getDescription() {
-        const children = await this.getChildren();
+        const children = await this.getRealMembers();
         if (!children) {
             return await super.getDescription();
         }
@@ -1074,7 +1383,7 @@ class LinkedListElementsMember extends Variable {
  * Special class to represent various Lists: Node, int, Oid, Xid...
  */
 export class ListNodeTagVariable extends NodeTagVariable {
-    members: ListElementsMember | LinkedListElementsMember | undefined;
+    listElements: ListElementsMember | LinkedListElementsMember | undefined;
     
     constructor(nodeTag: string, args: RealVariableArgs, logger: utils.ILogger) {
         super(nodeTag, args, logger);
@@ -1190,8 +1499,8 @@ export class ListNodeTagVariable extends NodeTagVariable {
         for (let i = 0; i < debugVariables.length; i++) {
             const dv = debugVariables[i];
             if (dv.name === 'elements') {
-                this.members = this.createArrayNodeElementsMember(dv);
-                members.push(this.members);
+                this.listElements = this.createArrayNodeElementsMember(dv);
+                members.push(this.listElements);
                 isArrayImplementation = true;
             } else {
                 const v = await Variable.create(dv, this.frameId, this.context,
@@ -1203,8 +1512,8 @@ export class ListNodeTagVariable extends NodeTagVariable {
         }
 
         if (!isArrayImplementation) {
-            this.members = this.createLinkedListNodeElementsMember();
-            members.push(this.members);
+            this.listElements = this.createLinkedListNodeElementsMember();
+            members.push(this.listElements);
         }
 
         return members;
@@ -1222,16 +1531,16 @@ export class ListNodeTagVariable extends NodeTagVariable {
     }
 
     async getListElements() {
-        if (!this.members) {
+        if (!this.listElements) {
             /* Initialize members */
             await this.getChildren();
-            if (!this.members) {
+            if (!this.listElements) {
                 /* Failed to initialize */
                 return;
             }
         }
 
-        return await this.members.getChildren();
+        return await this.listElements.getChildren();
     }
 }
 

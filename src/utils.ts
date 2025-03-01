@@ -133,6 +133,42 @@ export function isFixedSizeArray(variable: {parent?: {}, type: string, value: st
     return true;
 }
 
+/**
+ * When evaluating 'char*' member, 'result' field will be in form: `0x00000 "STR"`.
+ * This function extracts stored 'STR', otherwise null returned
+ * 
+ * @param result 'result' field after evaluate
+ */
+export function extractStringFromResult(result: string) {
+    const left = result.indexOf('"');
+    const right = result.lastIndexOf('"');
+    if (left === -1 || left === right) {
+        /* No STR can be found */
+        return null;
+    }
+
+    return result.substring(left + 1, right);
+}
+
+/**
+ * When evaluating 'char*' member, 'result' field will be in form: `0x00000 "STR"`.
+ * This function extracts stored pointer (0x00000), otherwise null returned
+ * 
+ * @param result 'result' field after evaluate
+ */
+export function extractPtrFromStringResult(result: string) {
+    const space = result.indexOf(' ');
+    if (space === -1) {
+        return null;
+    }
+
+    const ptr = result.substring(0, space);
+    if (!pointerRegex.test(ptr)) {
+        return null;
+    }
+    return ptr;
+}
+
 export interface ILogger {
     debug: (message: string, ...args: any[]) => void;
     info: (message: string, ...args: any[]) => void;
@@ -339,7 +375,7 @@ export class VsCodeDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
     }
 
     async evaluate(expression: string, frameId: number | undefined, context?: string) {
-        context ??= 'repl';
+        context ??= 'watch';
         return await this.getSession().customRequest('evaluate', {
             expression,
             context,

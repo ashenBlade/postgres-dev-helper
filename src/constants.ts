@@ -579,7 +579,6 @@ export function getDefaultExprs(): string[] {
     ]
 }
 
-
 /**
  * Return array of known Node `typedef's.
  * First element is alias and second is type.

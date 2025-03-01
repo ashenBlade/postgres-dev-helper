@@ -33,22 +33,6 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
         return this.specialMembers.getArraySpecialMember(variable.parent.type, variable.name)
     }
 
-    private async createExecContext(frameId: number) {
-        let contribVersion;
-        try {
-            const result = await this.debug.evaluate('pg_hacker_helper_version()', frameId);
-            contribVersion = Number.parseInt(result.result);
-        } catch (e) {
-            contribVersion = 0;
-         }
-        return {
-            debug: this.debug,
-            nodeVarRegistry: this.nodeVars,
-            specialMemberRegistry: this.specialMembers,
-            contribVersion
-        }
-    }
-
     async getTreeItem(variable: vars.Variable) {
         return variable.getTreeItem();
     }
@@ -67,12 +51,16 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
                     return;
                 }
 
-                const exec = await this.createExecContext(frameId);
+                const exec: vars.ExecContext = {
+                    debug: this.debug,
+                    nodeVarRegistry: this.nodeVars,
+                    specialMemberRegistry: this.specialMembers,
+                }
                 const topLevel = await this.getTopLevelVariables(exec, frameId);
                 if (!topLevel) {
                     return;
                 }
-                
+
                 const topLevelVariable = new vars.VariablesRoot(topLevel, exec);
                 topLevel.forEach(v => v.parent = topLevelVariable);
                 return topLevel;
@@ -1070,14 +1058,5 @@ export class Configuration {
     static setExtensionActive(status: boolean) {
         const context = `${this.ExtensionName}:activated`;
         vscode.commands.executeCommand('setContext', context, status);
-    }
-}
-
-export class ContribFeatures {
-    /**
-     * Has function to get representation of Expr
-     */
-    static exprRepresentation(version: number) {
-        return 0 < version;
     }
 }
