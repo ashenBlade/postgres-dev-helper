@@ -803,9 +803,13 @@ export class NodeTagVariable extends RealVariable {
             return new ExprNodeVariable(realTag, args, logger);
         }
 
-        /* Display expression in EquivalenceMember */
+        /* Display expressions in EquivalenceMember and RestrictInfo */
         if (realTag === 'EquivalenceMember') {
-            return new EquivalenceMemberVariable(realTag, args, logger);
+            return new EquivalenceMemberVariable(args, logger);
+        }
+
+        if (realTag === 'RestrictInfo') {
+            return new RestirctInfoVariable(args, logger);
         }
 
         return new NodeTagVariable(realTag, args, logger);
@@ -1575,6 +1579,10 @@ class ExprNodeVariable extends NodeTagVariable {
 }
 
 class EquivalenceMemberVariable extends NodeTagVariable {
+    constructor(args: RealVariableArgs, logger: utils.ILogger) {
+        super('EquivalenceMember', args, logger);
+    }
+    
     private async findExpr(children: Variable[]): Promise<ExprNodeVariable | null> {
         for (const child of children) {
             if (child.name === 'em_expr') {
@@ -1587,7 +1595,7 @@ class EquivalenceMemberVariable extends NodeTagVariable {
         }
         return null;
     }
-    
+
     async getDescription() {
         const children = await this.getRealMembers();
         if (!children) {
@@ -1606,6 +1614,45 @@ class EquivalenceMemberVariable extends NodeTagVariable {
 
         return repr;
     }
+}
+
+class RestirctInfoVariable extends NodeTagVariable {
+    constructor(args: RealVariableArgs, logger: utils.ILogger) {
+        super('RestrictInfo', args, logger);
+    }
+
+    private async findExpr(children: Variable[]): Promise<ExprNodeVariable | null> {
+        for (const child of children) {
+            if (child.name === 'clause') {
+                if (child instanceof ExprNodeVariable) {
+                    return child;
+                } else {
+                    break;
+                }
+            }
+        }
+        return null;
+    }
+
+    async getDescription() {
+        const children = await this.getRealMembers();
+        if (!children) {
+            return await super.getDescription();
+        }
+
+        const expr = await this.findExpr(children);
+        if (!expr) {
+            return await super.getDescription();
+        }
+
+        const repr = await expr.getRepr();
+        if (!repr) {
+            return await super.getDescription();
+        }
+
+        return repr;
+    }
+
 }
 
 class ListElementsMember extends RealVariable {
