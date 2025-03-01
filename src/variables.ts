@@ -854,6 +854,29 @@ class ExprNodeVariable extends NodeTagVariable {
         throw new ExprNodeVariable.EvalError(`failed to get bool from expr: ${expr}`);
     }
 
+    private async evalIntResult(expr: string) {
+        const result = await this.debug.evaluate(expr, this.frameId);
+        const number = Number(result.result);
+        if (Number.isNaN(number)) {
+            throw new ExprNodeVariable.EvalError(`failed to get number result from expr: ${expr}`);
+        }
+        return number;
+    }
+
+    private async evalEnumResult(expr: string) {
+        const result = await this.debug.evaluate(expr, this.frameId);
+
+        /* 
+         * Error messages starts with '-' and correct 
+         * identifiers can not start with it
+         */
+        if (result.result.startsWith('-')) {
+            throw new ExprNodeVariable.EvalError(`failed to get enum value from expr: ${expr}`);
+        }
+
+        return result.result;
+    }
+
     private async palloc(size: string) {
         const result = await this.debug.evaluate(`palloc0(${size})`, this.frameId);
         if (!utils.isValidPointer(result.result)) {
@@ -864,6 +887,64 @@ class ExprNodeVariable extends NodeTagVariable {
 
     private async pfree(ptr: string) {
         await this.debug.evaluate(`pfree((void *)${ptr})`, this.frameId);
+    }
+
+    private static exprPlaceholders = new Map<string, string>([
+        ['SubLink', 'SUB_LINK'],
+        ['SubPlan', 'SUB_PLAN'],
+        ['AlternativeSubPlan', 'ALT_SUB_PLAN'],
+        ['FieldSelect', 'FIELD_SELECT'],
+        ['FieldStore', 'FIELD_STORE'],
+        ['RelabelType', 'RELABEL_TYPE'],
+        ['CoerceViaIO', 'COERCE_IO'],
+        ['ArrayCoerceExpr', 'ARRAY_COERCE'],
+        ['ConvertRowtypeExpr', 'CONVERT_ROWTYPE'],
+        ['CollateExpr', 'COLLATE'],
+        ['CaseExpr', 'CASE'],
+        ['CaseWhen', 'WHEN'],
+        ['CaseTestExpr', 'CASE_TEST'],
+        ['ArrayExpr', 'ARRAY[]'],
+        ['RowExpr', 'ROW()'],
+        ['RowCompareExpr', 'ROW_COMPARE'],
+        ['MinMaxOp', 'GREAT_LEAST'],
+        ['SQLValueFunction', 'SQL_VAL_FUNC'],
+        ['XmlExprOp', 'XML_OP'],
+        ['XmlExpr', 'XML'],
+        ['JsonValueExpr', 'JSON_VALUE'],
+        ['JsonConstructorExpr', 'JSON_CTOR'],
+        ['JsonExpr', 'JSON'],
+        ['CoerceToDomain', 'COERCE_DOMAIN'],
+        ['CoerceToDomainValue', 'COERCE_DOMAIN_VAL'],
+        ['SetToDefault', 'SET_DEFAULT'],
+        ['CurrentOfExpr', 'CURRENT_OF'],
+        ['NextValueExpr', 'NEXTVAL'],
+        ['InferenceElem', 'INFER_ELEM']
+    ])
+
+    private getExprPlaceholder(variable: Variable) {
+        /* 
+         * When some variable appears in Expr, but we
+         * do not have logic to format representation this
+         * function is called to fullfil this with some
+         * meaningful word/placeholder.
+         * 
+         * Ordinarily, there will be other Exprs, for
+         * which we do not have implementation
+         */
+
+        if (!(variable instanceof NodeTagVariable)) {
+            return 'EXPR';
+        }
+
+        return ExprNodeVariable.exprPlaceholders.get(variable.realNodeTag) ?? 'EXPR';
+    }
+
+    private async getReprPlaceholder(variable: Variable, rtable: NodeTagVariable[]) {
+        if (variable instanceof ExprNodeVariable) {
+            return await variable.getReprInner(rtable);
+        } else {
+            return this.getExprPlaceholder(variable);
+        }
     }
 
     private async formatVarExpr(rtable: NodeTagVariable[]) {
@@ -918,15 +999,16 @@ class ExprNodeVariable extends NodeTagVariable {
             return 'NULL';
         }
 
-        /* Use 'int' because of errors during evaluation of 'sizeof(bool)' */
+        /* Use 8 bytes to be fully sure type will fit */
         const tupoutput = await this.palloc('8');
         const tupIsVarlena = await this.palloc('8');
 
         /* 
-         * WARN: I do not why, but you MUST specify pointers as 'void *',
-         *       not 'Oid *' or '_Bool *'. Otherwise, passed pointers
-         *       will have some offset (*orig_value* + offset), so written
-         *       values will be stored in random place.
+         * WARN: I do not why, but you MUST cast pointers as 'void *',
+         *       not 'Oid *' or '_Bool *'. 
+         *       Otherwise, passed pointers will have some offset 
+         *       (*orig_value* + offset), so written values will
+         *       be stored in random place.
          */
         await this.evaluate(`getTypeOutputInfo(((Const *)${this.value})->consttype, ((void *)${tupoutput}), ((void *)${tupIsVarlena}))`);
 
@@ -979,7 +1061,7 @@ class ExprNodeVariable extends NodeTagVariable {
             if (leftArg instanceof ExprNodeVariable) {
                 data.push(await leftArg.getReprInner(rtable));
             } else {
-                data.push('???');
+                data.push(this.getExprPlaceholder(leftArg));
             }
 
             data.push(opname);
@@ -987,7 +1069,7 @@ class ExprNodeVariable extends NodeTagVariable {
             if (rightArg instanceof ExprNodeVariable) {
                 data.push(await rightArg.getReprInner(rtable));
             } else {
-                data.push('???');
+                data.push(this.getExprPlaceholder(rightArg));
             }
         } else {
             data.push(opname);
@@ -995,7 +1077,7 @@ class ExprNodeVariable extends NodeTagVariable {
             if (leftArg instanceof ExprNodeVariable) {
                 data.push(await leftArg.getReprInner(rtable))
             } else {
-                data.push('???');
+                data.push(this.getExprPlaceholder(leftArg));
             }
         }
 
@@ -1007,11 +1089,59 @@ class ExprNodeVariable extends NodeTagVariable {
         try {
             funcname = await this.evalStringResult(`get_func_name(((FuncExpr *)${this.value})->funcid)`);
         } catch (e) {
-            if (e instanceof ExprNodeVariable.EvalError) {
-                funcname = '(invalid function)';
-            } else {
-                throw e;
+            funcname = '(invalid function)';
+        }
+
+        const argsMember = (await this.getRealMembers() ?? []).find(v => v.name === 'args');
+        if (!(argsMember && argsMember instanceof ListNodeTagVariable)) {
+            throw new ExprNodeVariable.EvalError('failed to get args member of FuncExpr');
+        }
+
+        const args = await argsMember.getListElements();
+        if (args === undefined) {
+            throw new ExprNodeVariable.EvalError('failed to get function arguments');
+        }
+
+        const coerceType = await this.evalEnumResult(`((FuncExpr *)${this.value})->funcformat`);
+
+        switch (coerceType) {
+            case 'COERCE_EXPLICIT_CALL':
+            case 'COERCE_SQL_SYNTAX':
+                /* 
+                 * It's hard to represent COERCE_SQL_SYNTAX, because there are
+                 * multiple SQL features with different features (like
+                 * EXTRACT(x FROM y)) and most of them depend on Oid's of
+                 * types.
+                 * Example you can see in src/backend/utils/adt/ruleutils.c.
+                 * So i decided to simplify it to level of just function call
+                 */
+                const argsExpressions: string[] = [];
+                for (const arg of args) {
+                    if (arg instanceof ExprNodeVariable) {
+                        argsExpressions.push(await arg.getReprInner(rtable));
+                    } else {
+                        argsExpressions.push(this.getExprPlaceholder(arg));
+                    }
+                }
+
+                return `${funcname}(${argsExpressions.join(', ')})`;
+            case 'COERCE_EXPLICIT_CAST':
+                const argRepr = await this.getReprPlaceholder(args[0], rtable);
+                return `${argRepr}::${funcname}`;
+            case 'COERCE_IMPLICIT_CAST':
+                /* User did not request explicit cast, so show as simple expr */
+                return await this.getReprPlaceholder(args[0], rtable);
             }
+        /* Should not happen */
+        return '???';
+    }
+
+    private async formatAggrefExprInner(rtable: NodeTagVariable[]) {
+        let funcname;
+        try {
+            funcname = await this.evalStringResult(`get_func_name(((Aggref *)${this.value})->aggfnoid)`);
+        } catch (e) {
+            funcname = '(invalid func)';
         }
 
         const argsMember = (await this.getRealMembers() ?? []).find(v => v.name === 'args');
@@ -1029,14 +1159,281 @@ class ExprNodeVariable extends NodeTagVariable {
             if (arg instanceof ExprNodeVariable) {
                 argsExpressions.push(await arg.getReprInner(rtable));
             } else {
-                argsExpressions.push('???');
+                argsExpressions.push(this.getExprPlaceholder(arg));
             }
         }
 
         return `${funcname}(${argsExpressions.join(', ')})`;
     }
 
-    private async formatExprInner(rtable: NodeTagVariable[]) {
+    private async formatTargetEntryExprInner(rtable: NodeTagVariable[]): Promise<string> {
+        /* NOTE: keep return type annotation, because now compiler can not
+         *       handle such recursion correctly
+         */
+        const expr = (await this.getRealMembers() ?? []).find(v => v.name === 'expr');
+        if (!(expr && expr instanceof ExprNodeVariable)) {
+            throw new ExprNodeVariable.EvalError('failed to get expr member from TargetEntry');
+        }
+
+        return await expr.getReprInner(rtable);
+    }
+
+    private async formatScalarArrayOpExprInner(rtable: NodeTagVariable[]): Promise<string> {
+        let funcname;
+        try {
+            funcname = await this.evalStringResult(`get_opname(((ScalarArrayOpExpr *)${this.value})->opno)`);
+        } catch (e) {
+            funcname = '(invalid func)';
+        }
+
+        const or = await this.evalBoolResult(`((ScalarArrayOpExpr *)${this.value})->useOr`);
+        const argsMember = (await this.getRealMembers() ?? []).find(v => v.name === 'args');
+        if (!(argsMember && argsMember instanceof ListNodeTagVariable)) {
+            throw new ExprNodeVariable.EvalError('failed to get args member of ScalarArrayOpExpr');
+        }
+
+        const args = await argsMember.getListElements();
+        if (!args) {
+            throw new ExprNodeVariable.EvalError('no args got in args of ScalarArrayOpExpr');
+        }
+
+        const [scalar, array] = args;
+        let scalarRepr;
+        if (scalar instanceof ExprNodeVariable) {
+            scalarRepr = await scalar.getReprInner(rtable);
+        } else {
+            scalarRepr = this.getExprPlaceholder(scalar);
+        }
+
+        let arrayRepr;
+        if (array instanceof ExprNodeVariable) {
+            arrayRepr = await array.getReprInner(rtable);
+        } else {
+            arrayRepr = this.getExprPlaceholder(array);
+        }
+
+        return `${scalarRepr} ${funcname} ${or ? 'ANY' : 'ALL'}(${arrayRepr})`;
+    }
+
+    private async formatBoolExprInner(rtable: NodeTagVariable[]) {
+        const get_expr = async (v: Variable) => {
+            if (v instanceof ExprNodeVariable) {
+                return await v.getReprInner(rtable);
+            } else {
+                return this.getExprPlaceholder(v);
+            }
+        }
+
+        const boolOp = await this.evalEnumResult(`((BoolExpr *)${this.value})->boolop`);
+        const argsMember = (await this.getRealMembers() ?? []).find(v => v.name === 'args');
+        if (!(argsMember && argsMember instanceof ListNodeTagVariable)) {
+            throw new ExprNodeVariable.EvalError('failed to get args member of BoolExpr');
+        }
+
+        const args = await argsMember.getListElements();
+        if (!args) {
+            throw new ExprNodeVariable.EvalError('failed to get elements of BoolExpr->args');
+        }
+
+        if (boolOp === 'NOT_EXPR') {
+            const exprRepr = await get_expr(args[0]);
+            return `NOT ${exprRepr}`;
+        }
+
+        const argsReprs = [];
+        for (const arg of args) {
+            argsReprs.push(await get_expr(arg));
+        }
+
+        let joinExpr;
+        switch (boolOp) {
+            case 'AND_EXPR':
+                joinExpr = ' AND ';
+                break;
+            case 'OR_EXPR':
+                joinExpr = ' OR ';
+                break;
+            default:
+                joinExpr = ' ??? ';
+                break;
+        }
+
+        return argsReprs.join(joinExpr);
+    }
+
+    private async formatCoalesceExprInner(rtable: NodeTagVariable[]) {
+        const argsMember = (await this.getRealMembers() ?? []).find(v => v.name === 'args');
+        if (!argsMember) {
+            throw new ExprNodeVariable.EvalError('failed to get args member of BoolExpr');
+        }
+
+        if (!(argsMember instanceof ListNodeTagVariable)) {
+            return 'COALESCE(???)';
+        }
+
+        const args = await argsMember.getListElements();
+        if (!args) {
+            throw new ExprNodeVariable.EvalError('failed to get elements of BoolExpr->args');
+        }
+
+        const argsReprs = [];
+        for (const arg of args) {
+            if (arg instanceof ExprNodeVariable) {
+                argsReprs.push(await arg.getReprInner(rtable));
+            } else {
+                argsReprs.push(this.getExprPlaceholder(arg));
+            }
+        }
+
+        return `COALESCE(${argsReprs.join(', ')})`;
+    }
+
+    private async formatNullTestExpr(rtable: NodeTagVariable[]) {
+        const testType = await this.evalEnumResult(`((NullTest *)${this.value})->nulltesttype`);
+        const expr = (await this.getRealMembers() ?? []).find(v => v.name === 'arg');
+        if (!expr) {
+            throw new ExprNodeVariable.EvalError('failed to get NullTest->arg member');
+        }
+
+        let innerRepr;
+        if (expr instanceof ExprNodeVariable) {
+            innerRepr = await expr.getReprInner(rtable);
+        } else {
+            innerRepr = this.getExprPlaceholder(expr);
+        }
+
+
+        let testSql;
+        switch (testType) {
+            case 'IS_NULL':
+                testSql = 'IS NULL';
+                break;
+            case 'IS_NOT_NULL':
+                testSql = 'IS NOT NULL';
+                break;
+            default:
+                testSql = '???';
+                break;
+        }
+        return `${innerRepr} ${testSql}`;
+    }
+
+    private async formatBooleanTestExpr(rtable: NodeTagVariable[]) {
+        const testType = await this.evalEnumResult(`((BooleanTest *)${this.value})->booltesttype`);
+        const arg = (await this.getRealMembers() ?? []).find(v => v.name === 'arg');
+        if (!arg) {
+            throw new ExprNodeVariable.EvalError('failed to get BooleanTest->arg member');
+        }
+
+        const innerRepr = await this.getReprPlaceholder(arg, rtable);
+        let test;
+        switch (testType) {
+            case 'IS_TRUE':
+                test = 'IS TRUE';
+                break;
+            case 'IS_NOT_TRUE':
+                test = 'IS NOT TRUE';
+                break;
+            case 'IS_FALSE':
+                test = 'IS FALSE';
+                break;
+            case 'IS_NOT_FALSE':
+                test = 'IS NOT FALSE';
+                break;
+            case 'IS_UNKNOWN':
+                test = 'IS NULL';
+                break;
+            case 'IS_NOT_UNKNOWN':
+                test = 'IS NOT NULL';
+                break;
+            default:
+                test = 'IS ???';
+                break;
+        }
+
+        return `${innerRepr} ${test}`;
+    }
+
+    private async formatArrayExpr(rtable: NodeTagVariable[]) {
+        const elementsMember = (await this.getRealMembers() ?? []).find(v => v.name === 'elements');
+        if (!(elementsMember && elementsMember instanceof ListNodeTagVariable)) {
+            throw new ExprNodeVariable.EvalError('failed to get ArrayExpr->elements');
+        }
+        
+        const elements = await elementsMember.getListElements();
+        if (elements === undefined) {
+            throw new ExprNodeVariable.EvalError('failed to get elements of ArrayExpr->elements List');
+        }
+
+        const reprs = [];
+        for (const e of elements) {
+            reprs.push(await this.getReprPlaceholder(e, rtable));
+        }
+        return `ARRAY[${reprs.join(', ')}]`;
+    }
+
+    private async formatSqlValueFunction(rtable: NodeTagVariable[]) {
+        const getTypmod = async () => {
+            return await this.evalIntResult(`((SQLValueFunction *)${this.value})->typmod`);
+        }
+        const funcOp = await this.evalEnumResult(`((SQLValueFunction *)${this.value})->op`);
+        let funcname;
+        switch (funcOp) {
+            case 'SVFOP_CURRENT_DATE':
+                funcname = 'CURRENT_DATE';
+                break;
+            case 'SVFOP_CURRENT_TIME':
+                funcname = 'CURRENT_TIME';
+                break;
+            case 'SVFOP_CURRENT_TIME_N':
+                funcname = `CURRENT_TIME(${await getTypmod()})`;
+                break;
+            case 'SVFOP_CURRENT_TIMESTAMP':
+                funcname = 'CURRENT_TIMESTAMP';
+                break;
+            case 'SVFOP_CURRENT_TIMESTAMP_N':
+                funcname = `CURRENT_TIMESTAMP(${await getTypmod()})`;
+                break;
+            case 'SVFOP_LOCALTIME':
+                funcname = 'LOCALTIME';
+                break;
+            case 'SVFOP_LOCALTIME_N':
+                funcname = `LOCALTIME(${await getTypmod()})`;
+                break;
+            case 'SVFOP_LOCALTIMESTAMP':
+                funcname = 'LOCALTIMESTAMP';
+                break;
+            case 'SVFOP_LOCALTIMESTAMP_N':
+                funcname = `LOCALTIMESTAMP(${await getTypmod()})`;
+                break;
+            case 'SVFOP_CURRENT_ROLE':
+                funcname = 'CURRENT_ROLE';
+                break;
+            case 'SVFOP_CURRENT_USER':
+                funcname = 'CURRENT_USER';
+                break;
+            case 'SVFOP_USER':
+                funcname = 'USER';
+                break;
+            case 'SVFOP_SESSION_USER':
+                funcname = 'SESSION_USER';
+                break;
+            case 'SVFOP_CURRENT_CATALOG':
+                funcname = 'CURRENT_CATALOG';
+                break;
+            case 'SVFOP_CURRENT_SCHEMA':
+                funcname = 'CURRENT_SCHEMA';
+                break;
+            default:
+                funcname = '???';
+                break;
+        }
+
+        return funcname;
+    }
+
+
+    private async formatExprInner(rtable: NodeTagVariable[]): Promise<string> {
         let placeholder = 'EXPR';
         try {
             switch (this.realNodeTag) {
@@ -1052,8 +1449,33 @@ class ExprNodeVariable extends NodeTagVariable {
                 case 'FuncExpr':
                     placeholder = 'FUNC_EXPR';
                     return await this.formatFuncExprInner(rtable);
-                default:
-                    return '???';
+                case 'Aggref':
+                    placeholder = 'AGGREF';
+                    return await this.formatAggrefExprInner(rtable);
+                case 'TargetEntry':
+                    placeholder = 'TARGET_ENTRY';
+                    return await this.formatTargetEntryExprInner(rtable);
+                case 'ScalarArrayOpExpr':
+                    placeholder = 'SCALAR_ARRAY_OP';
+                    return await this.formatScalarArrayOpExprInner(rtable);
+                case 'BoolExpr':
+                    placeholder = 'BOOL_EXPR';
+                    return await this.formatBoolExprInner(rtable);
+                case 'BooleanTest':
+                    placeholder = 'BOOL_TEST';
+                    return await this.formatBooleanTestExpr(rtable);
+                case 'CoalesceExpr':
+                    placeholder = 'COALESCE';
+                    return await this.formatCoalesceExprInner(rtable);
+                case 'NullTest':
+                    placeholder = 'NULL_TEST';
+                    return await this.formatNullTestExpr(rtable);
+                case 'ArrayExpr':
+                    placeholder = 'ARRAY[]';
+                    return await this.formatArrayExpr(rtable);
+                case 'SQLValueFunction':
+                    placeholder = 'SQL_VAL_FUNC';
+                    return await this.formatSqlValueFunction(rtable);
             }
         } catch (error) {
             if (!(error instanceof ExprNodeVariable.EvalError)) {
@@ -1084,27 +1506,6 @@ class ExprNodeVariable extends NodeTagVariable {
         }
 
         return await this.getReprInner(rtable as NodeTagVariable[]);
-        try {
-        } catch (error: any) {
-            /* 
-             * Evaluation of expression representation might be time consumptive
-             * and user will perform step before we end up computation.
-             * In such case, we will get exception with messages like:
-             * - "Cannot evaluate expression on the specified stack frame."
-             * - "Unable to perform this action because the process is running."
-             * 
-             * I do not know whether these messages are translated, so
-             * just checking 'error.message' does not look like a solid solution.
-             * In the end, we just catch all VS Code exceptions (they have
-             * 'CodeExpectedError' in name, at least exceptions with messages
-             * above).
-             */
-            if (error.name === 'CodeExpectedError') {
-                return;
-            } else {
-                throw error;
-            }
-        }
     }
 
     private async findRtable() {

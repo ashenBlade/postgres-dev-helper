@@ -576,6 +576,15 @@ export function getDefaultExprs(): string[] {
         'Const',
         'OpExpr',
         'FuncExpr',
+        'TargetEntry',
+        'Aggref',
+        'ScalarArrayOpExpr',
+        'BoolExpr',
+        'NullTest',
+        'CoalesceExpr',
+        'BooleanTest',
+        'ArrayExpr',
+        'SQLValueFunction',
     ]
 }
 
