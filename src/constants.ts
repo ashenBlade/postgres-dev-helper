@@ -570,7 +570,11 @@ export function getDefaultNodeTags(): string[] {
     ]
 }
 
-export function getDefaultExprs(): string[] {
+/**
+ * Returns list of Expr nodes, whose text representation is displayed in
+ * variables view as separate member.
+ */
+export function getDisplayedExprs(): string[] {
     return [
         'Var',
         'Const',
@@ -585,6 +589,30 @@ export function getDefaultExprs(): string[] {
         'BooleanTest',
         'ArrayExpr',
         'SQLValueFunction',
+        'MinMaxExpr',
+        'DistinctExpr',
+        'NullIfExpr',
+        'RowExpr',
+        'GroupingFunc',
+        'WindowFunc',
+        'SubscriptingRef',
+        'XmlExpr',
+        'SubLink',
+        'RelabelType',
+        'CoerceViaIO',
+        'RowCompareExpr',
+        'ConvertRowtypeExpr',
+        'CoerceToDomain',
+        'ArrayCoerceExpr',
+        'String',
+        'JsonExpr',
+        'JsonValueExpr',
+        'JsonConstructorExpr',
+        'JsonIsPredicate',
+        'CaseWhen',
+        'WindowFuncFuncCondition',
+        'FieldSelect',
+        'FieldStore',
     ]
 }
 

@@ -151,6 +151,17 @@ export function extractStringFromResult(result: string) {
 }
 
 /**
+ * Check that output from evaluation is correct enum value.
+ * That is it is not error message, pointer or something else.
+ * So, 'result' looks like real enum value.
+ * 
+ * @returns 'true' if looks like enum value, 'false' otherwise
+ */
+export function isEnumResult(result: string) {
+    return isValidIdentifier(result);
+}
+
+/**
  * When evaluating 'char*' member, 'result' field will be in form: `0x00000 "STR"`.
  * This function extracts stored pointer (0x00000), otherwise null returned
  * 
