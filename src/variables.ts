@@ -243,7 +243,6 @@ export abstract class Variable {
     /**
      * Get children of this variable
      * 
-     * @param debug Debugger facade
      * @returns Array of child variables or undefined if no children
      */
     async getChildren(): Promise<Variable[] | undefined> {
@@ -361,6 +360,11 @@ export abstract class Variable {
         };
         if (utils.isRawStruct(debugVariable) ||
             !utils.isValidPointer(debugVariable.value)) {
+            if (utils.isNull(debugVariable.value) && debugVariable.type === 'List *') {
+                /* Empty List is NIL == NULL == '0x0' */
+                return new ListNodeTagVariable('List', args, logger);
+            }
+
             return new RealVariable(args, logger);
         }
 
@@ -605,7 +609,19 @@ export class RealVariable extends Variable {
         return await this.debug.evaluate(expr, this.frameId);
     }
 
+    /**
+     * Get *real* member of this var `this->member`.
+     * Prefer this method as more optimized.
+     * 
+     * @param member member name of this var
+     * @returns Variable that represent member of this var
+     */
     async getMember(member: string) {
+        /* 
+         * Use `getRealMember`, not `getChildren` in order to
+         * prevent infinite loops when getting member
+         * of one var from another.
+         */
         const members = await this.getRealMembers();
         if (members === undefined) {
             throw new NoMemberFoundError(member);
@@ -619,16 +635,74 @@ export class RealVariable extends Variable {
         return m;
     }
 
+    /**
+     * Get elements of member `this->member`.
+     * You should use this function, because NIL is valid
+     * List representation, but this extension treats it as
+     * RealVariable, not ListNodeTagVariable.
+     * 
+     * @param member member name of this var
+     * @returns Elements of list array
+     */
+    async getListMemberElements(member: string) {
+        const m = await this.getMember(member);
+        if (m instanceof ListNodeTagVariable) {
+            const elements = await m.getListElements();
+            if (elements === undefined) {
+                throw new UnexpectedOutputError(`failed to get elements from List member ${member}`);
+            }
+            return elements;
+        }
+
+        /* NIL means 0x0, so List will be RealVariable */
+        if (utils.isNull(m.value)) {
+            return [];
+        }
+
+        throw new UnexpectedOutputError(`member ${member} is not valid List`);
+    }
+
+    /**
+     * Get raw 'value' field of `this->member`.
+     * 
+     * @param member member name of this var
+     * @returns 'value' field
+     */
     async getMemberValue(member: string) {
         const m = await this.getMember(member);
         return m.value;
     }
 
-    async getMemberValueString(member: string) {
+    /**
+     * Get string value of `char *` member `this->member`.
+     * If that was NULL, then `null` returned.
+     * 
+     * @param member member name of this var
+     * @returns string value of member
+     */
+    async getMemberValueCharString(member: string) {
         const value = await this.getMemberValue(member);
-        return utils.extractStringFromResult(value);
+        const str = utils.extractStringFromResult(value);
+        if (str !== null) {
+            return str;
+        }
+        if (utils.isNull(value)) {
+            return null;
+        }
+
+        throw new UnexpectedOutputError(`member ${member} output is not valid char string`);
     }
 
+    /**
+     * Get value of enum member `this->member`.
+     * If failed throws UnexpectedOutputError.
+     * 
+     * NOTE: var does not know, what valid enum values for this type are,
+     *       so it returns anything, that looks like valid enum value.
+     * 
+     * @param member member name of this var
+     * @returns Enum value of this member as string
+     */
     async getMemberValueEnum(member: string) {
         const value = await this.getMemberValue(member);
         if (!utils.isEnumResult(value)) {
@@ -637,6 +711,13 @@ export class RealVariable extends Variable {
         return value;
     }
 
+    /**
+     * Get bool value of `this->member`.
+     * If failed throw UnexpectedOutputError.
+     * 
+     * @param member member name of this var
+     * @returns Bool value of member
+     */
     async getMemberValueBool(member: string) {
         const value = await this.getMemberValue(member);
         switch (value.toLocaleLowerCase()) {
@@ -647,6 +728,22 @@ export class RealVariable extends Variable {
             default:
                 throw new UnexpectedOutputError(`member ${member} output is not bool`);
         }
+    }
+
+    /**
+     * Get number value of `this->member`. 
+     * If failed throws UnexpectedOutputError.
+     * 
+     * @param member member name of this var
+     * @returns Number value of this member
+     */
+    async getMemberValueNumber(member: string) {
+        const value = await this.getMemberValue(member);
+        const num = Number(value);
+        if (Number.isNaN(num)) {
+            throw new UnexpectedOutputError(`member ${member} output is not number`);
+        }
+        return num;
     }
 }
 
@@ -813,25 +910,24 @@ export class NodeTagVariable extends RealVariable {
         return utils.getStructNameFromType(type);
     }
 
-    static async getRealNodeTag(variable: dap.DebugVariable, frameId: number,
-                                context: ExecContext) {
-        const nodeTagExpression = `((Node*)(${variable.evaluateName}))->type`;
-        const response = await context.debug.evaluate(nodeTagExpression, frameId);
-        let realTag = response.result?.replace('T_', '');
-        if (!this.isValidNodeTag(realTag)) {
-            return;
-        }
-        return realTag;
-    }
-
     static async create(variable: dap.DebugVariable, frameId: number,
                         context: ExecContext, logger: utils.ILogger,
                         parent?: Variable): Promise<NodeTagVariable | undefined> {
+        const getRealNodeTag = async () => {
+            const nodeTagExpression = `((Node*)(${variable.evaluateName}))->type`;
+            const response = await context.debug.evaluate(nodeTagExpression, frameId);
+            let realTag = response.result?.replace('T_', '');
+            if (!this.isValidNodeTag(realTag)) {
+                return;
+            }
+            return realTag;
+        }
+                            
         if (!context.nodeVarRegistry.isNodeVar(variable.type)) {
             return;
         }
 
-        let realTag = await this.getRealNodeTag(variable, frameId, context);
+        let realTag = await getRealNodeTag();
         if (!realTag) {
             return;
         }
@@ -890,61 +986,29 @@ class ExprNodeVariable extends NodeTagVariable {
      */
     protected repr?: string;
 
+    /**
+     * Evaluate expression and parse string from result.
+     * If result is not correct string result output, then null returned.
+     */
     private async evalStringResult(expr: string) {
         const result = await this.debug.evaluate(expr, this.frameId);
-        const str = utils.extractStringFromResult(result.result);
-        if (str === null) {
-            throw new EvaluationError(`failed to get string from expr: ${expr}`);
-        }
-        return str;
+        return utils.extractStringFromResult(result.result);
     }
 
-    private async evalStringWithPtrResult(expr: string) {
-        const result = await this.debug.evaluate(expr, this.frameId);
-        const str = utils.extractStringFromResult(result.result);
-        if (str === null) {
-            throw new EvaluationError(`failed to get string from expr: ${expr}`);
-        }
-        
-        const ptr = utils.extractPtrFromStringResult(result.result);
-        if (ptr === null) {
-            throw new EvaluationError(`failed to get pointer from expr: ${expr}`);
-        }
-        return [str, ptr];
+    /**
+     * Run `get_func_name(this->oidMember)` and get output as string.
+     */
+    private async getFuncName(oidMember: string) {
+        const result = await this.evaluate(`get_func_name(((${this.realNodeTag} *)${this.value})->${oidMember})`);
+        return utils.extractStringFromResult(result.result);
     }
 
-    private async evalBoolResult(expr: string) {
-        const result = await this.debug.evaluate(expr, this.frameId);
-        switch (result.result.toLowerCase()) {
-            case 'true':
-                return true;
-            case 'false':
-                return false;
-        }
-        throw new EvaluationError(`failed to get bool from expr: ${expr}`);
-    }
-
-    private async evalIntResult(expr: string) {
-        const result = await this.debug.evaluate(expr, this.frameId);
-        const number = Number(result.result);
-        if (Number.isNaN(number)) {
-            throw new EvaluationError(`failed to get number result from expr: ${expr}`);
-        }
-        return number;
-    }
-
-    private async evalEnumResult(expr: string) {
-        const result = await this.debug.evaluate(expr, this.frameId);
-
-        /* 
-         * Error messages starts with '-' and correct 
-         * identifiers can not start with it
-         */
-        if (result.result.startsWith('-')) {
-            throw new EvaluationError(`failed to get enum value from expr: ${expr}`);
-        }
-
-        return result.result;
+    /**
+     * Run `get_opname(this->oidMember)` and get output as string.
+     */
+    private async getOpName(oidMember: string) {
+        const result = await this.evaluate(`get_opname(((${this.realNodeTag} *)${this.value})->${oidMember})`);
+        return utils.extractStringFromResult(result.result);
     }
 
     private async palloc(size: string) {
@@ -959,19 +1023,10 @@ class ExprNodeVariable extends NodeTagVariable {
         await this.debug.evaluate(`pfree((void *)${ptr})`, this.frameId);
     }
 
-    private async getListMemberElements(member: string) {
-        const listMember = (await this.getRealMembers() ?? []).find(v => v.name === member);
-        if (!(listMember && listMember instanceof ListNodeTagVariable)) {
-            throw new EvaluationError(`failed to get list member '${this.realNodeTag}->${member}'`);
-        }
-
-        const elements = await listMember.getListElements();
-        if (elements === undefined) {
-            throw new EvaluationError(`failed to get list elements '${this.realNodeTag}->${member}'`);
-        }
-        return elements;
-    }
-
+    /**
+     * Get elements of member 'this->member' and return list
+     * of repr for each element
+     */
     private async getListMemberElementsReprs(member: string, rtable: NodeTagVariable[]) {
         const elements = await this.getListMemberElements(member);
         
@@ -983,57 +1038,19 @@ class ExprNodeVariable extends NodeTagVariable {
         return reprs;
     }
 
-    private async getExprMemberRepr(member: string, rtable: NodeTagVariable[]) {
-        const exprMember = (await this.getRealMembers() ?? []).find(v => v.name === member);
-        if (!exprMember) {
-            throw new EvaluationError(`failed to get Expr member '${this.realNodeTag}->${member}'`);
-        }
-
+    /**
+     * Get repr of 'this->member'
+     */
+    private async getMemberRepr(member: string, rtable: NodeTagVariable[]) {
+        const exprMember = await this.getMember(member);
         return await this.getReprPlaceholder(exprMember, rtable);
     }
 
-    private async getListOfStrings(member: string, rtable: NodeTagVariable[]) {
-        /* Get List of T_String elements and take their 'sval' values */
-        const list = await this.getListMemberElements(member);
-        const values = [];
-        for (const entry of list) {
-            if (entry instanceof NodeTagVariable) {
-                if (entry.realNodeTag === 'String') {
-                    const sval = (await entry.getRealMembers() ?? []).find(v => v.name === 'sval');
-                    if (sval) {
-                        values.push(utils.extractStringFromResult(sval.value) ?? 'NULL');
-                    } else {
-                        values.push('???')
-                    }
-                } else if (entry instanceof ExprNodeVariable) {
-                    values.push(await entry.getReprInner(rtable));
-                } else {
-                    values.push('???');
-                }
-            } else {
-                values.push('???');
-            }
-        }
-        return values;
-    }
-
-    private async getCharStringMember(member: string) {
-        const m = (await this.getRealMembers() ?? []).find(v => v.name === member);
-        if (!m) {
-            throw new EvaluationError(`Member ${this.realNodeTag}->${member} not found`);
-        }
-        const str = utils.extractStringFromResult(m.value);
-        if (!str) {
-            if (utils.isNull(m.value)) {
-                return null;
-            } else {
-                throw new EvaluationError(`Failed to get ${this.realNodeTag}->${member} member string value`);
-            }
-        }
-
-        return str;
-    }
-
+    /**
+     * These are used as placeholders for repr, when we had
+     * error during evaluation. This is done to give more
+     * context, so developer can understand what the expression is.
+     */
     private static exprPlaceholders = new Map<string, string>([
         ['Aggref', 'AGGREF'],
         ['AlternativeSubPlan', 'ALT_SUBPLAN'],
@@ -1086,6 +1103,9 @@ class ExprNodeVariable extends NodeTagVariable {
         ['XmlExprOp', 'XML_OP'],
     ]);
 
+    /* 
+     * Get placeholder in expression tree for given variable
+     */
     private getExprPlaceholder(variable: Variable) {
         /* 
          * When some variable appears in Expr, but we
@@ -1104,26 +1124,23 @@ class ExprNodeVariable extends NodeTagVariable {
         return ExprNodeVariable.exprPlaceholders.get(variable.realNodeTag) ?? 'EXPR';
     }
 
+    /**
+     * Auxiliary function to get repr of Variable with 
+     * max details if failed. This is
+     */
     private async getReprPlaceholder(variable: Variable, rtable: NodeTagVariable[]) {
         if (variable instanceof ExprNodeVariable) {
-            return await variable.getReprInner(rtable);
+            return await variable.getReprInternal(rtable);
         } else {
             return this.getExprPlaceholder(variable);
         }
     }
 
     private async formatVarExpr(rtable: NodeTagVariable[]) {
-        const varnoMember = (await this.getRealMembers() ?? []).find(v => v.name === 'varno');
-        if (!varnoMember) {
-            throw new EvaluationError('failed to get varno of Var')
-        }
+        const varno = await this.getMemberValueNumber('varno');
 
-        const varno = Number(varnoMember.value);
-        if (Number.isNaN(varno)) {
-            throw new EvaluationError('varno of Var is not a valid number');
-        }
-
-        let relname, attname;
+        let relname: string, 
+            attname: string;
         switch (varno) {
             case -1:
             case 65000:
@@ -1151,8 +1168,8 @@ class ExprNodeVariable extends NodeTagVariable {
 
                 const rte = rtable[varno - 1];
                 /* 'rte.value' will be pointer to RTE struct */
-                relname = await this.evalStringResult(`((RangeTblEntry *)${rte.value})->eref->aliasname`);
-                attname = await this.evalStringResult(`get_rte_attribute_name(((RangeTblEntry *)${rte.value}), ((Var *)${this.value})->varattno)`);
+                relname = await this.evalStringResult(`((RangeTblEntry *)${rte.value})->eref->aliasname`) ?? '???';
+                attname = await this.evalStringResult(`get_rte_attribute_name(((RangeTblEntry *)${rte.value}), ((Var *)${this.value})->varattno)`) ?? '???';
                 break;
         }
 
@@ -1160,7 +1177,21 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 
     private async formatConst(rtable: NodeTagVariable[]) {
-        if (await this.evalBoolResult(`((Const *)${this.value})->constisnull`)) {
+        const evalStrWithPtr = async (expr: string) => {
+            const result = await this.debug.evaluate(expr, this.frameId);
+            const str = utils.extractStringFromResult(result.result);
+            if (str === null) {
+                throw new EvaluationError(`failed to get string from expr: ${expr}`);
+            }
+            
+            const ptr = utils.extractPtrFromStringResult(result.result);
+            if (ptr === null) {
+                throw new EvaluationError(`failed to get pointer from expr: ${expr}`);
+            }
+            return [str, ptr];
+        }
+        
+        if (await this.getMemberValueBool('constisnull')) {
             return 'NULL';
         }
 
@@ -1170,15 +1201,14 @@ class ExprNodeVariable extends NodeTagVariable {
 
         /* 
          * WARN: I do not why, but you MUST cast pointers as 'void *',
-         *       not 'Oid *' or '_Bool *'. 
-         *       Otherwise, passed pointers will have some offset 
+         *       not 'Oid *' or '_Bool *'.
+         *       Otherwise, passed pointers will have some offset
          *       (*orig_value* + offset), so written values will
          *       be stored in random place.
          */
         await this.evaluate(`getTypeOutputInfo(((Const *)${this.value})->consttype, ((void *)${tupoutput}), ((void *)${tupIsVarlena}))`);
 
-        const [str, ptr] = await this.evalStringWithPtrResult(
-                        `OidOutputFunctionCall(*((Oid *)${tupoutput}), ((Const *)${this.value})->constvalue)`);
+        const [str, ptr] = await evalStrWithPtr(`OidOutputFunctionCall(*((Oid *)${tupoutput}), ((Const *)${this.value})->constvalue)`);
 
         await this.pfree(ptr);
         await this.pfree(tupoutput);
@@ -1188,86 +1218,35 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 
     private async formatOpExpr(rtable: NodeTagVariable[]) {
-        const opExpr = `((OpExpr *)(${this.value}))`;
-
-        let opname;
-        try {
-            opname = await this.evalStringResult(`get_opname(${opExpr}->opno)`);
-        } catch (e) {
-            if (e instanceof EvaluationError) {
-                opname = '(invalid operator)';
-            } else {
-                throw e;
-            }
+        const opname = await this.getOpName('opno') ?? '(invalid op)';
+        const args = await this.getListMemberElements('args');
+        if (args.length === 0) {
+            throw new UnexpectedOutputError('OpExpr contains no args');
         }
 
-        const members = await this.getRealMembers();
-        if (!members) {
-            throw new EvaluationError('failed to get children of Expr');;
-        }
-
-        const argsMember = members.find(v => v.name === 'args');
-        if (!argsMember) {
-            throw new EvaluationError('failed to get args of Expr');
-        }
-        
-        if (!(argsMember instanceof ListNodeTagVariable)) {
-            throw new EvaluationError('Expr->args is not a ListNodeTagVariable');
-        }
-        
-        const args = await argsMember.getListElements();
-        if (!args) {
-            throw new EvaluationError('No arguments in Expr->args');
-        }
-
-        const data: string[] = [];
+        let data;
         if (args.length > 1) {
-            const leftArg = args[0];
-            if (leftArg instanceof ExprNodeVariable) {
-                data.push(await leftArg.getReprInner(rtable));
-            } else {
-                data.push(this.getExprPlaceholder(leftArg));
-            }
-
-            data.push(opname);
-            const rightArg = args[1];
-            if (rightArg instanceof ExprNodeVariable) {
-                data.push(await rightArg.getReprInner(rtable));
-            } else {
-                data.push(this.getExprPlaceholder(rightArg));
-            }
+            data = [
+                await this.getReprPlaceholder(args[0], rtable),
+                opname,
+                await this.getReprPlaceholder(args[1], rtable),
+            ]
         } else {
-            data.push(opname);
-            const leftArg = args[0];
-            if (leftArg instanceof ExprNodeVariable) {
-                data.push(await leftArg.getReprInner(rtable))
-            } else {
-                data.push(this.getExprPlaceholder(leftArg));
-            }
+            data = [
+                opname,
+                await this.getReprPlaceholder(args[0], rtable)
+            ]
         }
 
         return data.join(' ');
     }
 
     private async formatFuncExpr(rtable: NodeTagVariable[]) {
-        let funcname;
-        try {
-            funcname = await this.evalStringResult(`get_func_name(((FuncExpr *)${this.value})->funcid)`);
-        } catch (e) {
-            funcname = '(invalid function)';
-        }
+        const funcname = await this.getFuncName('funcid') ?? '(invalid func)';
 
-        const argsMember = (await this.getRealMembers() ?? []).find(v => v.name === 'args');
-        if (!(argsMember && argsMember instanceof ListNodeTagVariable)) {
-            throw new EvaluationError('failed to get args member of FuncExpr');
-        }
+        const args = await this.getListMemberElements('args');
 
-        const args = await argsMember.getListElements();
-        if (args === undefined) {
-            throw new EvaluationError('failed to get function arguments');
-        }
-
-        const coerceType = await this.evalEnumResult(`((FuncExpr *)${this.value})->funcformat`);
+        const coerceType = await this.getMemberValueEnum('funcformat');
 
         switch (coerceType) {
             case 'COERCE_EXPLICIT_CALL':
@@ -1282,11 +1261,7 @@ class ExprNodeVariable extends NodeTagVariable {
                  */
                 const argsExpressions: string[] = [];
                 for (const arg of args) {
-                    if (arg instanceof ExprNodeVariable) {
-                        argsExpressions.push(await arg.getReprInner(rtable));
-                    } else {
-                        argsExpressions.push(this.getExprPlaceholder(arg));
-                    }
+                    argsExpressions.push(await this.getReprPlaceholder(arg, rtable));
                 }
 
                 return `${funcname}(${argsExpressions.join(', ')})`;
@@ -1297,43 +1272,21 @@ class ExprNodeVariable extends NodeTagVariable {
                 /* User did not request explicit cast, so show as simple expr */
                 return await this.getReprPlaceholder(args[0], rtable);
             }
-        /* Should not happen */
         return '???';
     }
 
     private async formatAggref(rtable: NodeTagVariable[]) {
-        let funcname;
-        try {
-            funcname = await this.evalStringResult(`get_func_name(((Aggref *)${this.value})->aggfnoid)`);
-        } catch (e) {
-            funcname = '(invalid func)';
-        }
+        const funcname = await this.getFuncName('aggfnoid') ?? '(invalid func)';
 
-        const argsMember = (await this.getRealMembers() ?? []).find(v => v.name === 'args');
-        if (!argsMember) {
-            throw new EvaluationError('failed to get args member of FuncExpr');
-        }
-
+        const argsMember = await this.getMember('args');
+        const reprs = await this.getListMemberElementsReprs('args', rtable);
+        
         let args;
-        if (utils.isNull(argsMember.value) || !(argsMember instanceof ListNodeTagVariable)) {
+        if (reprs.length === 0) {
             /* If agg function called with '*', then 'args' is NIL */
             args = '*';
         } else {
-            const argsMembers = await argsMember.getListElements();
-            if (argsMembers === undefined) {
-                throw new EvaluationError('failed to get function arguments');
-            }
-    
-            const argsExpressions: string[] = [];
-            for (const arg of argsMembers) {
-                if (arg instanceof ExprNodeVariable) {
-                    argsExpressions.push(await arg.getReprInner(rtable));
-                } else {
-                    argsExpressions.push(this.getExprPlaceholder(arg));
-                }
-            }
-
-            args = argsExpressions.join(', ');
+            args = reprs.join(', ');
         }
 
 
@@ -1344,79 +1297,39 @@ class ExprNodeVariable extends NodeTagVariable {
         /* NOTE: keep return type annotation, because now compiler can not
          *       handle such recursion correctly
          */
-        const expr = (await this.getRealMembers() ?? []).find(v => v.name === 'expr');
-        if (!(expr && expr instanceof ExprNodeVariable)) {
-            throw new EvaluationError('failed to get expr member from TargetEntry');
-        }
-
-        return await expr.getReprInner(rtable);
+        const expr = await this.getMember('expr');
+        return await this.getReprPlaceholder(expr, rtable);
     }
 
     private async formatScalarArrayOpExpr(rtable: NodeTagVariable[]) {
-        let funcname;
-        try {
-            funcname = await this.evalStringResult(`get_opname(((ScalarArrayOpExpr *)${this.value})->opno)`);
-        } catch (e) {
-            funcname = '(invalid func)';
-        }
+        const opname = await this.getOpName('opno') ?? '(invalid op)';
 
-        const or = await this.evalBoolResult(`((ScalarArrayOpExpr *)${this.value})->useOr`);
-        const argsMember = (await this.getRealMembers() ?? []).find(v => v.name === 'args');
-        if (!(argsMember && argsMember instanceof ListNodeTagVariable)) {
-            throw new EvaluationError('failed to get args member of ScalarArrayOpExpr');
-        }
-
-        const args = await argsMember.getListElements();
-        if (!args) {
-            throw new EvaluationError('no args got in args of ScalarArrayOpExpr');
+        const useOr = await this.getMemberValueBool('useOr');
+        const args = await this.getListMemberElements('args');
+        if (args.length !== 2) {
+            throw new EvaluationError(`ScalarArrayOpExpr should contain 2 arguments, given: ${args.length}`);
         }
 
         const [scalar, array] = args;
-        let scalarRepr;
-        if (scalar instanceof ExprNodeVariable) {
-            scalarRepr = await scalar.getReprInner(rtable);
-        } else {
-            scalarRepr = this.getExprPlaceholder(scalar);
-        }
+        const scalarRepr = await this.getReprPlaceholder(scalar, rtable);
+        const arrayRepr = await this.getReprPlaceholder(array, rtable);
+        const funcname = useOr ? 'ANY' : 'ALL';
 
-        let arrayRepr;
-        if (array instanceof ExprNodeVariable) {
-            arrayRepr = await array.getReprInner(rtable);
-        } else {
-            arrayRepr = this.getExprPlaceholder(array);
-        }
-
-        return `${scalarRepr} ${funcname} ${or ? 'ANY' : 'ALL'}(${arrayRepr})`;
+        return `${scalarRepr} ${opname} ${funcname}(${arrayRepr})`;
     }
 
     private async formatBoolExpr(rtable: NodeTagVariable[]) {
-        const get_expr = async (v: Variable) => {
-            if (v instanceof ExprNodeVariable) {
-                return await v.getReprInner(rtable);
-            } else {
-                return this.getExprPlaceholder(v);
-            }
-        }
-
-        const boolOp = await this.evalEnumResult(`((BoolExpr *)${this.value})->boolop`);
-        const argsMember = (await this.getRealMembers() ?? []).find(v => v.name === 'args');
-        if (!(argsMember && argsMember instanceof ListNodeTagVariable)) {
-            throw new EvaluationError('failed to get args member of BoolExpr');
-        }
-
-        const args = await argsMember.getListElements();
-        if (!args) {
-            throw new EvaluationError('failed to get elements of BoolExpr->args');
-        }
+        const boolOp = await this.getMemberValueEnum('boolop')
+        const args = await this.getListMemberElements('args');
 
         if (boolOp === 'NOT_EXPR') {
-            const exprRepr = await get_expr(args[0]);
+            const exprRepr = await this.getReprPlaceholder(args[0], rtable);
             return `NOT ${exprRepr}`;
         }
 
         const argsReprs = [];
         for (const arg of args) {
-            argsReprs.push(await get_expr(arg));
+            argsReprs.push(await this.getReprPlaceholder(arg, rtable));
         }
 
         let joinExpr;
@@ -1436,41 +1349,20 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 
     private async formatCoalesceExpr(rtable: NodeTagVariable[]) {
-        const argsMember = await this.getMember('args');
-
-        if (!(argsMember instanceof ListNodeTagVariable)) {
-            return 'COALESCE(???)';
-        }
-
-        const args = await argsMember.getListElements();
-        if (!args) {
-            throw new EvaluationError('failed to get elements of BoolExpr->args');
-        }
-
+        const args = await this.getListMemberElements('args');
         const argsReprs = [];
         for (const arg of args) {
-            if (arg instanceof ExprNodeVariable) {
-                argsReprs.push(await arg.getReprInner(rtable));
-            } else {
-                argsReprs.push(this.getExprPlaceholder(arg));
-            }
+            argsReprs.push(await this.getReprPlaceholder(arg, rtable));
         }
 
         return `COALESCE(${argsReprs.join(', ')})`;
     }
 
     private async formatNullTest(rtable: NodeTagVariable[]) {
-        const testType = await this.evalEnumResult(`((NullTest *)${this.value})->nulltesttype`);
         const expr = await this.getMember('arg');
-
-        let innerRepr;
-        if (expr instanceof ExprNodeVariable) {
-            innerRepr = await expr.getReprInner(rtable);
-        } else {
-            innerRepr = this.getExprPlaceholder(expr);
-        }
-
-
+        const innerRepr = await this.getReprPlaceholder(expr, rtable);
+        
+        const testType = await this.getMemberValueEnum('nulltesttype');
         let testSql;
         switch (testType) {
             case 'IS_NULL':
@@ -1487,10 +1379,10 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 
     private async formatBooleanTest(rtable: NodeTagVariable[]) {
-        const testType = await this.evalEnumResult(`((BooleanTest *)${this.value})->booltesttype`);
         const arg = await this.getMember('arg');
-
         const innerRepr = await this.getReprPlaceholder(arg, rtable);
+        
+        const testType = await this.getMemberValueEnum('booltesttype');
         let test;
         switch (testType) {
             case 'IS_TRUE':
@@ -1520,28 +1412,15 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 
     private async formatArrayExpr(rtable: NodeTagVariable[]) {
-        const elementsMember = await this.getMember('elements');
-        if (!(elementsMember instanceof ListNodeTagVariable)) {
-            throw new EvaluationError('ArrayExpr->elements is not List');
-        }
-        
-        const elements = await elementsMember.getListElements();
-        if (elements === undefined) {
-            throw new EvaluationError('failed to get elements of ArrayExpr->elements List');
-        }
-
-        const reprs = [];
-        for (const e of elements) {
-            reprs.push(await this.getReprPlaceholder(e, rtable));
-        }
+        const reprs = await this.getListMemberElementsReprs('elements', rtable);
         return `ARRAY[${reprs.join(', ')}]`;
     }
 
     private async formatSqlValueFunction(rtable: NodeTagVariable[]) {
         const getTypmod = async () => {
-            return await this.evalIntResult(`((SQLValueFunction *)${this.value})->typmod`);
+            return await this.getMemberValueNumber('typmod');
         }
-        const funcOp = await this.evalEnumResult(`((SQLValueFunction *)${this.value})->op`);
+        const funcOp = await this.getMemberValueEnum('op');
         let funcname;
         switch (funcOp) {
             case 'SVFOP_CURRENT_DATE':
@@ -1598,22 +1477,9 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 
     private async formatMinMaxExpr(rtable: NodeTagVariable[]) {
-        const op = await this.evalEnumResult(`((MinMaxExpr *)${this.value})->op`);
-        const argsMember = await this.getMember('args');
-        if (!(argsMember instanceof ListNodeTagVariable)) {
-            throw new EvaluationError('failed to get args List member of MinMaxExpr');
-        }
+        const op = await this.getMemberValueEnum('op');
+        const argsReprs = await this.getListMemberElementsReprs('args', rtable);
 
-        const args = await argsMember.getListElements();
-        if (args === undefined) {
-            throw new EvaluationError('failed to get elements of MinMaxExpr->args list');
-        }
-
-        const argsReprs = [];
-        for (const arg of args) {
-            argsReprs.push(await this.getReprPlaceholder(arg, rtable));
-        }
-        
         let funcname;
         switch (op) {
             case 'IS_GREATEST':
@@ -1656,8 +1522,8 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 
     private async formatNamedArgExpr(rtable: NodeTagVariable[]) {
-        const arg = await this.getExprMemberRepr('arg', rtable);
-        const name = await this.evalStringResult(`((NamedArgExpr *)${this.value})->name`);
+        const arg = await this.getMemberRepr('arg', rtable);
+        const name = await this.getMemberValueCharString('name');
         return `${name} => ${arg}`;
     }
 
@@ -1667,11 +1533,11 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 
     private async formatWindowFunc(rtable: NodeTagVariable[]) {
-        const funcname = await this.evalStringResult(`get_func_name(((WindowFunc *)${this.value})->winfnoid)`);
+        const funcname = await this.getFuncName('winfnoid') ?? '(invalid func)';
         const reprs = await this.getListMemberElementsReprs('args', rtable);
         let repr = `${funcname}(${reprs.join(', ')})`
         try {
-            const filterRepr = await this.getExprMemberRepr('aggfilter', rtable);
+            const filterRepr = await this.getMemberRepr('aggfilter', rtable);
             repr += ` FILTER (${filterRepr})`;
         } catch (e) {
             if (!(e instanceof EvaluationError)) {
@@ -1683,7 +1549,7 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 
     private async formatSubscriptingRef(rtable: NodeTagVariable[]) {
-        const exprRepr = await this.getExprMemberRepr('refexpr', rtable);
+        const exprRepr = await this.getMemberRepr('refexpr', rtable);
         const upperIndices = await this.getListMemberElements('refupperindexpr');
         let lowerIndices = null;
         try {
@@ -1722,7 +1588,32 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 
     private async formatXmlExpr(rtable: NodeTagVariable[]) {
-        const xmlOp = await this.evalEnumResult(`((XmlExpr *)${this.value})->op`);
+        const getArgNameListOfStrings = async () => {
+        /* Get List of T_String elements and take their 'sval' values */
+        const list = await this.getListMemberElements('arg_names');
+        const values = [];
+        for (const entry of list) {
+            if (entry instanceof NodeTagVariable) {
+                if (entry.realNodeTag === 'String') {
+                    const sval = (await entry.getRealMembers() ?? []).find(v => v.name === 'sval');
+                    if (sval) {
+                        values.push(utils.extractStringFromResult(sval.value) ?? 'NULL');
+                    } else {
+                        values.push('???')
+                    }
+                } else if (entry instanceof ExprNodeVariable) {
+                    values.push(await entry.getReprInternal(rtable));
+                } else {
+                    values.push('???');
+                }
+            } else {
+                values.push('???');
+            }
+        }
+        return values;
+        }
+        
+        const xmlOp = await this.getMemberValueEnum('op');
         switch (xmlOp) {
             case 'IS_XMLELEMENT':
                 {
@@ -1730,7 +1621,7 @@ class ExprNodeVariable extends NodeTagVariable {
                     let argNames: string[] | null;
                     try {
                         namedArgs = await this.getListMemberElementsReprs('named_args', rtable);
-                        argNames = await this.getListOfStrings('arg_names', rtable);
+                        argNames = await getArgNameListOfStrings();
                     } catch (e) {
                         if (e instanceof EvaluationError) {
                             namedArgs = null;
@@ -1749,7 +1640,7 @@ class ExprNodeVariable extends NodeTagVariable {
                             throw e;
                         }
                     }
-                    const name = await this.getCharStringMember('name');
+                    const name = await this.getMemberValueCharString('name');
                     let repr = `XMLELEMENT(name ${name ?? 'NULL'}`;
                     if (namedArgs && argNames && namedArgs.length === argNames.length) {
                         let xmlattributes = [];
@@ -1773,7 +1664,7 @@ class ExprNodeVariable extends NodeTagVariable {
                     let argNames: string[] | null;
                     try {
                         namedArgs = await this.getListMemberElementsReprs('named_args', rtable);
-                        argNames = await this.getListOfStrings('arg_names', rtable);
+                        argNames = await getArgNameListOfStrings();
                     } catch (e) {
                         if (e instanceof EvaluationError) {
                             namedArgs = null;
@@ -1795,7 +1686,6 @@ class ExprNodeVariable extends NodeTagVariable {
                     repr += ')';
                     return repr;
                 }
-                break;
             case 'IS_XMLCONCAT':
                 {
                     let args: string[] | null;
@@ -1816,10 +1706,9 @@ class ExprNodeVariable extends NodeTagVariable {
                     repr += ')';
                     return repr;
                 }
-                break;
             case 'IS_XMLPARSE':
                 {
-                    const option = await this.evalEnumResult(`((XmlExpr *)${this.value})->xmloption`);
+                    const option = await this.getMemberValueEnum('xmloption');
                     const args = await this.getListMemberElementsReprs('args', rtable);
                     if (!args) {
                         return 'XMLPARSE()';
@@ -1830,7 +1719,7 @@ class ExprNodeVariable extends NodeTagVariable {
                 }
             case 'IS_XMLPI':
                 {
-                    const name = await this.getCharStringMember('name');
+                    const name = await this.getMemberValueCharString('name');
                     const args = await this.getListMemberElementsReprs('args', rtable);
                     let repr = `XMLPI(NAME ${name}`;
                     if (args) {
@@ -1860,9 +1749,9 @@ class ExprNodeVariable extends NodeTagVariable {
                 }
             case 'IS_XMLSERIALIZE':
                 {
-                    const option = await this.evalEnumResult(`((XmlExpr *)${this.value})->xmloption`);
+                    const option = await this.getMemberValueEnum('xmloption');
                     const args = await this.getListMemberElementsReprs('args', rtable);
-                    const indent = await this.evalBoolResult(`((XmlExpr *)${this.value})->indent`);
+                    const indent = await this.getMemberValueBool('indent');
                     let repr = 'XMLSERIALIZE(';
                     if (args) {
                         repr += option === 'XMLOPTION_DOCUMENT' ? 'DOCUMENT ' : 'CONTENT ';
@@ -1890,7 +1779,7 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 
     private async formatSubLink(rtable: NodeTagVariable[]) {
-        const type = await this.evalEnumResult(`((SubLink *)${this.value})->subLinkType`);
+        const type = await this.getMemberValueEnum('subLinkType');
         if (type === 'EXISTS_SUBLINK') {
             return 'EXISTS(...)';
         }
@@ -1908,24 +1797,19 @@ class ExprNodeVariable extends NodeTagVariable {
         }
         
         const getOpExprLeftRepr = async (v: Variable) => {
+            /* 
+             * This function is used to obtain first argument from OpExpr.
+             * Mimics `get_leftop` semantics.
+             */
             if (!(v instanceof NodeTagVariable && v.realNodeTag === 'OpExpr')) {
                 return '???';
             }
 
-            const args = await v.getMember('args');
-            if (!(args && args instanceof ListNodeTagVariable)) {
-                throw new EvaluationError('failed to get OpExpr->args member');
-            }
-
-            const elements = await args.getListElements();
-            if (elements === undefined) {
-                throw new EvaluationError('failed to get elements of OpExpr->args member');
-            }
-
+            const elements = await v.getListMemberElements('args')
             if (elements.length) {
                 const left = elements[0];
                 if (left instanceof ExprNodeVariable) {
-                    return await left.getReprInner(rtable);
+                    return await left.getReprInternal(rtable);
                 }
             }
 
@@ -1937,20 +1821,17 @@ class ExprNodeVariable extends NodeTagVariable {
             throw new EvaluationError('Failed to get SubLink->testexpr');
         }
 
+        /* 
+         * Depending on attribute count we might have:
+         * - OpExpr - single attribute
+         * - BoolExpr - mulitple OpExprs (in same form as OpExpr)
+         * - RowCompareExpr - list of attributes
+         */
         let leftReprs: string[];
         if (testexpr.realNodeTag === 'OpExpr') {
             leftReprs = [await getOpExprLeftRepr(testexpr)];
         } else if (testexpr.realNodeTag === 'BoolExpr') {
-            const args = await testexpr.getMember('args');
-            if (!(args && args instanceof ListNodeTagVariable)) {
-                throw new EvaluationError('BoolExpr->args member is not List');
-            }
-            
-            const elements = await args.getListElements();
-            if (elements === undefined) {
-                throw new EvaluationError('Failed to get elements of BoolExpr->args List');
-            }
-            
+            const elements = await testexpr.getListMemberElements('args')
             const reprs: string[] = [];
             for (const e of elements) {
                 reprs.push(await getOpExprLeftRepr(e));
@@ -1959,32 +1840,33 @@ class ExprNodeVariable extends NodeTagVariable {
             leftReprs = reprs;
         } else {
             /* testexpr.realNodeTag === 'RowCompareExpr' */
-            const largs = await testexpr.getMember('largs');
-            if (!(largs && largs instanceof ListNodeTagVariable)) {
-                throw new EvaluationError('RowCompareExpr->largs member is not List');
-            }
 
-            const elements = await largs.getListElements();
-            if (elements === undefined) {
-                throw new EvaluationError('failed to get elements from RowCompareExpr->largs List member');
-            }
-
+            /* For RowCompareExpr in SubLink we will have all Param in 'rargs' */
+            const largs = await testexpr.getListMemberElements('largs');
             const reprs = [];
-            for (const e of elements) {
-                reprs.push(await this.getReprPlaceholder(e, rtable));
+            for (const arg of largs) {
+                reprs.push(await this.getReprPlaceholder(arg, rtable));
             }
             leftReprs = reprs;
         }
 
         /* SubLink->operName[0]->sval */
         let opname = '???';
-        const operName = await this.getMember('operName');
-        if (operName && operName instanceof ListNodeTagVariable) {
-            const elements = await operName.getListElements();
-            if (elements?.length && elements[0] instanceof RealVariable) {
+        const elements = await this.getListMemberElements('operName');
+        if (elements?.length && elements[0] instanceof RealVariable) {
+            /* Depending of PG version, it can be Value or String (now) */
+            try {
+                /* Try String */
                 const sval = await elements[0].getMember('sval');
                 opname = utils.extractStringFromResult(sval.value) ?? '???';
+            } catch (e) {
+                if (!(e instanceof NoMemberFoundError)) {
+                    throw e;
+                }
             }
+
+            /* Try Value */
+            opname = await this.evalStringResult(`((Value *)${elements[0].value})->val.str`) ?? '???';
         }
 
         /* Maybe, there are no reprs in array, so 'join' seems safe here */
@@ -2012,22 +1894,13 @@ class ExprNodeVariable extends NodeTagVariable {
 
     private async formatRowCompareExpr(rtable: NodeTagVariable[]) {
         const getReprs = async (arr: string[], member: string) => {
-            const m = await this.getMember(member);
-            if (!(m && m instanceof ListNodeTagVariable)) {
-                throw new EvaluationError(`Failed to get RowCompareExpr->${member} List member`);
-            }
-
-            const elements = await m.getListElements();
-            if (elements === undefined) {
-                throw new EvaluationError(`Failed to get elements of RowCompareExpr->${member} List member`);
-            }
-
+            const elements = await this.getListMemberElementsReprs(member, rtable);
             for (const e of elements) {
-                arr.push(await this.getReprPlaceholder(e, rtable));
+                arr.push(e);
             }
         }
 
-        const compareType = await this.evalEnumResult(`((RowCompareExpr *)${this.value})->rctype`);
+        const compareType = await this.getMemberValueEnum('rctype');
         const leftReprs: string[] = [];
         const rightReprs: string[] = [];
 
@@ -2063,16 +1936,21 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 
     private async delegateFormatToMember(member: string, rtable: NodeTagVariable[]) {
-        return await this.getExprMemberRepr(member, rtable);
+        /* 
+         * Repr of some exprs is same as repr of their field.
+         * For such cases use this function in order not to
+         * product many other functions.
+         */
+        return await this.getMemberRepr(member, rtable);
     }
 
     private async formatParam(rtable: NodeTagVariable[]) {
-        const paramNum = await this.evalIntResult(`((Param *)${this.value})->paramid`);
+        const paramNum = await this.getMemberValueNumber('paramid');
         return `PARAM$${paramNum}`;
     }
 
     private async formatJsonExpr(rtable: NodeTagVariable[]) {
-        const op = await this.evalEnumResult(`((JsonExpr *)${this.value})->op`);
+        const op = await this.getMemberValueEnum('op');
         switch (op) {
             case 'JSON_EXISTS_OP':
                 return 'JSON_EXISTS(...)';
@@ -2092,7 +1970,7 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 
     private async formatJsonConstructorExpr(rtable: NodeTagVariable[]) {
-        const ctorType = await this.evalEnumResult(`((JsonConstructorExpr *)${this.value})->type`);
+        const ctorType = await this.getMemberValueEnum('type');
         const args = await this.getListMemberElementsReprs('args', rtable);
         if (ctorType === 'JSCTOR_JSON_OBJECTAGG' || ctorType === 'JSCTOR_JSON_ARRAYAGG') {
             /* 
@@ -2101,7 +1979,7 @@ class ExprNodeVariable extends NodeTagVariable {
              * function repr "as it was meant" seems overhead.
              * So show already rewritten function - we can do it already.
              */
-            return await this.getExprMemberRepr('func', rtable);
+            return await this.getMemberRepr('func', rtable);
         }
 
         let funcname;
@@ -2153,8 +2031,8 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 
     private async formatJsonIsPredicate(rtable: NodeTagVariable[]) {
-        const jsonType = await this.evalEnumResult(`((JsonIsPredicate *)${this.value})->item_type`);
-        const expr = await this.getExprMemberRepr('expr', rtable);
+        const expr = await this.getMemberRepr('expr', rtable);
+        const jsonType = await this.getMemberValueEnum('item_type');
         switch (jsonType) {
             case 'JS_TYPE_ANY':
                 return `${expr} IS JSON`;
@@ -2171,8 +2049,8 @@ class ExprNodeVariable extends NodeTagVariable {
 
     private async formatWindowFuncRunCondition(rtable: NodeTagVariable[]) {
         const wfuncLeft = await this.getMemberValueBool('wfunc_left');
-        const expr = await this.getExprMemberRepr('arg', rtable);
-        const opname = await this.evalStringResult(`get_opname(((WindowFuncRunCondition *)${this.value})->opno)`);
+        const expr = await this.getMemberRepr('arg', rtable);
+        const opname = await this.getOpName('opno') ?? '(invalid op)';
         let left, right;
         if (wfuncLeft) {
             left = 'WINDOW';
@@ -2186,8 +2064,8 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 
     private async formatCaseWhen(rtable: NodeTagVariable[]) {
-        const when = await this.getExprMemberRepr('expr', rtable);
-        const then = await this.getExprMemberRepr('result', rtable);
+        const when = await this.getMemberRepr('expr', rtable);
+        const then = await this.getMemberRepr('result', rtable);
         return `WHEN ${when} THEN ${then}`;
     }
 
@@ -2200,21 +2078,21 @@ class ExprNodeVariable extends NodeTagVariable {
          * For now, just print container expr and '???' as field.
          * I think, in the end developers will understand which field is used.
          */
-        const expr = await this.getExprMemberRepr('arg', rtable);
+        const expr = await this.getMemberRepr('arg', rtable);
         return `${expr}.???`;
     }
 
     private async formatFieldStore(rtable: NodeTagVariable[]) {
-        const expr = await this.getExprMemberRepr('arg', rtable);
+        const expr = await this.getMemberRepr('arg', rtable);
         return `${expr}.??? = ???`;
     }
 
     private async formatCurrentOfExpr(rtable: NodeTagVariable[]) {
-        const sval = await this.getCharStringMember('cursor_name');
+        const sval = await this.getMemberValueCharString('cursor_name');
         return `CURRENT OF ${sval === null ? 'NULL' : sval}`;
     }
 
-    private async formatExprInner(rtable: NodeTagVariable[]): Promise<string> {
+    private async formatExpr(rtable: NodeTagVariable[]): Promise<string> {
         /* 
          * WARN: if you add/remove something here do not forget to update 
          *       src/constants.ts:getDisplayedExprs
@@ -2304,25 +2182,46 @@ class ExprNodeVariable extends NodeTagVariable {
                     return await this.formatCurrentOfExpr(rtable);
                 case 'InferenceElem':
                     return await this.delegateFormatToMember('expr', rtable);
+                
+                /* 
+                 * Some Exprs i will not add, i.e.:
+                 * - SubPlan - too bulky, to extract some data
+                 * - AlternativeSubPlan - same as above
+                 * - CaseExpr - too big for small field in editor
+                 * 
+                 * For such, we have placeholders. I think, that's enough.
+                 */
             }
         } catch (error) {
             if (!(error instanceof EvaluationError)) {
                 throw error;
             }
+
+            this.logger.debug('failed repr for %s', this.realNodeTag, error);
         }
         return this.getExprPlaceholder(this);
     }
 
-    private async getReprInner(rtable: NodeTagVariable[]) {
+    /* 
+     * Entry point to get text representation of Expr during
+     * recursive repr evaluation.
+     * This is speed up, because of already found 'rtable' passing.
+     */
+    private async getReprInternal(rtable: NodeTagVariable[]) {
         if (this.repr) {
             return this.repr;
         }
 
-        const repr = await this.formatExprInner(rtable);
+        const repr = await this.formatExpr(rtable);
         this.repr = repr;
         return repr;
     }
 
+    /**
+     * Global entry point to get text representation of Expression.
+     * 
+     * @returns text representation of Expr node
+     */
     async getRepr() {
         if (this.repr) {
             return this.repr;
@@ -2333,19 +2232,19 @@ class ExprNodeVariable extends NodeTagVariable {
             return;
         }
 
-        return await this.getReprInner(rtable as NodeTagVariable[]);
+        return await this.getReprInternal(rtable as NodeTagVariable[]);
     }
 
     private async findRtable() {
-        /* TODO: поиск самого Query, не через PlannerInfo */
-        
-        /* Find PlannerInfo */
+        /* Find PlannerInfo or Query */
         let parent = this.parent;
+        let foundQuery = false;
         while (parent) {
             if (parent instanceof VariablesRoot) {
                 let found = false;
                 for (const v of parent.topLevelVariables) {
                     if (v instanceof NodeTagVariable && v.realNodeTag === 'PlannerInfo') {
+                        /* TODO: Query еще */
                         parent = v;
                         found = true;
                         break;
@@ -2358,8 +2257,13 @@ class ExprNodeVariable extends NodeTagVariable {
                     /* No more variables */
                     return null;
                 }
-            } else if (parent instanceof NodeTagVariable && parent.realNodeTag === 'PlannerInfo') {
-                break;
+            } else if (parent instanceof NodeTagVariable) {
+                if (parent.realNodeTag === 'PlannerInfo') {
+                    break;
+                } else if (parent.realNodeTag === 'Query') {
+                    foundQuery = true;
+                    break;
+                }
             }
 
             parent = parent.parent;
@@ -2369,25 +2273,18 @@ class ExprNodeVariable extends NodeTagVariable {
             return null;
         }
 
-        const plannerInfo = parent;
+        let query;
+        if (foundQuery) {
+            query = parent;
+        } else {
+            query = await parent.getMember('parse');
+        }
 
-        /* Get rtable from Query */
-        const parse = (await plannerInfo.getChildren() ?? []).find(v => v.name === 'parse');
-        if (!parse) {
+        if (!(query && query instanceof RealVariable)) {
             return null;
         }
 
-        const rtable = (await parse.getChildren() ?? []).find(v => v.name === 'rtable');
-        if (!(rtable && rtable instanceof ListNodeTagVariable)) {
-            return null;
-        }
-
-        const rtes = await rtable.getListElements();
-        if (!rtes) {
-            return null;
-        }
-
-        return rtes;
+        return await query.getListMemberElements('rtable');
     }
 
     async doGetChildren() {
@@ -2791,6 +2688,11 @@ export class ListNodeTagVariable extends NodeTagVariable {
                 members.push(this.listElements);
                 isArrayImplementation = true;
             } else {
+                if (dv.name === 'initial_elements') {
+                    /* Do not want to see this member */
+                    continue;
+                }
+
                 const v = await Variable.create(dv, this.frameId, this.context,
                                                 this.logger, this);
                 if (v) {
@@ -3197,7 +3099,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
             return;
         }
 
-        async getArrayElement(field: Variable, indexDelta?: number,) {
+        async getArrayElement(field: Variable, indexDelta?: number) {
             const index = this.relid + (indexDelta ?? 0);
 
             if (field instanceof ListNodeTagVariable) {
@@ -3211,6 +3113,10 @@ class BitmapSetSpecialMember extends NodeTagVariable {
                     return members[index];
                 }
             } else if (field instanceof RealVariable) {
+                if (field.type === 'List *') {
+                    /* Empty List * will be created as RealVariable */
+                    return;
+                }
                 const expr = `(${field.evaluateName})[${index}]`;
                 const result = await this.debug.evaluate(expr, this.bmsParent.frameId);
                 if (result.result) {

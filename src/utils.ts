@@ -134,7 +134,7 @@ export function isFixedSizeArray(variable: {parent?: {}, type: string, value: st
 }
 
 /**
- * When evaluating 'char*' member, 'result' field will be in form: `0x00000 "STR"`.
+ * When evaluating 'char*' member, 'result' field will be in form: `0xFFFFF "STR"`.
  * This function extracts stored 'STR', otherwise null returned
  * 
  * @param result 'result' field after evaluate
