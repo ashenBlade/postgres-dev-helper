@@ -481,7 +481,21 @@ interface RealVariableArgs {
  * Generic class to specify error occurred during debugger
  * evaluation or error in logic after that
  */
-class EvaluationError extends Error {  }
+class EvaluationError extends Error {
+    /**
+     * Evaluation error message, not exception message
+     */
+    evalError?: string;
+    
+    constructor(message: string, evalError?: string) {
+        if (evalError) {
+            super(`${message}: ${evalError}`);
+        } else {
+            super(message);
+        }
+        this.evalError = evalError;
+    }
+}
 
 /**
  * Specified member was not found in some variable's members
@@ -690,7 +704,7 @@ export class RealVariable extends Variable {
             return null;
         }
 
-        throw new UnexpectedOutputError(`member ${member} output is not valid char string`);
+        throw new UnexpectedOutputError(`member ${member} output is not valid char string`, value);
     }
 
     /**
@@ -706,7 +720,7 @@ export class RealVariable extends Variable {
     async getMemberValueEnum(member: string) {
         const value = await this.getMemberValue(member);
         if (!utils.isEnumResult(value)) {
-            throw new UnexpectedOutputError(`member ${member} output is not enum`);
+            throw new UnexpectedOutputError(`member ${member} output is not enum`, value);
         }
         return value;
     }
@@ -720,14 +734,11 @@ export class RealVariable extends Variable {
      */
     async getMemberValueBool(member: string) {
         const value = await this.getMemberValue(member);
-        switch (value.toLocaleLowerCase()) {
-            case 'true':
-                return true;
-            case 'false':
-                return false;
-            default:
-                throw new UnexpectedOutputError(`member ${member} output is not bool`);
+        const result = utils.extractBoolFromValue(value);
+        if (result === null) {
+            throw new UnexpectedOutputError(`member ${member} output is not bool`, value);
         }
+        return result;
     }
 
     /**
@@ -741,7 +752,7 @@ export class RealVariable extends Variable {
         const value = await this.getMemberValue(member);
         const num = Number(value);
         if (Number.isNaN(num)) {
-            throw new UnexpectedOutputError(`member ${member} output is not number`);
+            throw new UnexpectedOutputError(`member ${member} output is not number`, value);
         }
         return num;
     }
@@ -985,6 +996,7 @@ export class NodeTagVariable extends RealVariable {
  * Created as container to postpone 'rtable' evaluation.
  */
 class RangeTableContainer {
+    rtableSearched: boolean = false;
     rtable: NodeTagVariable[] | undefined;
 }
 
@@ -1160,8 +1172,11 @@ class ExprNodeVariable extends NodeTagVariable {
                 attname = '?';
                 break;
             default:
-                if (!rtable.rtable) {
-                    rtable.rtable = await this.findRtable() as NodeTagVariable[] | undefined;
+                if (!rtable.rtableSearched) {
+                    if (!rtable.rtable) {
+                        rtable.rtable = await this.findRtable() as NodeTagVariable[] | undefined;
+                        rtable.rtableSearched = true;
+                    }
                 }
 
                 if (rtable.rtable) {
@@ -1187,38 +1202,86 @@ class ExprNodeVariable extends NodeTagVariable {
 
     private async formatConst(rtable: RangeTableContainer) {
         const palloc = async (size: string) => {
-            const result = await this.debug.evaluate(`palloc0(${size})`, this.frameId);
+            let result = await this.evaluate(`palloc(${size})`);
+            
             if (!utils.isValidPointer(result.result)) {
-                throw new EvaluationError('failed to allocate memory using palloc');
+                if (utils.isNull(result.result)) {
+                    throw new EvaluationError('failed to allocate memory using palloc: no memory');
+                }
+
+                if (result.result.startsWith('-var-create')) {
+                    /* On older systems palloc is a macro for MemoryContextAlloc */
+                    result = await this.evaluate(`MemoryContextAlloc(CurrentMemoryContext, ${size})`);
+                    if (utils.isValidPointer(result.result)) {
+                        return result.result;
+                    }
+                    throw new EvaluationError('failed to allocate memory using MemoryContextAlloc', result.result);
+                }
+
+                throw new EvaluationError('failed to allocate memory using palloc', result.result);
             }
+
             return result.result;
         }
 
         const pfree = async (ptr: string) => {
             await this.debug.evaluate(`pfree((void *)${ptr})`, this.frameId);
         }
+
+        const evalOid = async (expr: string) => {
+            const res = await this.evaluate(expr);
+            const oid = Number(res.result);
+            if (Number.isNaN(oid)) {
+                throw new EvaluationError(`failed to get Oid from expr: ${expr}`, res.result);
+            }
+
+            return oid;
+        }
         
         const evalStrWithPtr = async (expr: string) => {
             const result = await this.debug.evaluate(expr, this.frameId);
             const str = utils.extractStringFromResult(result.result);
             if (str === null) {
-                throw new EvaluationError(`failed to get string from expr: ${expr}`);
+                throw new EvaluationError(`failed to get string from expr: ${expr}`, result.result);
             }
             
             const ptr = utils.extractPtrFromStringResult(result.result);
             if (ptr === null) {
-                throw new EvaluationError(`failed to get pointer from expr: ${expr}`);
+                throw new EvaluationError(`failed to get pointer from expr: ${expr}`, result.result);
             }
             return [str, ptr];
         }
-        
+
+        const legacyOidOutputFunctionCall = async (funcOid: number) => {
+            /* 
+             * Older systems do not have OidOutputFunctionCall().
+             * But, luckily, it's very simple to write it by our selves.
+             */
+            
+            const fmgrInfo = await palloc('sizeof(FmgrInfo)');
+            /* Init FmgrInfo */
+            await this.evaluate(`fmgr_info(${funcOid}, (void *)${fmgrInfo})`);
+            
+            /* Call function */
+            const [str, ptr] = await evalStrWithPtr(`(char *)((Pointer) FunctionCall1(((void *)${fmgrInfo}), ((Const *)${this.value})->constvalue))`);
+            await pfree(ptr);
+            return str;
+        }
+
         if (await this.getMemberValueBool('constisnull')) {
             return 'NULL';
         }
 
-        /* Use 8 bytes to be fully sure type will fit */
-        const tupoutput = await palloc('8');
-        const tupIsVarlena = await palloc('8');
+        const tupoutput = await palloc('sizeof(Oid)');
+        const tupIsVarlena = await palloc('sizeof(Oid)');
+
+        /* 
+         * Older system have 4 param - tupOIParam.
+         * We pass it also even on modern systems - anyway only thing
+         * we want is 'tupoutput'.
+         * Hope, debugger will not invalidate the stack after that...
+         */
+        const tupIOParam = await palloc('sizeof(Oid)');
 
         /* 
          * WARN: I do not why, but you MUST cast pointers as 'void *',
@@ -1227,15 +1290,32 @@ class ExprNodeVariable extends NodeTagVariable {
          *       (*orig_value* + offset), so written values will
          *       be stored in random place.
          */
-        await this.evaluate(`getTypeOutputInfo(((Const *)${this.value})->consttype, ((void *)${tupoutput}), ((void *)${tupIsVarlena}))`);
+        await this.evaluate(`getTypeOutputInfo(((Const *)${this.value})->consttype, ((void *)${tupoutput}), ((void *)${tupIOParam}), ((void *)${tupIsVarlena}))`);
 
-        const [str, ptr] = await evalStrWithPtr(`OidOutputFunctionCall(*((Oid *)${tupoutput}), ((Const *)${this.value})->constvalue)`);
+        const funcOid = await evalOid(`*((Oid *)${tupoutput})`);
+        if (funcOid === 0) {
+            /* Invalid function */
+            return '???';
+        }
+        
+        let repr;
+        try {
+            const [str, ptr] = await evalStrWithPtr(`OidOutputFunctionCall(${funcOid}, ((Const *)${this.value})->constvalue)`);
+            await pfree(ptr);
+            repr = str;
+        } catch (e) {
+            if (!(e instanceof EvaluationError)) {
+                throw e;
+            }
 
-        await pfree(ptr);
+            repr = await legacyOidOutputFunctionCall(funcOid);
+        }
+
         await pfree(tupoutput);
         await pfree(tupIsVarlena);
+        await pfree(tupIOParam);
 
-        return str;
+        return repr;
     }
 
     private async formatOpExpr(rtable: RangeTableContainer) {
@@ -1272,6 +1352,7 @@ class ExprNodeVariable extends NodeTagVariable {
         switch (coerceType) {
             case 'COERCE_EXPLICIT_CALL':
             case 'COERCE_SQL_SYNTAX':
+            case 'COERCE_DONTCARE':
                 /* 
                  * It's hard to represent COERCE_SQL_SYNTAX, because there are
                  * multiple SQL features with different features (like

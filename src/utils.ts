@@ -150,6 +150,22 @@ export function extractStringFromResult(result: string) {
     return result.substring(left + 1, right);
 }
 
+export function extractBoolFromValue(value: string) {
+    /* 
+     * On older pg versions bool stored as 'char' and have format: "X '\00X'"
+     */
+    switch (value.trim().toLowerCase()) {
+        case 'true':
+        case "1 '\\001'":
+            return true;
+        case 'false':
+        case "0 '\\000'":
+            return false;
+    }
+
+    return null;
+}
+
 /**
  * Check that output from evaluation is correct enum value.
  * That is it is not error message, pointer or something else.
