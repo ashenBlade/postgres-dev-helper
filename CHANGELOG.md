@@ -5,6 +5,12 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0]
+
+Show text representation of expressions in variables (separate pseudo-member `$expr$`).
+
+Show text representation of expressions contained in `TargetEntry`, `EquivalenceMember` and `RestrictInfo` in description field (old pointer value).
+
 ## [1.5.1]
 
 Update configuration file contents created by command. Set version to 3 and `aliases` member with empty array.

@@ -50,6 +50,25 @@ Extension knows 53 such elements. I.e. `PlannerInfo->all_relids` or `RelOptInfo-
 
 ![Bitmapset references](resources/bitmapset-refs.gif)
 
+### Show Expr in their text representation
+
+In members of `Expr` nodes you can see their text representation.
+I.e. for `OpExpr` you will see something like `a.x = 1`.
+This works for most of `Exprs`, except *bulky* (`SubPlan`, `Case`, ...).
+
+![Show Exprs text representation](./resources/expr_repr.gif)
+
+Also, there are shortcuts for: `EquivalenceMember`, `RestrictInfo` and `TargetEntry`.
+Their expressions are displayed right after their member, so you will not have to keep opening and closing variables to see what's inside.
+A quick glance will make it clear what's inside!
+
+![Expressions of equivalence members displayed immediately](./resources/ec_members_exprs.png)
+
+> NOTE: not all and not always `Expr`s will be displayed.
+> Some of subtypes just not supported (i.e. `SubPlan` or `Case`).
+> Also, for displaying representation it's required to have range table.
+> In such cases placeholder is displayed.
+
 ### Dump `Node *` state to log
 
 In PostgreSQL there is `pprint(Node *)` which dumps passed Node variable to
@@ -222,6 +241,12 @@ Known issues:
   formatting is a mess this can be due to errors in logic.
 
 ## Release Notes
+
+### 1.6.0
+
+Show expression representation of `Expr` nodes.
+
+Show expression of `TargetEntry`, `EquivalenceMember` and `RestrictInfo` in description field to quick check elements of corresponding arrays.
 
 ### 1.5.1
 
