@@ -981,9 +981,12 @@ export class NodeTagVariable extends RealVariable {
 }
 
 /**
- * Used only inside ExprNodeVariable in order not to pass huge type specification
+ * Used only inside ExprNodeVariable in order not to pass huge type specification.
+ * Created as container to postpone 'rtable' evaluation.
  */
-type RangeTable = NodeTagVariable[] | undefined;
+class RangeTableContainer {
+    rtable: NodeTagVariable[] | undefined;
+}
 
 /**
  * Subtypes of Expr node, that can be displayed with text representation of it's expression
@@ -1023,7 +1026,7 @@ class ExprNodeVariable extends NodeTagVariable {
      * Get elements of member 'this->member' and return list
      * of repr for each element
      */
-    private async getListMemberElementsReprs(member: string, rtable: RangeTable) {
+    private async getListMemberElementsReprs(member: string, rtable: RangeTableContainer) {
         const elements = await this.getListMemberElements(member);
         
         const reprs = [];
@@ -1037,7 +1040,7 @@ class ExprNodeVariable extends NodeTagVariable {
     /**
      * Get repr of 'this->member'
      */
-    private async getMemberRepr(member: string, rtable: RangeTable) {
+    private async getMemberRepr(member: string, rtable: RangeTableContainer) {
         const exprMember = await this.getMember(member);
         return await this.getReprPlaceholder(exprMember, rtable);
     }
@@ -1124,7 +1127,7 @@ class ExprNodeVariable extends NodeTagVariable {
      * Auxiliary function to get repr of Variable with 
      * max details if failed. This is
      */
-    private async getReprPlaceholder(variable: Variable, rtable: RangeTable) {
+    private async getReprPlaceholder(variable: Variable, rtable: RangeTableContainer) {
         if (variable instanceof ExprNodeVariable) {
             return await variable.getReprInternal(rtable);
         } else {
@@ -1132,7 +1135,7 @@ class ExprNodeVariable extends NodeTagVariable {
         }
     }
 
-    private async formatVarExpr(rtable: RangeTable) {
+    private async formatVarExpr(rtable: RangeTableContainer) {
         const varno = await this.getMemberValueNumber('varno');
 
         let relname: string, 
@@ -1157,13 +1160,17 @@ class ExprNodeVariable extends NodeTagVariable {
                 attname = '?';
                 break;
             default:
-                if (rtable) {
-                    if (!(varno > 0 && varno <= rtable.length)) {
+                if (!rtable.rtable) {
+                    rtable.rtable = await this.findRtable() as NodeTagVariable[] | undefined;
+                }
+
+                if (rtable.rtable) {
+                    if (!(varno > 0 && varno <= rtable.rtable.length)) {
                         /* This was an Assert */
                         throw new EvaluationError('failed to get RTEs from range table');
                     }
     
-                    const rte = rtable[varno - 1];
+                    const rte = rtable.rtable[varno - 1];
                     /* 'rte.value' will be pointer to RTE struct */
                     relname = await this.evalStringResult(`((RangeTblEntry *)${rte.value})->eref->aliasname`) ?? '???';
                     attname = await this.evalStringResult(`get_rte_attribute_name(((RangeTblEntry *)${rte.value}), ((Var *)${this.value})->varattno)`) ?? '???';
@@ -1178,7 +1185,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return `${relname}.${attname}`;
     }
 
-    private async formatConst(rtable: RangeTable) {
+    private async formatConst(rtable: RangeTableContainer) {
         const palloc = async (size: string) => {
             const result = await this.debug.evaluate(`palloc0(${size})`, this.frameId);
             if (!utils.isValidPointer(result.result)) {
@@ -1231,7 +1238,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return str;
     }
 
-    private async formatOpExpr(rtable: RangeTable) {
+    private async formatOpExpr(rtable: RangeTableContainer) {
         const opname = await this.getOpName('opno') ?? '(invalid op)';
         const args = await this.getListMemberElements('args');
         if (args.length === 0) {
@@ -1255,7 +1262,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return data.join(' ');
     }
 
-    private async formatFuncExpr(rtable: RangeTable) {
+    private async formatFuncExpr(rtable: RangeTableContainer) {
         const funcname = await this.getFuncName('funcid') ?? '(invalid func)';
 
         const args = await this.getListMemberElements('args');
@@ -1289,7 +1296,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return '???';
     }
 
-    private async formatAggref(rtable: RangeTable) {
+    private async formatAggref(rtable: RangeTableContainer) {
         const funcname = await this.getFuncName('aggfnoid') ?? '(invalid func)';
 
         const argsMember = await this.getMember('args');
@@ -1307,7 +1314,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return `${funcname}(${args})`;
     }
 
-    private async formatTargetEntry(rtable: RangeTable) {
+    private async formatTargetEntry(rtable: RangeTableContainer) {
         /* NOTE: keep return type annotation, because now compiler can not
          *       handle such recursion correctly
          */
@@ -1315,7 +1322,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return await this.getReprPlaceholder(expr, rtable);
     }
 
-    private async formatScalarArrayOpExpr(rtable: RangeTable) {
+    private async formatScalarArrayOpExpr(rtable: RangeTableContainer) {
         const opname = await this.getOpName('opno') ?? '(invalid op)';
 
         const useOr = await this.getMemberValueBool('useOr');
@@ -1332,7 +1339,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return `${scalarRepr} ${opname} ${funcname}(${arrayRepr})`;
     }
 
-    private async formatBoolExpr(rtable: RangeTable) {
+    private async formatBoolExpr(rtable: RangeTableContainer) {
         const boolOp = await this.getMemberValueEnum('boolop')
         const args = await this.getListMemberElements('args');
 
@@ -1362,7 +1369,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return argsReprs.join(joinExpr);
     }
 
-    private async formatCoalesceExpr(rtable: RangeTable) {
+    private async formatCoalesceExpr(rtable: RangeTableContainer) {
         const args = await this.getListMemberElements('args');
         const argsReprs = [];
         for (const arg of args) {
@@ -1372,7 +1379,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return `COALESCE(${argsReprs.join(', ')})`;
     }
 
-    private async formatNullTest(rtable: RangeTable) {
+    private async formatNullTest(rtable: RangeTableContainer) {
         const expr = await this.getMember('arg');
         const innerRepr = await this.getReprPlaceholder(expr, rtable);
         
@@ -1392,7 +1399,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return `${innerRepr} ${testSql}`;
     }
 
-    private async formatBooleanTest(rtable: RangeTable) {
+    private async formatBooleanTest(rtable: RangeTableContainer) {
         const arg = await this.getMember('arg');
         const innerRepr = await this.getReprPlaceholder(arg, rtable);
         
@@ -1425,12 +1432,12 @@ class ExprNodeVariable extends NodeTagVariable {
         return `${innerRepr} ${test}`;
     }
 
-    private async formatArrayExpr(rtable: RangeTable) {
+    private async formatArrayExpr(rtable: RangeTableContainer) {
         const reprs = await this.getListMemberElementsReprs('elements', rtable);
         return `ARRAY[${reprs.join(', ')}]`;
     }
 
-    private async formatSqlValueFunction(rtable: RangeTable) {
+    private async formatSqlValueFunction(rtable: RangeTableContainer) {
         const getTypmod = async () => {
             return await this.getMemberValueNumber('typmod');
         }
@@ -1490,7 +1497,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return funcname;
     }
 
-    private async formatMinMaxExpr(rtable: RangeTable) {
+    private async formatMinMaxExpr(rtable: RangeTableContainer) {
         const op = await this.getMemberValueEnum('op');
         const argsReprs = await this.getListMemberElementsReprs('args', rtable);
 
@@ -1510,12 +1517,12 @@ class ExprNodeVariable extends NodeTagVariable {
         return `${funcname}(${argsReprs.join(', ')})`;
     }
 
-    private async formatRowExpr(rtable: RangeTable) {
+    private async formatRowExpr(rtable: RangeTableContainer) {
         const reprs = await this.getListMemberElementsReprs('args', rtable);
         return `ROW(${reprs.join(', ')})`;
     }
 
-    private async formatDistinctExpr(rtable: RangeTable) {
+    private async formatDistinctExpr(rtable: RangeTableContainer) {
         const reprs = await this.getListMemberElementsReprs('args', rtable);
         if (reprs.length != 2) {
             throw new EvaluationError('should be 2 arguments for DistinctExpr');
@@ -1525,7 +1532,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return `${left} IS DISTINCT FROM ${right}`;
     }
 
-    private async formatNullIfExpr(rtable: RangeTable) {
+    private async formatNullIfExpr(rtable: RangeTableContainer) {
         const reprs = await this.getListMemberElementsReprs('args', rtable);
         if (reprs.length != 2) {
             throw new EvaluationError('should be 2 arguments for NullIf');
@@ -1535,18 +1542,18 @@ class ExprNodeVariable extends NodeTagVariable {
         return `NULLIF(${left}, ${right})`;
     }
 
-    private async formatNamedArgExpr(rtable: RangeTable) {
+    private async formatNamedArgExpr(rtable: RangeTableContainer) {
         const arg = await this.getMemberRepr('arg', rtable);
         const name = await this.getMemberValueCharString('name');
         return `${name} => ${arg}`;
     }
 
-    private async formatGroupingFunc(rtable: RangeTable) {
+    private async formatGroupingFunc(rtable: RangeTableContainer) {
         const reprs = await this.getListMemberElementsReprs('args', rtable);
         return `GROUPING(${reprs.join(', ')})`;
     }
 
-    private async formatWindowFunc(rtable: RangeTable) {
+    private async formatWindowFunc(rtable: RangeTableContainer) {
         const funcname = await this.getFuncName('winfnoid') ?? '(invalid func)';
         const reprs = await this.getListMemberElementsReprs('args', rtable);
         let repr = `${funcname}(${reprs.join(', ')})`
@@ -1562,7 +1569,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return repr;
     }
 
-    private async formatSubscriptingRef(rtable: RangeTable) {
+    private async formatSubscriptingRef(rtable: RangeTableContainer) {
         const exprRepr = await this.getMemberRepr('refexpr', rtable);
         const upperIndices = await this.getListMemberElements('refupperindexpr');
         let lowerIndices = null;
@@ -1601,7 +1608,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return `(${exprRepr}${indicesReprs.join('')})`;
     }
 
-    private async formatXmlExpr(rtable: RangeTable) {
+    private async formatXmlExpr(rtable: RangeTableContainer) {
         const getArgNameListOfStrings = async () => {
         /* Get List of T_String elements and take their 'sval' values */
         const list = await this.getListMemberElements('arg_names');
@@ -1792,7 +1799,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return '???';
     }
 
-    private async formatSubLink(rtable: RangeTable) {
+    private async formatSubLink(rtable: RangeTableContainer) {
         const type = await this.getMemberValueEnum('subLinkType');
         if (type === 'EXISTS_SUBLINK') {
             return 'EXISTS(...)';
@@ -1906,7 +1913,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return `${leftRepr} ${opname} ${funcname}(...)`;
     }
 
-    private async formatRowCompareExpr(rtable: RangeTable) {
+    private async formatRowCompareExpr(rtable: RangeTableContainer) {
         const getReprs = async (arr: string[], member: string) => {
             const elements = await this.getListMemberElementsReprs(member, rtable);
             for (const e of elements) {
@@ -1949,7 +1956,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return `ROW(${leftReprs.join(', ')}) ${opname} ROW(${rightReprs.join(', ')})`;
     }
 
-    private async delegateFormatToMember(member: string, rtable: RangeTable) {
+    private async delegateFormatToMember(member: string, rtable: RangeTableContainer) {
         /* 
          * Repr of some exprs is same as repr of their field.
          * For such cases use this function in order not to
@@ -1958,12 +1965,12 @@ class ExprNodeVariable extends NodeTagVariable {
         return await this.getMemberRepr(member, rtable);
     }
 
-    private async formatParam(rtable: RangeTable) {
+    private async formatParam(rtable: RangeTableContainer) {
         const paramNum = await this.getMemberValueNumber('paramid');
         return `PARAM$${paramNum}`;
     }
 
-    private async formatJsonExpr(rtable: RangeTable) {
+    private async formatJsonExpr(rtable: RangeTableContainer) {
         const op = await this.getMemberValueEnum('op');
         switch (op) {
             case 'JSON_EXISTS_OP':
@@ -1983,7 +1990,7 @@ class ExprNodeVariable extends NodeTagVariable {
         }
     }
 
-    private async formatJsonConstructorExpr(rtable: RangeTable) {
+    private async formatJsonConstructorExpr(rtable: RangeTableContainer) {
         const ctorType = await this.getMemberValueEnum('type');
         const args = await this.getListMemberElementsReprs('args', rtable);
         if (ctorType === 'JSCTOR_JSON_OBJECTAGG' || ctorType === 'JSCTOR_JSON_ARRAYAGG') {
@@ -2044,7 +2051,7 @@ class ExprNodeVariable extends NodeTagVariable {
         return `${funcname}(${argsRepr})`;
     }
 
-    private async formatJsonIsPredicate(rtable: RangeTable) {
+    private async formatJsonIsPredicate(rtable: RangeTableContainer) {
         const expr = await this.getMemberRepr('expr', rtable);
         const jsonType = await this.getMemberValueEnum('item_type');
         switch (jsonType) {
@@ -2061,7 +2068,7 @@ class ExprNodeVariable extends NodeTagVariable {
         }
     }
 
-    private async formatWindowFuncRunCondition(rtable: RangeTable) {
+    private async formatWindowFuncRunCondition(rtable: RangeTableContainer) {
         const wfuncLeft = await this.getMemberValueBool('wfunc_left');
         const expr = await this.getMemberRepr('arg', rtable);
         const opname = await this.getOpName('opno') ?? '(invalid op)';
@@ -2077,13 +2084,13 @@ class ExprNodeVariable extends NodeTagVariable {
         return `${left} ${opname} ${right}`;
     }
 
-    private async formatCaseWhen(rtable: RangeTable) {
+    private async formatCaseWhen(rtable: RangeTableContainer) {
         const when = await this.getMemberRepr('expr', rtable);
         const then = await this.getMemberRepr('result', rtable);
         return `WHEN ${when} THEN ${then}`;
     }
 
-    private async formatFieldSelect(rtable: RangeTable) {
+    private async formatFieldSelect(rtable: RangeTableContainer) {
         /* 
          * This is hard to determine name of field using only
          * attribute number - there are many manipulations should occur.
@@ -2096,17 +2103,17 @@ class ExprNodeVariable extends NodeTagVariable {
         return `${expr}.???`;
     }
 
-    private async formatFieldStore(rtable: RangeTable) {
+    private async formatFieldStore(rtable: RangeTableContainer) {
         const expr = await this.getMemberRepr('arg', rtable);
         return `${expr}.??? = ???`;
     }
 
-    private async formatCurrentOfExpr(rtable: RangeTable) {
+    private async formatCurrentOfExpr(rtable: RangeTableContainer) {
         const sval = await this.getMemberValueCharString('cursor_name');
         return `CURRENT OF ${sval === null ? 'NULL' : sval}`;
     }
 
-    private async formatExpr(rtable: RangeTable): Promise<string> {
+    private async formatExpr(rtable: RangeTableContainer): Promise<string> {
         /* 
          * WARN: if you add/remove something here do not forget to update 
          *       src/constants.ts:getDisplayedExprs
@@ -2221,7 +2228,7 @@ class ExprNodeVariable extends NodeTagVariable {
      * recursive repr evaluation.
      * This is speed up, because of already found 'rtable' passing.
      */
-    private async getReprInternal(rtable: RangeTable) {
+    private async getReprInternal(rtable: RangeTableContainer) {
         if (this.repr) {
             return this.repr;
         }
@@ -2241,39 +2248,41 @@ class ExprNodeVariable extends NodeTagVariable {
             return this.repr;
         }
 
-        const rtable = await this.findRtable();
-        return await this.getReprInternal(rtable as RangeTable);
+        const rtable = new RangeTableContainer();
+        return await this.getReprInternal(rtable);
     }
 
     private async findRtable() {
-        /* Find PlannerInfo or Query */
-        let parent = this.parent;
-        while (parent) {
-            if (parent instanceof VariablesRoot) {
-                parent = parent.topLevelVariables.find(v => 
+        /* 
+         * We can go in 2 ways: PlannderInfo->parse (Query)->rtable or Query->rtable
+         */
+        let node = this.parent;
+        while (node) {
+            if (node instanceof VariablesRoot) {
+                node = node.topLevelVariables.find(v => 
                                 ((v instanceof NodeTagVariable && 
                                  (v.realNodeTag === 'PlannerInfo' || v.realNodeTag === 'Query'))));
-                if (!parent) {
+                if (!node) {
                     /* No more variables */
                     return;
                 }
 
                 break;
-            } else if (parent instanceof NodeTagVariable &&
-                       (parent.realNodeTag === 'PlannerInfo' || parent.realNodeTag === 'Query')) {
+            } else if (node instanceof NodeTagVariable &&
+                       (node.realNodeTag === 'PlannerInfo' || node.realNodeTag === 'Query')) {
                 break;
             }
 
-            parent = parent.parent;
+            node = node.parent;
         }
 
-        if (!(parent && parent instanceof NodeTagVariable)) {
+        if (!(node && node instanceof NodeTagVariable)) {
             return;
         }
 
-        const query = parent.realNodeTag === 'Query' 
-                            ? parent 
-                            : await parent.getMember('parse');
+        const query = node.realNodeTag === 'Query' 
+                            ? node 
+                            : await node.getMember('parse');
 
         if (!(query && query instanceof NodeTagVariable)) {
             return;
