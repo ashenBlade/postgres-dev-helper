@@ -189,6 +189,31 @@ export interface ExecContext {
     debug: utils.IDebuggerFacade;
 }
 
+/**
+ * Check that caught exception can be safely ignored
+ * and not shown to user.
+ * This is applied in end-point functions like 'getTreeItem'
+ * or 'getChildren'.
+ * 
+ * @param error Error object caught using 'try'
+ */
+function isExpectedError(error: any) {
+    /* 
+     * Calls to debugger with some evaluations might be time consumptive
+     * and user will perform step before we end up computation.
+     * In such case, we will get exception with messages like:
+     * - "Cannot evaluate expression on the specified stack frame."
+     * - "Unable to perform this action because the process is running."
+     * 
+     * I do not know whether these messages are translated, so
+     * just checking 'error.message' does not look like a solid solution.
+     * In the end, we just catch all VS Code exceptions (they have
+     * 'CodeExpectedError' in name, at least exceptions with messages
+     * above).
+     */
+    return error && (error instanceof EvaluationError || error?.name === 'CodeExpectedError');
+}
+
 export abstract class Variable {
     /** 
      * Raw variable name (variable/struct member)
@@ -226,18 +251,24 @@ export abstract class Variable {
     context: ExecContext;
 
     /**
+     * Logger
+     */
+    logger: utils.ILogger;
+
+    /**
      * Shortcut for `this.context.debug`
      */
     get debug() {
         return this.context.debug;
     }
 
-    constructor(name: string, value: string, type: string, context: ExecContext, parent: Variable | undefined) {
-        this.parent = parent ?? undefined;
+    constructor(name: string, value: string, type: string, context: ExecContext, parent: Variable | undefined, logger: utils.ILogger) {
+        this.parent = parent;
         this.name = name;
         this.value = value;
         this.type = type;
         this.context = context;
+        this.logger = logger;
     }
 
     /**
@@ -265,20 +296,8 @@ export abstract class Variable {
 
             return children;
         } catch (error: any) {
-            /* 
-            * Calls to debugger with some evaluations might be time consumptive
-            * and user will perform step before we end up computation.
-            * In such case, we will get exception with messages like:
-            * - "Cannot evaluate expression on the specified stack frame."
-            * - "Unable to perform this action because the process is running."
-            * 
-            * I do not know whether these messages are translated, so
-            * just checking 'error.message' does not look like a solid solution.
-            * In the end, we just catch all VS Code exceptions (they have
-            * 'CodeExpectedError' in name, at least exceptions with messages
-            * above).
-            */
-            if (error.name === 'CodeExpectedError') {
+            this.logger.debug('failed to get children for %s', this.name, error);
+            if (isExpectedError(error)) {
                 return;
             } else {
                 throw error;
@@ -314,12 +333,23 @@ export abstract class Variable {
      * Create {@link vscode.TreeItem TreeItem} for variables view
      */
     async getTreeItem(): Promise<vscode.TreeItem> {
-        return {
-            label: `${this.name}: ${this.type} = `,
-            description: await this.getDescription(),
-            collapsibleState: this.isExpandable()
-                ? vscode.TreeItemCollapsibleState.Collapsed
-                : vscode.TreeItemCollapsibleState.None,
+        try {
+            return {
+                label: `${this.name}: ${this.type} = `,
+                description: await this.getDescription(),
+                collapsibleState: this.isExpandable()
+                    ? vscode.TreeItemCollapsibleState.Collapsed
+                    : vscode.TreeItemCollapsibleState.None,
+            }
+        } catch (error: any) {
+            this.logger.debug('failed get TreeItem for %s', this.name, error);
+
+            if (isExpectedError(error)) {
+                /* Placeholder */
+                return {  };
+            } else {
+                throw error;
+            }
         }
     }
 
@@ -356,16 +386,17 @@ export abstract class Variable {
             ...debugVariable,
             frameId,
             parent,
-            context
+            context,
+            logger,
         };
         if (utils.isRawStruct(debugVariable) ||
             !utils.isValidPointer(debugVariable.value)) {
             if (utils.isNull(debugVariable.value) && debugVariable.type === 'List *') {
                 /* Empty List is NIL == NULL == '0x0' */
-                return new ListNodeTagVariable('List', args, logger);
+                return new ListNodeTagVariable('List', args);
             }
 
-            return new RealVariable(args, logger);
+            return new RealVariable(args);
         }
 
         const realType = Variable.getRealType(debugVariable, context);
@@ -375,7 +406,7 @@ export abstract class Variable {
          * So handle Bitmapset (with Relids) here.
          */
         if (BitmapSetSpecialMember.isBitmapset(realType)) {
-            return new BitmapSetSpecialMember(logger, args);
+            return new BitmapSetSpecialMember(args);
         }
 
         /* NodeTag variables: Node, List, Bitmapset etc.. */
@@ -396,13 +427,14 @@ export abstract class Variable {
                     ...debugVariable,
                     frameId: frameId,
                     parent: parent,
-                    context
-                }, logger) as RealVariable;
+                    context,
+                    logger
+                }) as RealVariable;
             }
         }
 
         /* At the end - it is simple variable */
-        return new RealVariable(args, logger);
+        return new RealVariable(args);
     }
 
     static async getVariables(variablesReference: number, frameId: number,
@@ -438,8 +470,8 @@ export abstract class Variable {
 export class VariablesRoot extends Variable {
     static variableRootName = '$variables root$'
     
-    constructor(public topLevelVariables: Variable[], context: ExecContext) {
-        super(VariablesRoot.variableRootName, '', '', context, undefined);
+    constructor(public topLevelVariables: Variable[], context: ExecContext, logger: utils.ILogger) {
+        super(VariablesRoot.variableRootName, '', '', context, undefined, logger);
      }
 
     async doGetChildren(): Promise<Variable[] | undefined> {
@@ -449,8 +481,8 @@ export class VariablesRoot extends Variable {
 
 class ScalarVariable extends Variable {
     tooltip?: string;
-    constructor(name: string, value: string, type: string, context: ExecContext, parent?: Variable, tooltip?: string) {
-        super(name, value, type, context, parent);
+    constructor(name: string, value: string, type: string, context: ExecContext, logger: utils.ILogger, parent?: Variable, tooltip?: string) {
+        super(name, value, type, context, parent, logger);
         this.tooltip = tooltip;
     }
 
@@ -475,6 +507,7 @@ interface RealVariableArgs {
     frameId: number;
     parent?: Variable;
     context: ExecContext;
+    logger: utils.ILogger;
 }
 
 /**
@@ -516,8 +549,6 @@ class UnexpectedOutputError extends EvaluationError { }
  * There may be artificial variables - they just exist.
  */
 export class RealVariable extends Variable {
-    protected readonly logger: utils.ILogger;
-
     /**
      * Expression to access variable
      */
@@ -544,9 +575,8 @@ export class RealVariable extends Variable {
      */
     members?: Variable[];
 
-    constructor(args: RealVariableArgs, logger: utils.ILogger) {
-        super(args.name, args.value, args.type, args.context, args.parent);
-        this.logger = logger;
+    constructor(args: RealVariableArgs) {
+        super(args.name, args.value, args.type, args.context, args.parent, args.logger);
         this.evaluateName = args.evaluateName;
         this.memoryReference = args.memoryReference;
         this.variablesReference = args.variablesReference;
@@ -564,7 +594,8 @@ export class RealVariable extends Variable {
             variablesReference: this.variablesReference,
             frameId: this.frameId,
             parent: this.parent,
-            context: this.context
+            context: this.context,
+            logger: this.logger,
         }
     }
 
@@ -781,8 +812,8 @@ export class NodeTagVariable extends RealVariable {
      */
     realType: string | undefined;
 
-    constructor(realNodeTag: string, args: RealVariableArgs, logger: utils.ILogger) {
-        super(args, logger);
+    constructor(realNodeTag: string, args: RealVariableArgs) {
+        super(args);
         this.realNodeTag = realNodeTag.replace('T_', '');
     }
 
@@ -823,15 +854,24 @@ export class NodeTagVariable extends RealVariable {
     }
 
     async getTreeItem() {
-        return {
-            label: this.tagsMatch()
-                ? `${this.name}: ${this.type} = `
-                : `${this.name}: ${this.type} [${this.realNodeTag}] = `,
-            description: await this.getDescription(),
-            collapsibleState: this.isExpandable()
-                ? vscode.TreeItemCollapsibleState.Collapsed
-                : vscode.TreeItemCollapsibleState.None,
-        };
+        try {
+            return {
+                label: this.tagsMatch()
+                    ? `${this.name}: ${this.type} = `
+                    : `${this.name}: ${this.type} [${this.realNodeTag}] = `,
+                description: await this.getDescription(),
+                collapsibleState: this.isExpandable()
+                    ? vscode.TreeItemCollapsibleState.Collapsed
+                    : vscode.TreeItemCollapsibleState.None,
+            };
+        } catch (e) {
+            this.logger.debug('failed to get TreeItem for %s', this.name, e);
+            if (isExpectedError(e)) {
+                return { };
+            } else {
+                throw e;
+            }
+        }
     }
 
     private async castToType(type: string) {
@@ -947,7 +987,8 @@ export class NodeTagVariable extends RealVariable {
             ...variable,
             frameId,
             parent,
-            context
+            context,
+            logger,
         };
 
         realTag = realTag.replace('T_', '');
@@ -960,34 +1001,34 @@ export class NodeTagVariable extends RealVariable {
                 case 'OidList':
                 case 'XidList':
                 case 'IntList':
-                    return new ListNodeTagVariable(realTag, args, logger);
+                    return new ListNodeTagVariable(realTag, args);
             }
         }
 
         /* Bitmapset */
         if (realTag === 'Bitmapset') {
-            return new BitmapSetSpecialMember(logger, args);
+            return new BitmapSetSpecialMember(args);
         }
 
         /* Expressions with it's representation */
         if (context.nodeVarRegistry.exprs.has(realTag)) {
             if (realTag === 'TargetEntry') {
-                return new TargetEntryVariable(args, logger);
+                return new TargetEntryVariable(args);
             }
 
-            return new ExprNodeVariable(realTag, args, logger);
+            return new ExprNodeVariable(realTag, args);
         }
 
         /* Display expressions in EquivalenceMember and RestrictInfo */
         if (realTag === 'EquivalenceMember') {
-            return new EquivalenceMemberVariable(args, logger);
+            return new EquivalenceMemberVariable(args);
         }
 
         if (realTag === 'RestrictInfo') {
-            return new RestrictInfoVariable(args, logger);
+            return new RestrictInfoVariable(args);
         }
 
-        return new NodeTagVariable(realTag, args, logger);
+        return new NodeTagVariable(realTag, args);
     }
 }
 
@@ -2379,7 +2420,8 @@ class ExprNodeVariable extends NodeTagVariable {
         }
 
         /* Add representation field first in a row */
-        const exprVariable = new ScalarVariable('$expr$', expr, '', this.context, this as Variable, expr)
+        const exprVariable = new ScalarVariable('$expr$', expr, '', this.context, 
+                                                this.logger, this, expr)
         const children = await super.doGetChildren() ?? [];
         children.unshift(exprVariable);
         return children;
@@ -2387,8 +2429,8 @@ class ExprNodeVariable extends NodeTagVariable {
 }
 
 class EquivalenceMemberVariable extends NodeTagVariable {
-    constructor(args: RealVariableArgs, logger: utils.ILogger) {
-        super('EquivalenceMember', args, logger);
+    constructor(args: RealVariableArgs) {
+        super('EquivalenceMember', args);
     }
     
     private async findExpr(children: Variable[]): Promise<ExprNodeVariable | null> {
@@ -2425,8 +2467,8 @@ class EquivalenceMemberVariable extends NodeTagVariable {
 }
 
 class RestrictInfoVariable extends NodeTagVariable {
-    constructor(args: RealVariableArgs, logger: utils.ILogger) {
-        super('RestrictInfo', args, logger);
+    constructor(args: RealVariableArgs) {
+        super('RestrictInfo', args);
     }
 
     private async findExpr(children: Variable[]): Promise<ExprNodeVariable | null> {
@@ -2463,8 +2505,8 @@ class RestrictInfoVariable extends NodeTagVariable {
 }
 
 class TargetEntryVariable extends ExprNodeVariable {
-    constructor(args: RealVariableArgs, logger: utils.ILogger) {
-        super('TargetEntry', args, logger);
+    constructor(args: RealVariableArgs) {
+        super('TargetEntry', args);
     }
 
     async getDescription() {
@@ -2495,11 +2537,14 @@ class ListElementsMember extends RealVariable {
     */
     realType: string;
 
+    /**
+     * Parent List variable to which we belong
+     */
     listParent: ListNodeTagVariable;
 
-    constructor(listParent: ListNodeTagVariable, cellValue: string, realType: string, 
-                logger: utils.ILogger, args: RealVariableArgs) {
-        super(args, logger);
+    constructor(listParent: ListNodeTagVariable, cellValue: string, realType: string,
+                args: RealVariableArgs) {
+        super(args);
         this.listParent = listParent;
         this.cellValue = cellValue;
         this.realType = realType;
@@ -2540,8 +2585,9 @@ class ListElementsMember extends RealVariable {
                 memoryReference: response.memoryReference,
                 frameId: this.frameId,
                 context: this.context,
+                logger: this.logger,
                 parent: this,
-            }, this.logger));
+            }));
         }
 
         return elements;
@@ -2589,16 +2635,13 @@ class LinkedListElementsMember extends Variable {
      */
     listParent: ListNodeTagVariable;
 
-    logger: utils.ILogger;
-
     get frameId(): number {
         return this.listParent.frameId;
     }
 
     constructor(listParent: ListNodeTagVariable, cellValue: string,
-                realType: string, context: ExecContext, logger: utils.ILogger) {
-        super('$elements$', '', '', context, listParent);
-        this.logger = logger; 
+                realType: string, context: ExecContext) {
+        super('$elements$', '', '', context, listParent, listParent.logger);
         this.listParent = listParent;
         this.cellValue = cellValue;
         this.realType = realType;
@@ -2655,8 +2698,8 @@ class LinkedListElementsMember extends Variable {
 export class ListNodeTagVariable extends NodeTagVariable {
     listElements: ListElementsMember | LinkedListElementsMember | undefined;
     
-    constructor(nodeTag: string, args: RealVariableArgs, logger: utils.ILogger) {
-        super(nodeTag, args, logger);
+    constructor(nodeTag: string, args: RealVariableArgs) {
+        super(nodeTag, args);
     }
 
     getMemberExpression(member: string) {
@@ -2693,11 +2736,12 @@ export class ListNodeTagVariable extends NodeTagVariable {
                 break;
         }
 
-        return new ListElementsMember(this, cellValue, realType, this.logger, {
+        return new ListElementsMember(this, cellValue, realType, {
             ...dv,
             frameId: this.frameId,
             parent: this,
-            context: this.context
+            context: this.context,
+            logger: this.logger
         });
     }
 
@@ -2728,7 +2772,7 @@ export class ListNodeTagVariable extends NodeTagVariable {
         }
 
         return new LinkedListElementsMember(this, cellValue, realType, 
-                                            this.context, this.logger);
+                                            this.context);
     }
 
     override computeRealType(): string {
@@ -2831,8 +2875,8 @@ export class ArraySpecialMember extends RealVariable {
     parent: RealVariable;
 
     constructor(parent: RealVariable, info: ArraySpecialMemberInfo,
-                args: RealVariableArgs, logger: utils.ILogger) {
-        super(args, logger);
+                args: RealVariableArgs) {
+        super(args);
         this.info = info;
         this.parent = parent;
     }
@@ -2872,8 +2916,8 @@ export class ArraySpecialMember extends RealVariable {
  * Bitmapset* variable
  */
 class BitmapSetSpecialMember extends NodeTagVariable {
-    constructor(logger: utils.ILogger, args: RealVariableArgs) {
-        super('Bitmapset', args, logger);
+    constructor(args: RealVariableArgs) {
+        super('Bitmapset', args,);
     }
 
     async isValidSet() {
@@ -3080,7 +3124,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
         const ref = await this.getBmsRef();
 
         members.push(new ScalarVariable('$length$', setMembers.length.toString(),
-                                        'int', this.context, this));
+                                        'int', this.context, this.logger, this));
         members.push(new BitmapSetSpecialMember.BmsArrayVariable(this, setMembers, ref));
         return members;
     }
@@ -3099,7 +3143,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
                     value: number,
                     context: ExecContext,
                     private ref?: constants.BitmapsetReference) {
-            super(`[${index}]`, value.toString(), 'int', context, parent);
+            super(`[${index}]`, value.toString(), 'int', context, parent, parent.logger);
             this.relid = value;
             this.bmsParent = bmsParent;
         }
@@ -3248,7 +3292,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
         constructor(parent: BitmapSetSpecialMember, 
                     setElements: number[],
                     private ref?: constants.BitmapsetReference) {
-            super('$elements$', '', '', parent.context, parent);
+            super('$elements$', '', '', parent.context, parent, parent.logger);
             this.setElements = setElements;
             this.bmsParent = parent;
         }
