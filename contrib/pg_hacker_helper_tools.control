@@ -1,5 +1,0 @@
-# pg_hacker_helper_tools extension
-default_version = '1.0.0'
-comment = 'Helper functions for PostgreSQL Hacker Helper VS Code extension'
-module_pathname = '$libdir/pg_hacker_helper_tools'
-relocatable = true
