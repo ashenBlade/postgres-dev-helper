@@ -1021,11 +1021,11 @@ export class NodeTagVariable extends RealVariable {
 
         /* Display expressions in EquivalenceMember and RestrictInfo */
         if (realTag === 'EquivalenceMember') {
-            return new EquivalenceMemberVariable(args);
+            return new DisplayExprReprVariable(realTag, 'em_expr', args);
         }
 
         if (realTag === 'RestrictInfo') {
-            return new RestrictInfoVariable(args);
+            return new DisplayExprReprVariable(realTag, 'clause', args);
         }
 
         return new NodeTagVariable(realTag, args);
@@ -1037,7 +1037,17 @@ export class NodeTagVariable extends RealVariable {
  * Created as container to postpone 'rtable' evaluation.
  */
 class RangeTableContainer {
+    /**
+     * Flag indicating, that search of rtable already occurred.
+     * 'rtable' can be undefined because we could not find it.
+     */
     rtableSearched: boolean = false;
+
+    /**
+     * Found 'rtable' amoung variables. Before updating/using
+     * this field check `rtableSearched` if this member has
+     * actual value.
+     */
     rtable: NodeTagVariable[] | undefined;
 }
 
@@ -2241,6 +2251,10 @@ class ExprNodeVariable extends NodeTagVariable {
          *       src/constants.ts:getDisplayedExprs
          */
         try {
+            /* 
+             * Values sorted in order of appearing frequency.
+             * P.S. Of course in my opinion, no stats collected.
+             */
             switch (this.realNodeTag) {
                 case 'Var':
                     return await this.formatVarExpr(rtable);
@@ -2285,7 +2299,7 @@ class ExprNodeVariable extends NodeTagVariable {
                 case 'WindowFunc':
                     return await this.formatWindowFunc(rtable);
                 case 'SubscriptingRef':
-                case 'ArrayRef':
+                case 'ArrayRef' /* old style 'SubscripingRef' */:
                     return await this.formatSubscriptingRef(rtable);
                 case 'XmlExpr':
                     return await this.formatXmlExpr(rtable);
@@ -2428,82 +2442,37 @@ class ExprNodeVariable extends NodeTagVariable {
     }
 }
 
-class EquivalenceMemberVariable extends NodeTagVariable {
-    constructor(args: RealVariableArgs) {
-        super('EquivalenceMember', args);
-    }
+
+class DisplayExprReprVariable extends NodeTagVariable {
+    /**
+     * 'Expr' member which representation is shown
+     */
+    readonly exprMember: string;
     
-    private async findExpr(children: Variable[]): Promise<ExprNodeVariable | null> {
-        for (const child of children) {
-            if (child.name === 'em_expr') {
-                if (child instanceof ExprNodeVariable) {
-                    return child;
-                } else {
-                    break;
-                }
-            }
-        }
-        return null;
+    constructor(tag: string, exprMember: string, args: RealVariableArgs) {
+        super(tag, args);
+        this.exprMember = exprMember;
     }
 
     async getDescription() {
-        const children = await this.getRealMembers();
-        if (!children) {
-            return await super.getDescription();
+        const exprMember = await this.getMember(this.exprMember);
+        if (exprMember instanceof ExprNodeVariable) {
+            return await exprMember.getRepr();
         }
 
-        const expr = await this.findExpr(children);
-        if (!expr) {
-            return await super.getDescription();
-        }
-
-        const repr = await expr.getRepr();
-        if (!repr) {
-            return await super.getDescription();
-        }
-
-        return repr;
+        return '';
     }
 }
 
-class RestrictInfoVariable extends NodeTagVariable {
-    constructor(args: RealVariableArgs) {
-        super('RestrictInfo', args);
-    }
-
-    private async findExpr(children: Variable[]): Promise<ExprNodeVariable | null> {
-        for (const child of children) {
-            if (child.name === 'clause') {
-                if (child instanceof ExprNodeVariable) {
-                    return child;
-                } else {
-                    break;
-                }
-            }
-        }
-        return null;
-    }
-
-    async getDescription() {
-        const children = await this.getRealMembers();
-        if (!children) {
-            return await super.getDescription();
-        }
-
-        const expr = await this.findExpr(children);
-        if (!expr) {
-            return await super.getDescription();
-        }
-
-        const repr = await expr.getRepr();
-        if (!repr) {
-            return await super.getDescription();
-        }
-
-        return repr;
-    }
-}
-
+/**
+ *   Special case for 'TargetEntry' to display it's repr
+ * in description.
+ *   It can not be moved to 'DisplayExprReprVariable' because
+ * it is Expr and can be used in 'ExprVariable.
+ *   Also I do not want to move such logic to 'ExprVariable',
+ * because repr evaluation is resource-intensive operation
+ * and UI just blocks.
+ */
 class TargetEntryVariable extends ExprNodeVariable {
     constructor(args: RealVariableArgs) {
         super('TargetEntry', args);

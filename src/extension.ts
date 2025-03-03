@@ -61,7 +61,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
                     return;
                 }
 
-                const topLevelVariable = new vars.VariablesRoot(topLevel, exec);
+                const topLevelVariable = new vars.VariablesRoot(topLevel, exec, this.log);
                 topLevel.forEach(v => v.parent = topLevelVariable);
                 return topLevel;
             }
