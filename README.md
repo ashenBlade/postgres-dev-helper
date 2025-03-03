@@ -239,8 +239,15 @@ Known issues:
 - Sometimes formatting can misbehave. This is due to `pg_bsd_indent` internal
   logic. If formatting is not applied try run command again. If file after
   formatting is a mess this can be due to errors in logic.
+- Some operations require data to be allocated (usually, for function invocation).
+  For this, `palloc` and `pfree` are used. So if you are debugging memory subsystem
+  you may want to disable extension, because it may affect debugging process.
 
 ## Release Notes
+
+### 1.6.1
+
+Fix error message appeared when making debugger steps too fast.
 
 ### 1.6.0
 

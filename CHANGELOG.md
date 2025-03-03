@@ -5,7 +5,15 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1]
+
+### Fix
+
+Errors messages appearing in bottom right corner when making debugger steps too fast and 'PG Variables' view interrupted during step.
+
 ## [1.6.0]
+
+### Added
 
 Show text representation of expressions in variables (separate pseudo-member `$expr$`).
 
@@ -13,11 +21,15 @@ Show text representation of expressions contained in `TargetEntry`, `Equivalence
 
 ## [1.5.1]
 
+### Added
+
 Update configuration file contents created by command. Set version to 3 and `aliases` member with empty array.
 
 ## [1.5.0]
 
 > Pre-release
+
+### Added
 
 Add `typedefs` setting to configuration file. This allows to set custom typedefs.list file for using by formatter. This is helpful when you working on patch which changes this file and you do not want to constantly modify global cached (by extension) typedefs file.
 This also updates version of configuration file to 3.
