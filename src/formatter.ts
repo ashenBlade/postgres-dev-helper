@@ -20,9 +20,9 @@ class LineDiffGroup {
             if (diff.isInsert) {
                 /* Small trick to make all lines end with new line */
                 diff.lines.push('');
-                edits.push(vscode.TextEdit.insert(document.lineAt(diff.num).range.start, 
-                            diff.lines.join('\n')));
                 try {
+                    edits.push(vscode.TextEdit.insert(document.lineAt(diff.num).range.start, 
+                                                      diff.lines.join('\n')));
                     continue;
                 } catch (err: any) {
                     if (!(document.lineCount < diff.num && diff.lines[0].startsWith('/**INDENT')))
@@ -494,7 +494,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         return contents;
     }
 
-    private async runPgindentInternal(document: vscode.TextDocument, 
+    private async runPgindentInternal(document: string, 
                                       pg_bsd_indent: vscode.Uri) {
         /* 
          * We use pg_bsd_indent directly instead of pgindent because:
@@ -505,7 +505,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          */
 
         let typedefs = await this.getProcessedTypedefs(pg_bsd_indent);
-        const preProcessed = this.runPreIndent(document.getText());
+        const preProcessed = this.runPreIndent(document);
         const {stdout: processed} = await utils.execShell(
             pg_bsd_indent.fsPath, [
                 ...PgindentDocumentFormatterProvider.pg_bsd_indentDefaultFlags,
@@ -529,9 +529,10 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
     private async runPgindent(document: vscode.TextDocument, 
                               workspace: vscode.WorkspaceFolder) {
         let pg_bsd_indent = await this.getPgbsdindent(workspace);
-
+        const content = document.getText();
+ 
         try {
-            return await this.runPgindentInternal(document, pg_bsd_indent);
+            return await this.runPgindentInternal(content, pg_bsd_indent);
         } catch (err) {
             if (await utils.fileExists(pg_bsd_indent)) {
                 throw err;
@@ -541,7 +542,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         this.logger.info('pg_bsd_indent seems not installed. trying to install');
         this.savedPgbsdPath = undefined;
         pg_bsd_indent = await this.findExistingPgbsdindent(workspace);
-        return await this.runPgindentInternal(document, pg_bsd_indent);
+        return await this.runPgindentInternal(content, pg_bsd_indent);
     }
 
     private async runDiff(originalFile: vscode.Uri, indented: string) {
