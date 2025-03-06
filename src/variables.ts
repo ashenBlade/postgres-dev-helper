@@ -623,8 +623,7 @@ export class RealVariable extends Variable {
             return this.members;
         }
 
-        this.members = await Variable.getVariables(this.variablesReference, this.frameId,
-                                                   this.context, this.logger, this);
+        this.members = await this.getRealMembers();
         return this.members;
     }
 
@@ -916,16 +915,10 @@ export class NodeVariable extends RealVariable {
         return await this.castToType(resultType);
     }
 
-    private async getMembersImpl(): Promise<Variable[] | undefined> {
-        const debugVariables = await this.debug.getMembers(this.variablesReference);
-        return await Variable.mapVariables(debugVariables, this.frameId, this.context,
-                                           this.logger, this);
-    }
-
     async doGetChildren() {
         await this.checkTagMatch();
 
-        let members = await this.getMembersImpl();
+        let members = await this.getRealMembers();
 
         if (members?.length) {
             return members;
@@ -942,7 +935,7 @@ export class NodeVariable extends RealVariable {
         if (this.type.indexOf('struct') !== -1) {
             const structLessType = this.type.replace('struct', '');
             await this.castToType(structLessType);
-            members = await this.getMembersImpl();
+            members = await this.getRealMembers();
         }
         return members;
     }
@@ -950,7 +943,7 @@ export class NodeVariable extends RealVariable {
     protected async doGetRealMembers() {
         await this.checkTagMatch();
 
-        let members = await this.getMembersImpl();
+        let members = await super.doGetRealMembers();
 
         if (members?.length) {
             return members;
@@ -967,7 +960,7 @@ export class NodeVariable extends RealVariable {
         if (this.type.indexOf('struct') !== -1) {
             const structLessType = this.type.replace('struct', '');
             await this.castToType(structLessType);
-            members = await this.getMembersImpl();
+            members = await super.doGetRealMembers();
         }
         return members;
     }
