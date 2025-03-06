@@ -187,6 +187,14 @@ export interface ExecContext {
      * Facade for debugger interface (TAP)
      */
     debug: utils.IDebuggerFacade;
+
+    /**
+     * Flag, indicating that this version of PostgreSQL
+     * has common class for 'String', 'Integer' and other
+     * value structures.
+     * Updated at runtime in 'ValueVariable'.
+     */
+    hasValueStruct: boolean;
 }
 
 /**
@@ -411,7 +419,7 @@ export abstract class Variable {
 
         /* NodeTag variables: Node, List, Bitmapset etc.. */
         if (context.nodeVarRegistry.isNodeVar(realType)) {
-            const nodeTagVar = await NodeTagVariable.create(debugVariable, frameId,
+            const nodeTagVar = await NodeVariable.create(debugVariable, frameId,
                                                             context, logger, parent);
             if (nodeTagVar) {
                 return nodeTagVar;
@@ -571,7 +579,7 @@ export class RealVariable extends Variable {
     frameId: number;
 
     /**
-     * Cached members of this variable
+     * Cached *real* members of this variable
      */
     members?: Variable[];
 
@@ -611,13 +619,13 @@ export class RealVariable extends Variable {
      * {@link variablesReference variablesReference } field
      */
     async doGetChildren(): Promise<Variable[] | undefined> {
-        if (this.members) {
+        if (this.members !== undefined) {
             return this.members;
         }
 
         this.members = await Variable.getVariables(this.variablesReference, this.frameId,
                                                    this.context, this.logger, this);
-        return this.members;        
+        return this.members;
     }
 
     /**
@@ -630,7 +638,7 @@ export class RealVariable extends Variable {
      *       of these functions (work in both sides)
      */
     async getRealMembers(): Promise<Variable[] | undefined> {
-        if (this.members) {
+        if (this.members !== undefined) {
             return this.members;
         }
 
@@ -640,7 +648,7 @@ export class RealVariable extends Variable {
 
     protected async doGetRealMembers() {
         return await Variable.getVariables(this.variablesReference, this.frameId,
-                                           this.context, this.logger, this)
+                                           this.context, this.logger, this);
     }
 
     protected async getArrayMembers(expression: string, length: number) {
@@ -794,7 +802,7 @@ export class RealVariable extends Variable {
  * We should examine it to get real NodeTag because it 
  * may be different from declared type.
  */
-export class NodeTagVariable extends RealVariable {
+export class NodeVariable extends RealVariable {
     /**
      * Real tag of node without 'T_' prefix.
      * @example AggPath
@@ -874,19 +882,38 @@ export class NodeTagVariable extends RealVariable {
         }
     }
 
-    private async castToType(type: string) {
-        const newVarExpression = `((${type})${this.evaluateName})`;
-        const response = await this.debug.evaluate(newVarExpression, this.frameId);
-        this.variablesReference = response.variablesReference;
+    protected async checkTagMatch() {
+        if (!this.tagsMatch()) {
+            await this.castToTag(this.realNodeTag);
+        }
     }
 
-    private async castToTag(tag: string) {
+    protected async castToType(type: string) {
+        const newVarExpression = `((${type})${this.evaluateName})`;
+        const response = await this.debug.evaluate(newVarExpression, this.frameId);
+        if (utils.isFailedVar(response)) {
+            /* Error - do not apply cast */
+            this.logger.debug('failed to cast type "%s" to tag "%s": %s', 
+                              this.type, type, response.result);
+            return response;
+        }
+
+        this.variablesReference = response.variablesReference;
+
+        /* 
+         * No need to update 'type' member - type in variables view
+         * already present and we rely on 'realNodeTag' member
+         */
+        return response;
+    }
+
+    protected async castToTag(tag: string) {
         /* 
          * We should substitute current type with target, because 
          * there may be qualifiers such `struct' or `const'
          */
         const resultType = utils.substituteStructName(this.type, tag);
-        await this.castToType(resultType);
+        return await this.castToType(resultType);
     }
 
     private async getMembersImpl(): Promise<Variable[] | undefined> {
@@ -896,9 +923,7 @@ export class NodeTagVariable extends RealVariable {
     }
 
     async doGetChildren() {
-        if (!this.tagsMatch()) {
-            await this.castToTag(this.realNodeTag);
-        }
+        await this.checkTagMatch();
 
         let members = await this.getMembersImpl();
 
@@ -923,9 +948,7 @@ export class NodeTagVariable extends RealVariable {
     }
 
     protected async doGetRealMembers() {
-        if (!this.tagsMatch()) {
-            await this.castToTag(this.realNodeTag);
-        }
+        await this.checkTagMatch();
 
         let members = await this.getMembersImpl();
 
@@ -963,7 +986,7 @@ export class NodeTagVariable extends RealVariable {
 
     static async create(variable: dap.DebugVariable, frameId: number,
                         context: ExecContext, logger: utils.ILogger,
-                        parent?: Variable): Promise<NodeTagVariable | undefined> {
+                        parent?: Variable): Promise<NodeVariable | undefined> {
         const getRealNodeTag = async () => {
             const nodeTagExpression = `((Node*)(${variable.evaluateName}))->type`;
             const response = await context.debug.evaluate(nodeTagExpression, frameId);
@@ -1028,7 +1051,16 @@ export class NodeTagVariable extends RealVariable {
             return new DisplayExprReprVariable(realTag, 'clause', args);
         }
 
-        return new NodeTagVariable(realTag, args);
+        /* Check this is a tag of 'Value' */
+        if (realTag === 'String' ||
+            realTag === 'Integer' ||
+            realTag === 'Float' ||
+            realTag === 'Boolean' ||
+            realTag === 'BitString') {
+            return new ValueVariable(realTag, args);
+        }
+
+        return new NodeVariable(realTag, args);
     }
 }
 
@@ -1048,13 +1080,13 @@ class RangeTableContainer {
      * this field check `rtableSearched` if this member has
      * actual value.
      */
-    rtable: NodeTagVariable[] | undefined;
+    rtable: NodeVariable[] | undefined;
 }
 
 /**
  * Subtypes of Expr node, that can be displayed with text representation of it's expression
  */
-class ExprNodeVariable extends NodeTagVariable {
+class ExprNodeVariable extends NodeVariable {
     /**
      * String representation of expression.
      */
@@ -1179,7 +1211,7 @@ class ExprNodeVariable extends NodeTagVariable {
          * which we do not have implementation
          */
 
-        if (!(variable instanceof NodeTagVariable)) {
+        if (!(variable instanceof NodeVariable)) {
             return 'EXPR';
         }
 
@@ -1225,7 +1257,7 @@ class ExprNodeVariable extends NodeTagVariable {
             default:
                 if (!rtable.rtableSearched) {
                     if (!rtable.rtable) {
-                        rtable.rtable = await this.findRtable() as NodeTagVariable[] | undefined;
+                        rtable.rtable = await this.findRtable() as NodeVariable[] | undefined;
                         rtable.rtableSearched = true;
                     }
                 }
@@ -1260,7 +1292,7 @@ class ExprNodeVariable extends NodeTagVariable {
                     throw new EvaluationError('failed to allocate memory using palloc: no memory');
                 }
 
-                if (result.result.startsWith('-var-create')) {
+                if (utils.isFailedVar(result)) {
                     /* On older systems palloc is a macro for MemoryContextAlloc */
                     result = await this.evaluate(`MemoryContextAlloc(CurrentMemoryContext, ${size})`);
                     if (utils.isValidPointer(result.result)) {
@@ -1746,25 +1778,27 @@ class ExprNodeVariable extends NodeTagVariable {
         const list = await this.getListMemberElements('arg_names');
         const values = [];
         for (const entry of list) {
-            if (entry instanceof NodeTagVariable) {
-                if (entry.realNodeTag === 'String') {
-                    const sval = (await entry.getRealMembers() ?? []).find(v => v.name === 'sval');
-                    if (sval) {
-                        values.push(utils.extractStringFromResult(sval.value) ?? 'NULL');
+            if (entry instanceof ValueVariable) {
+                try {
+                    const sval = await entry.getStringValue();
+                    values.push(sval ?? 'NULL');
+                } catch (e) {
+                    if (e instanceof EvaluationError) {
+                        this.logger.debug('error during getting string value from ValueVariable', e);
+                        values.push('???');
                     } else {
-                        values.push('???')
+                        throw e;
                     }
-                } else if (entry instanceof ExprNodeVariable) {
-                    values.push(await entry.getReprInternal(rtable));
-                } else {
-                    values.push('???');
                 }
+            } else if (entry instanceof ExprNodeVariable) {
+                values.push(await entry.getReprInternal(rtable));
             } else {
                 values.push('???');
             }
         }
+
         return values;
-        }
+    }
         
         const xmlOp = await this.getMemberValueEnum('op');
         switch (xmlOp) {
@@ -1954,7 +1988,7 @@ class ExprNodeVariable extends NodeTagVariable {
              * This function is used to obtain first argument from OpExpr.
              * Mimics `get_leftop` semantics.
              */
-            if (!(v instanceof NodeTagVariable && v.realNodeTag === 'OpExpr')) {
+            if (!(v instanceof NodeVariable && v.realNodeTag === 'OpExpr')) {
                 return '???';
             }
 
@@ -1970,7 +2004,7 @@ class ExprNodeVariable extends NodeTagVariable {
         }
 
         const testexpr = await this.getMember('testexpr');
-        if (!(testexpr instanceof NodeTagVariable)) {
+        if (!(testexpr instanceof NodeVariable)) {
             throw new EvaluationError('Failed to get SubLink->testexpr');
         }
 
@@ -2396,7 +2430,7 @@ class ExprNodeVariable extends NodeTagVariable {
         while (node) {
             if (node instanceof VariablesRoot) {
                 node = node.topLevelVariables.find(v => 
-                                ((v instanceof NodeTagVariable && 
+                                ((v instanceof NodeVariable && 
                                  (v.realNodeTag === 'PlannerInfo' || v.realNodeTag === 'Query'))));
                 if (!node) {
                     /* No more variables */
@@ -2404,7 +2438,7 @@ class ExprNodeVariable extends NodeTagVariable {
                 }
 
                 break;
-            } else if (node instanceof NodeTagVariable &&
+            } else if (node instanceof NodeVariable &&
                        (node.realNodeTag === 'PlannerInfo' || node.realNodeTag === 'Query')) {
                 break;
             }
@@ -2412,7 +2446,7 @@ class ExprNodeVariable extends NodeTagVariable {
             node = node.parent;
         }
 
-        if (!(node && node instanceof NodeTagVariable)) {
+        if (!(node && node instanceof NodeVariable)) {
             return;
         }
 
@@ -2420,7 +2454,7 @@ class ExprNodeVariable extends NodeTagVariable {
                             ? node 
                             : await node.getMember('parse');
 
-        if (!(query && query instanceof NodeTagVariable)) {
+        if (!(query && query instanceof NodeVariable)) {
             return;
         }
 
@@ -2443,7 +2477,7 @@ class ExprNodeVariable extends NodeTagVariable {
 }
 
 
-class DisplayExprReprVariable extends NodeTagVariable {
+class DisplayExprReprVariable extends NodeVariable {
     /**
      * 'Expr' member which representation is shown
      */
@@ -2664,7 +2698,7 @@ class LinkedListElementsMember extends Variable {
 /**
  * Special class to represent various Lists: Node, int, Oid, Xid...
  */
-export class ListNodeTagVariable extends NodeTagVariable {
+export class ListNodeTagVariable extends NodeVariable {
     listElements: ListElementsMember | LinkedListElementsMember | undefined;
     
     constructor(nodeTag: string, args: RealVariableArgs) {
@@ -2884,7 +2918,7 @@ export class ArraySpecialMember extends RealVariable {
 /* 
  * Bitmapset* variable
  */
-class BitmapSetSpecialMember extends NodeTagVariable {
+class BitmapSetSpecialMember extends NodeVariable {
     constructor(args: RealVariableArgs) {
         super('Bitmapset', args,);
     }
@@ -3062,7 +3096,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
         }
 
         let type;
-        if (this.parent instanceof NodeTagVariable) {
+        if (this.parent instanceof NodeVariable) {
             type = await this.parent.getRealType();
         } else {
             type = this.parent.type;
@@ -3129,7 +3163,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
             
             while (parent) {
                 if (parent.type.indexOf('PlannerInfo') !== -1 && 
-                    parent instanceof NodeTagVariable &&
+                    parent instanceof NodeVariable &&
                     parent.realNodeTag === 'PlannerInfo') {
                     return parent;
                 }
@@ -3144,7 +3178,7 @@ class BitmapSetSpecialMember extends NodeTagVariable {
                         parent instanceof VariablesRoot) {
                         for (const v of parent.topLevelVariables) {
                             if (v.type.indexOf('PlannerInfo') !== -1 &&
-                                v instanceof NodeTagVariable &&
+                                v instanceof NodeVariable &&
                                 v.realNodeTag === 'PlannerInfo') {
                                 return v;
                             }
@@ -3296,7 +3330,156 @@ class BitmapSetSpecialMember extends NodeTagVariable {
 }
 
 /**
- * Create {@link NodeTagVariable SpecialMember} object with required type
+ * Represents Integer, String, Boolean, Float or BitString nodes.
+ * In older systems there was single 'Value' struct for them,
+ * but now separate.
+ * This class contains logic for handling both cases
+ */
+class ValueVariable extends NodeVariable {
+    isString() {
+        return this.realNodeTag === 'String';
+    }
+    
+    protected async checkTagMatch() {
+        const structName = utils.getStructNameFromType(this.type);
+        
+        if (structName === this.realNodeTag || structName === 'Value') {
+            /* 
+             * If tag equal to it's tag, so it's already have
+             * valid type and no need to cast.
+             * 
+             * 'Value' is not a tag, but in this case we do not
+             * need to do anything too - already right type.
+             */
+            return;
+        }
+
+        if (!this.context.hasValueStruct) {
+            /* Try cast struct to corresponding tag */
+            const result = await this.castToTag(this.realNodeTag);
+            if (!utils.isFailedVar(result)) {
+                /* Success */
+                return;
+            }
+
+            this.logger.debug('failed to cast type "%s" to tag "%s": %s',
+                              this.type, this.realNodeTag, result.result);
+        }
+
+        const result = await this.castToTag('Value');
+        /* Try cast to 'Value' structure */
+        if (!utils.isFailedVar(result)) {
+            /* On success update flag indicating we have 'Value' */
+            this.context.hasValueStruct = true;
+            return;
+        }
+        
+        this.logger.debug('failed to cast type "%s" to tag "Value": %s', 
+                          this.type, result.result);
+    }
+
+    async doGetChildren() {
+        const children = await super.doGetChildren();
+        if (!(children && this.context.hasValueStruct)) {
+            /* For modern structures no need to show real values */
+            return children;
+        }
+        
+        const val = children.find(v => v.name === 'val');
+        if (!val) {
+            return children;
+        }
+
+        const valMembers = await val.getChildren();
+        if (!valMembers) {
+            return children;
+        }
+
+        let value: string;
+        switch (this.realNodeTag) {
+            case 'String':
+            case 'BitString':
+            case 'Float':
+                /* read str value */
+                const str = valMembers.find(v => v.name === 'str');
+                if (!str) {
+                    return children;
+                }
+                value = str.value;
+                break;
+            case 'Integer':
+            case 'Boolean':
+                /* read int value */
+                const ival = valMembers.find(v => v.name === 'ival');
+                if (!ival) {
+                    return children;
+                }
+                value = ival.value;
+                break;
+            case 'Null':
+                /* idk if this can happen, but anyway */
+                value = 'NULL';
+                break;
+            default:
+                return children;
+        }
+
+        return [
+            new ScalarVariable('$value$', value, 
+                               '' /* no type for this */,
+                               this.context, this.logger, this),
+            ...children.filter(v => v.name !== 'val'),
+        ]
+    }
+
+    /**
+     * Get string value if node is T_String.
+     * 
+     * @returns `string` value or `null` if it was NULL
+     * @throws EvaluationError if current Node is not T_String or errors
+     * during evalution occured
+     */
+    async getStringValue() {
+        if (!this.isString()) {
+            throw new EvaluationError(`current ValueVariable is not String: ${this.realNodeTag}`);
+        }
+
+        const children = await this.getRealMembers();
+        if (!children) {
+            throw new EvaluationError('failed to get children of ValueVariable');
+        }
+
+        /* It must be known by this time */
+        if (this.context.hasValueStruct) {
+            const val = children.find(v => v.name === 'val');
+            if (!val) {
+                throw new EvaluationError('member Value->val not found');
+            }
+
+            const members = await val.getChildren();
+            if (!members) {
+                throw new EvaluationError('failed to get members of Value->val union');
+            }
+
+            const str = members.find(v => v.name === 'str');
+            if (!str) {
+                throw new EvaluationError('member Value->val.str not found');
+            }
+
+            return utils.extractStringFromResult(str.value);
+        } else {
+            const sval = children.find(v => v.name === 'sval');
+            if (!sval) {
+                throw new EvaluationError('member String->sval not found');
+            }
+
+            return utils.extractStringFromResult(sval.value);
+        }
+    }
+}
+
+/**
+ * Create {@link NodeVariable SpecialMember} object with required type
  * from parsed JSON object in settings file.
  * If there is error occured (i.e. invalid configuration) - it will throw 
  * exception with message describing error.

@@ -609,7 +609,6 @@ export function getDisplayedExprs(): string[] {
         'RowExpr',
         'SQLValueFunction',
         'ScalarArrayOpExpr',
-        'String',
         'SubLink',
         'SubscriptingRef',
         'TargetEntry',

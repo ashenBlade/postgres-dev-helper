@@ -55,6 +55,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
                     debug: this.debug,
                     nodeVarRegistry: this.nodeVars,
                     specialMemberRegistry: this.specialMembers,
+                    hasValueStruct: false,
                 }
                 const topLevel = await this.getTopLevelVariables(exec, frameId);
                 if (!topLevel) {

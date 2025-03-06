@@ -319,6 +319,28 @@ export interface IDebuggerFacade {
         frameId: number | undefined) => Promise<dap.DebugVariable[]>;
 }
 
+/**
+ * Return `true` if evaluation operation failed.
+ */
+export function isFailedVar(response: dap.EvaluateResponse) {
+    /* 
+     * gdb/mi has many error types for different operations.
+     * In common - when error occurs 'result' has message in form
+     * 'OPNAME: MSG':
+     * 
+     *  - OPNAME - name of the failed operation
+     *  - MSG - human-readable error message
+     * 
+     * When we send 'evaluate' command this VS Code converts it to
+     * required command and when it fails, then 'result' member
+     * contains error message. But if we work with variables (our logic),
+     * OPNAME will be '-var-create', not that command, that VS Code sent.
+     * 
+     * More about: https://www.sourceware.org/gdb/current/onlinedocs/gdb.html/GDB_002fMI-Variable-Objects.html
+     */
+    return response.result.startsWith('-var-create');
+}
+
 function shouldShowScope(scope: dap.Scope) {
     /* 
      * Show only Locals - not Registers. Also do not
