@@ -172,7 +172,7 @@ export class SpecialMemberRegistry {
 /**
  * Context of current execution.
  */
-export interface ExecContext {
+export class ExecContext {
     /**
      * Registry about NodeTag variables information
      */
@@ -193,8 +193,35 @@ export interface ExecContext {
      * has common class for 'String', 'Integer' and other
      * value structures.
      * Updated at runtime in 'ValueVariable'.
+     * 
+     * Initialized with `false` and updated during runtime
      */
-    hasValueStruct: boolean;
+    hasValueStruct = false;
+
+    /**
+     * Flag, indicating that this version of PostgreSQL
+     * has `palloc` implementation as function, otherwise 
+     * it is macro and we must use `MemoryContextAlloc`.
+     * 
+     * Initialized with `true` and updated during runtime
+     */
+    hasPalloc = true;
+
+
+    /**
+     * 'MemoryContextData' struct has 'allowInCritSection'
+     * member. It must be checked during memory allocation.
+     * 
+     * Introduced in 9.5 version
+     */
+    hasAllowInCritSection = true;
+
+    constructor(nodeVarRegistry: NodeVarRegistry, specialMemberRegistry: SpecialMemberRegistry,
+                debug: utils.IDebuggerFacade) {
+        this.nodeVarRegistry = nodeVarRegistry;
+        this.specialMemberRegistry = specialMemberRegistry;
+        this.debug = debug;
+    }
 }
 
 /**
@@ -794,6 +821,124 @@ export class RealVariable extends Variable {
         }
         return num;
     }
+
+    private async isSafeToAllocateMemory() {
+        const isValidMemoryContextTag = (tag: string) => {
+            /* 
+             * Different versions has different algorithms (tags)
+             * for memory allocations.
+             * We check all of them, without knowledge of pg version.
+             * 
+             * In comments you will see version when it was introduced
+             * (AllocSetContext was here forever).
+             */
+            switch (tag) {
+                case 'T_AllocSetContext':
+                case 'T_SlabContext':       /* 10 */
+                case 'T_GenerationContext': /* 11 */
+                case 'T_BumpContext':       /* 17 */
+                    return true;
+                default:
+                    /* This is T_Invalid or something else */
+                    return false;
+            }
+        }
+        /* 
+         * Memory allocation is very sensitive operation.
+         * Allocation occurs in CurrentMemoryContext (directly or by `palloc`).
+         * 
+         * During this operation we have to perform some checks:
+         * 1. MemoryContextIsValid()
+         * 2. AssertNotInCriticalSection()
+         * 
+         * If we do not perform them by ourselves the whole backend may
+         * crash, because these checks will fail.
+         * 
+         * I try to reduce amount of debugger calls, so use single expression.
+         * It combines both MemoryContextIsValid() and AssertNotInCriticalSection().
+         */
+
+        if (this.context.hasAllowInCritSection) {
+            const checkExpr = `(CurrentMemoryContext == ((void *)0)) 
+            ? ((NodeTag) T_Invalid)
+            : (CritSectionCount == 0 || CurrentMemoryContext->allowInCritSection) 
+                ? ((NodeTag) ((Node *)CurrentMemoryContext)->type)
+                : ((NodeTag) T_Invalid)`;
+            const tag = await this.evaluate(checkExpr);
+
+            if (isValidMemoryContextTag(tag.result)) {
+                return true;
+            }
+            
+            /* 
+             * Here we check not 'isFailedVar' because in case of
+             * unknown member it gives another error, like
+             * 'There is no member ...'.
+             * 
+             * So to check not passed really, just check returned
+             * data is NodeTag, then check not passed, otherwise
+             * we might have old version -> switch to it.
+             */
+            if (tag.result.startsWith('T_')) {
+                return false;
+            }
+        }
+
+        const checkExpr = `(CurrentMemoryContext == ((void *)0))
+        ? ((NodeTag) T_Invalid)
+        : ((NodeTag) ((Node *)CurrentMemoryContext)->type)`;
+        
+        const tag = await this.evaluate(checkExpr);
+        if (isValidMemoryContextTag(tag.result)) {
+            this.context.hasAllowInCritSection = false;
+            return true;
+        }
+        
+        if (tag.result.startsWith('T_')) {
+            this.context.hasAllowInCritSection = false;
+            return false;
+        }
+
+        throw new EvaluationError(`failed to determine MemoryContext validity: ${tag.result}`);
+    }
+
+    /**
+     * call `palloc` with specified size (can be expression).
+     * before, it performs some checks and can throw EvaluationError
+     * if they fail.
+     */
+    async palloc(size: string) {
+        /* 
+         * Memory allocation is a very sensitive operation.
+         */
+        if (!await this.isSafeToAllocateMemory()) {
+            throw new EvaluationError('It is not safe to allocate memory now');
+        }
+        
+        if (this.context.hasPalloc) {
+            const result = await this.evaluate(`palloc(${size})`);
+
+            if (utils.isValidPointer(result.result)) {
+                return result.result;
+            }
+        }
+
+        const result = await this.evaluate(`MemoryContextAlloc(CurrentMemoryContext, ${size})`);
+        if (utils.isValidPointer(result.result)) {
+            this.context.hasPalloc = false;
+            return result.result;
+        }
+        
+        throw new EvaluationError(`failed to allocate memory using MemoryContextAlloc: ${result.result}`);
+    }
+
+    /**
+     * call `pfree` with specified pointer
+     */
+    async pfree(pointer: string) {
+        if (!utils.isNull(pointer))
+            await this.evaluate(`pfree((void *)${pointer})`);
+    }
 }
 
 const InvalidOid = 0;
@@ -1092,7 +1237,7 @@ class ExprNodeVariable extends NodeVariable {
      * If result is not correct string result output, then null returned.
      */
     private async evalStringResult(expr: string) {
-        const result = await this.debug.evaluate(expr, this.frameId);
+        const result = await this.evaluate(expr);
         return utils.extractStringFromResult(result.result);
     }
 
@@ -1117,7 +1262,9 @@ class ExprNodeVariable extends NodeVariable {
         }
 
         const ptr = utils.extractPtrFromStringResult(result.result);
-        await this.evaluate(`pfree((void *)${ptr})`);
+        if (ptr) {
+            await this.pfree(ptr);
+        }
         return str;
     }
 
@@ -1140,7 +1287,10 @@ class ExprNodeVariable extends NodeVariable {
         }
 
         const ptr = utils.extractPtrFromStringResult(result.result);
-        await this.evaluate(`pfree((void *)${ptr})`);
+        if (ptr) {
+            await this.pfree(ptr);
+        }
+        
         return str;
     }
 
@@ -1311,33 +1461,6 @@ class ExprNodeVariable extends NodeVariable {
     }
 
     private async formatConst(rtable: RangeTableContainer) {
-        const palloc = async (size: string) => {
-            let result = await this.evaluate(`palloc(${size})`);
-            
-            if (!utils.isValidPointer(result.result)) {
-                if (utils.isNull(result.result)) {
-                    throw new EvaluationError('failed to allocate memory using palloc: no memory');
-                }
-
-                if (utils.isFailedVar(result)) {
-                    /* On older systems palloc is a macro for MemoryContextAlloc */
-                    result = await this.evaluate(`MemoryContextAlloc(CurrentMemoryContext, ${size})`);
-                    if (utils.isValidPointer(result.result)) {
-                        return result.result;
-                    }
-                    throw new EvaluationError('failed to allocate memory using MemoryContextAlloc', result.result);
-                }
-
-                throw new EvaluationError('failed to allocate memory using palloc', result.result);
-            }
-
-            return result.result;
-        }
-
-        const pfree = async (ptr: string) => {
-            await this.debug.evaluate(`pfree((void *)${ptr})`, this.frameId);
-        }
-
         const evalOid = async (expr: string) => {
             const res = await this.evaluate(expr);
             const oid = Number(res.result);
@@ -1367,14 +1490,14 @@ class ExprNodeVariable extends NodeVariable {
              * Older systems do not have OidOutputFunctionCall().
              * But, luckily, it's very simple to write it by our selves.
              */
-            
-            const fmgrInfo = await palloc('sizeof(FmgrInfo)');
+
+            const fmgrInfo = await this.palloc('sizeof(FmgrInfo)');
             /* Init FmgrInfo */
             await this.evaluate(`fmgr_info(${funcOid}, (void *)${fmgrInfo})`);
             
             /* Call function */
             const [str, ptr] = await evalStrWithPtr(`(char *)((Pointer) FunctionCall1(((void *)${fmgrInfo}), ((Const *)${this.value})->constvalue))`);
-            await pfree(ptr);
+            await this.pfree(ptr);
             return str;
         }
 
@@ -1382,8 +1505,8 @@ class ExprNodeVariable extends NodeVariable {
             return 'NULL';
         }
 
-        const tupoutput = await palloc('sizeof(Oid)');
-        const tupIsVarlena = await palloc('sizeof(Oid)');
+        const tupoutput = await this.palloc('sizeof(Oid)');
+        const tupIsVarlena = await this.palloc('sizeof(Oid)');
 
         /* 
          * Older system have 4 param - tupOIParam.
@@ -1391,7 +1514,7 @@ class ExprNodeVariable extends NodeVariable {
          * we want is 'tupoutput'.
          * Hope, debugger will not invalidate the stack after that...
          */
-        const tupIOParam = await palloc('sizeof(Oid)');
+        const tupIOParam = await this.palloc('sizeof(Oid)');
 
         /* 
          * WARN: I do not why, but you MUST cast pointers as 'void *',
@@ -1403,7 +1526,7 @@ class ExprNodeVariable extends NodeVariable {
         await this.evaluate(`getTypeOutputInfo(((Const *)${this.value})->consttype, ((void *)${tupoutput}), ((void *)${tupIOParam}), ((void *)${tupIsVarlena}))`);
 
         const funcOid = await evalOid(`*((Oid *)${tupoutput})`);
-        if (funcOid === 0) {
+        if (funcOid === InvalidOid) {
             /* Invalid function */
             return '???';
         }
@@ -1411,7 +1534,7 @@ class ExprNodeVariable extends NodeVariable {
         let repr;
         try {
             const [str, ptr] = await evalStrWithPtr(`OidOutputFunctionCall(${funcOid}, ((Const *)${this.value})->constvalue)`);
-            await pfree(ptr);
+            await this.pfree(ptr);
             repr = str;
         } catch (e) {
             if (!(e instanceof EvaluationError)) {
@@ -1421,9 +1544,9 @@ class ExprNodeVariable extends NodeVariable {
             repr = await legacyOidOutputFunctionCall(funcOid);
         }
 
-        await pfree(tupoutput);
-        await pfree(tupIsVarlena);
-        await pfree(tupIOParam);
+        await this.pfree(tupoutput);
+        await this.pfree(tupIsVarlena);
+        await this.pfree(tupIOParam);
 
         return repr;
     }
@@ -2951,8 +3074,8 @@ class BitmapSetSpecialMember extends NodeVariable {
 
     async isValidSet() {
         const expression = `bms_is_valid_set(${this.evaluateName})`;
-        const response = await this.debug.evaluate(expression, this.frameId);
-        if (!response.type) {
+        const response = await this.evaluate(expression);
+        if (!utils.isFailedVar(response)) {
             /* 
              * `bms_is_valid_set' introduced in 17.
              * On other versions `type` member will be not set (undefined).
@@ -2961,7 +3084,8 @@ class BitmapSetSpecialMember extends NodeVariable {
              */
             return true;
         }
-        return response.result === 'true';
+
+        return utils.extractBoolFromValue(response.result) ?? false;
     }
 
     safeToObserve() {
@@ -3106,7 +3230,7 @@ class BitmapSetSpecialMember extends NodeVariable {
             numbers.push(number);
         } while (number > 0);
 
-        await this.debug.evaluate(`pfree((Bitmapset*)${tmpSet.result})`, this.frameId);
+        await this.pfree(tmpSet.result);
 
         return numbers;
     }
