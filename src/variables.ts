@@ -796,6 +796,8 @@ export class RealVariable extends Variable {
     }
 }
 
+const InvalidOid = 0;
+
 /**
  * Variable/member with `NodeTag' assigned.
  * We should examine it to get real NodeTag because it 
@@ -1098,16 +1100,48 @@ class ExprNodeVariable extends NodeVariable {
      * Run `get_func_name(this->oidMember)` and get output as string.
      */
     private async getFuncName(oidMember: string) {
-        const result = await this.evaluate(`get_func_name(((${this.realNodeTag} *)${this.value})->${oidMember})`);
-        return utils.extractStringFromResult(result.result);
+        /* First check oid is valid, otherwise ERROR is thrown */
+        const oid = await this.getMemberValueNumber(oidMember);
+        if (oid === InvalidOid) {
+            return null;
+        }
+
+        const result = await this.evaluate(`get_func_name((Oid) ${oid})`);
+        if (utils.isFailedVar(result)) {
+            return null;
+        }
+        
+        const str = utils.extractStringFromResult(result.result);
+        if (str === null) {
+            return null;
+        }
+
+        const ptr = utils.extractPtrFromStringResult(result.result);
+        await this.evaluate(`pfree((void *)${ptr})`);
+        return str;
     }
 
     /**
      * Run `get_opname(this->oidMember)` and get output as string.
      */
     private async getOpName(oidMember: string) {
-        const result = await this.evaluate(`get_opname(((${this.realNodeTag} *)${this.value})->${oidMember})`);
-        return utils.extractStringFromResult(result.result);
+        const oid = await this.getMemberValueNumber(oidMember);
+        if (oid === InvalidOid) {
+            return null;
+        }
+        const result = await this.evaluate(`get_opname((Oid)${oid})`);
+        if (utils.isFailedVar(result)) {
+            return null;
+        }
+        
+        const str = utils.extractStringFromResult(result.result);
+        if (str === null) {
+            return null;
+        }
+
+        const ptr = utils.extractPtrFromStringResult(result.result);
+        await this.evaluate(`pfree((void *)${ptr})`);
+        return str;
     }
 
     /**
@@ -1449,14 +1483,13 @@ class ExprNodeVariable extends NodeVariable {
             case 'COERCE_IMPLICIT_CAST':
                 /* User did not request explicit cast, so show as simple expr */
                 return await this.getReprPlaceholder(args[0], rtable);
-            }
+        }
         return '???';
     }
 
     private async formatAggref(rtable: RangeTableContainer) {
         const funcname = await this.getFuncName('aggfnoid') ?? '(invalid func)';
 
-        const argsMember = await this.getMember('args');
         const reprs = await this.getListMemberElementsReprs('args', rtable);
         
         let args;
