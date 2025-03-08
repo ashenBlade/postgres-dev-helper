@@ -119,61 +119,69 @@ class ConfigFileParseResult {
     aliasInfos?: vars.AliasInfo[];
     /* Path to custom typedef's file */
     typedefs?: string;
+    /* Custom List types */
+    customListTypes?: vars.ListPtrSpecialMemberInfo[];    
 }
 
 function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefined {
-    if (!configFile === undefined) {
-        return;
-    }
-
-    if (typeof configFile !== 'object') {
-        return;
-    }
-
-    const parseArraySm1 = (obj: any): vars.ArraySpecialMemberInfo => {
+    const parseArraySm1 = (obj: any): vars.ArraySpecialMemberInfo | undefined => {
+        if (!(obj && typeof obj === 'object' && obj !== null)) {
+            return;
+        }
+        
         let nodeTag = obj.nodeTag;
         if (!nodeTag) {
-            throw new Error("nodeTag field not provided");
+            vscode.window.showErrorMessage('"nodeTag" field not provided');
+            return;
         }
 
         if (typeof nodeTag !== 'string') {
-            throw new Error(`nodeTag type must be string, given: ${typeof nodeTag}`);
+            vscode.window.showErrorMessage(`nodeTag type must be string, given: ${typeof nodeTag}`);
+            return;
         }
 
         nodeTag = nodeTag.trim().replace('T_', '');
 
         /* NodeTag used also as type name, so it must be valid identifier */
         if (!utils.isValidIdentifier(nodeTag)) {
-            throw new Error(`nodeTag must be valid identifier. given: ${obj.nodeTag}`);
+            vscode.window.showErrorMessage(`nodeTag must be valid identifier. given: ${obj.nodeTag}`);
+            return;
         }
 
         let memberName = obj.memberName;
         if (!memberName) {
-            throw new Error(`memberName field not provided for type with NodeTag: ${obj.nodeTag}`);
+            vscode.window.showErrorMessage(`"memberName" field not provided for type with NodeTag: ${obj.nodeTag}`);
+            return;
         }
 
         if (typeof memberName !== 'string') {
-            throw new Error(`memberName field must be string for type with NodeTag: ${obj.nodeTag}`);
+            vscode.window.showErrorMessage(`"memberName" field must be string for type with NodeTag: ${obj.nodeTag}`);
+            return;
         }
 
         memberName = memberName.trim();
         if (!utils.isValidIdentifier(memberName)) {
-            throw new Error(`memberName field ${memberName} is not valid identifier`);
+            vscode.window.showErrorMessage(`"memberName" field ${memberName} is not valid identifier`);
+            return;
         }
 
         let lengthExpr = obj.lengthExpression;
         if (!lengthExpr) {
-            throw new Error(`lengthExpression not provided for: ${obj.nodeTag}->${memberName}`);
+            vscode.window.showErrorMessage(`lengthExpression not provided for: ${obj.nodeTag}->${memberName}`);
+            return;
         }
 
         if (typeof lengthExpr !== 'string') {
-            throw new Error(`lengthExpression field must be string for: ${obj.nodeTag}->${memberName}`);
+            vscode.window.showErrorMessage(`lengthExpression field must be string for: ${obj.nodeTag}->${memberName}`);
+            return;
         }
 
         lengthExpr = lengthExpr.trim();
         if (!lengthExpr) {
-            throw new Error('lengthExpression can not be empty string');
+            vscode.window.showErrorMessage('lengthExpression can not be empty string');
+            return;
         }
+
         return {
             typeName: nodeTag,
             memberName,
@@ -181,49 +189,62 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
         }
     }
 
-    const parseArraySm2 = (obj: any): vars.ArraySpecialMemberInfo => {
+    const parseArraySm2 = (obj: any): vars.ArraySpecialMemberInfo | undefined => {
+        if (!(obj && typeof obj === 'object' && obj !== null)) {
+            return;
+        }
+        
         let typeName = obj.typeName;
         if (!typeName) {
-            throw new Error("typeName field not provided");
+            vscode.window.showErrorMessage('"typeName" field not provided');
+            return;
         }
 
         if (typeof typeName !== 'string') {
-            throw new Error(`typeName type must be string, given: ${typeof typeName}`);
+            vscode.window.showErrorMessage(`"typeName" type must be string, given: ${typeof typeName}`);
+            return;
         }
 
         typeName = typeName.trim();
 
         /* NodeTag used also as type name, so it must be valid identifier */
         if (!utils.isValidIdentifier(typeName)) {
-            throw new Error(`typeName must be valid identifier. given: ${typeName}`);
+            vscode.window.showErrorMessage(`typeName must be valid identifier. given: ${typeName}`);
+            return;
         }
 
         let memberName = obj.memberName;
         if (!memberName) {
-            throw new Error(`memberName field not provided for type: ${typeName}`);
+            vscode.window.showErrorMessage(`memberName field not provided for type: ${typeName}`);
+            return;
         }
 
         if (typeof memberName !== 'string') {
-            throw new Error(`memberName field must be string for type: ${typeName}`);
+            vscode.window.showErrorMessage(`memberName field must be string for type: ${typeName}`);
+            return;
         }
 
         memberName = memberName.trim();
         if (!utils.isValidIdentifier(memberName)) {
-            throw new Error(`memberName field ${memberName} is not valid identifier`)
+            vscode.window.showErrorMessage(`memberName field ${memberName} is not valid identifier`);
+            return;
         }
 
         let lengthExpr = obj.lengthExpression;
         if (!lengthExpr) {
-            throw new Error(`lengthExpression not provided for: ${typeName}->${memberName}`);
+            vscode.window.showErrorMessage(`lengthExpression not provided for: ${typeName}->${memberName}`);
+            return;
         }
 
         if (typeof lengthExpr !== 'string') {
-            throw new Error(`lengthExpression field must be string for: ${typeName}->${memberName}`);
+            vscode.window.showErrorMessage(`lengthExpression field must be string for: ${typeName}->${memberName}`);
+            return;
         }
 
         lengthExpr = lengthExpr.trim();
         if (!lengthExpr) {
-            throw new Error('lengthExpression can not be empty string');
+            vscode.window.showErrorMessage('lengthExpression can not be empty string');
+            return;
         }
         return {
             typeName,
@@ -232,33 +253,31 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
         }
     }
 
-    const configVersion = Number(configFile.version);
-    if (Number.isNaN(configVersion) ||
-        !(configVersion === 1 || configVersion === 2 || configVersion === 3)) {
-        throw new Error(`unknown version of config file: ${configFile.version}`);
-    }
-
-    const parseAliasV2 = (obj: any): vars.AliasInfo => {
+    const parseAliasV2 = (obj: any): vars.AliasInfo | undefined => {
         if (typeof obj !== 'object') {
-            throw new Error(`AliasInfo object must be object type. given: ${typeof obj}`);
+            return;
         }
 
         if (!(obj.alias && typeof obj.alias === 'string')) {
-            throw new Error(`"alias" field must be string. given: ${typeof obj.alias}`);
+            vscode.window.showErrorMessage(`"alias" field must be string. given: ${typeof obj.alias}`);
+            return;
         }
 
         const alias = obj.alias.trim();
         if (!alias) {
-            throw new Error(`"alias" field must not be empty`);
+            vscode.window.showErrorMessage(`"alias" field must not be empty`);
+            return;
         }
 
         if (!(obj.type && typeof obj.type === 'string')) {
-            throw new Error(`"type" field must be string. given: ${typeof obj.type}`);
+            vscode.window.showErrorMessage(`"type" field must be string. given: ${typeof obj.type}`);
+            return;
         }
 
         const type = obj.type.trim();
         if (!type) {
-            throw new Error(`"type" field must not be empty`);
+            vscode.window.showErrorMessage(`"type" field must not be empty`);
+            return;
         }
 
         return {
@@ -269,39 +288,117 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
 
     const parseTypedefs = (obj: any): string | undefined => {
         if (!obj) {
-            return undefined;
+            return;
         }
         
         if (typeof obj !== 'string') {
-            throw new Error('"typedefs" field must be string');
+            vscode.window.showErrorMessage('"typedefs" field must be a string');
+            return;
         }
 
-        return (obj as string).trim();
+        return obj.trim();
+    }
+
+    const parseListTypes = (obj: any): vars.ListPtrSpecialMemberInfo[] | undefined => {
+        /* 
+         * [
+         *     {
+         *         "type": "string",
+         *         "member": ["string", "string"],
+         *         "variable": ["string", "string"]
+         *     }
+         * ]
+         */
+        if (!Array.isArray(obj)) {
+            return;
+        }
+
+        const elements: vars.ListPtrSpecialMemberInfo[] = [];
+        for (const o of obj) {
+            if (!(typeof obj === 'object' && obj)) {
+                continue;
+            }
+
+            const type = o.type;
+            if (typeof type !== 'string' && type) {
+                vscode.window.showErrorMessage(`"type" field must be non-empty string. given ${typeof type}`);
+                continue;
+            }
+
+            let memberEntry: [string, string] | undefined;
+            if (Array.isArray(o.member) && o.member.length === 2) {
+                const struct = o.member[0];
+                const member = o.member[1];
+                if (!(typeof struct === 'string' && typeof member === 'string' &&
+                             struct              &&        member)) {
+                    vscode.window.showErrorMessage(`"member" entry should be array of struct and member strings. given: [${typeof struct}, ${typeof member}]`);
+                    continue;
+                }
+
+                memberEntry = [struct, member];
+            }
+
+            let variableEntry: [string, string] | undefined;
+            if (Array.isArray(o.variable) && o.variable.length === 2) {
+                const func = o.variable[0];
+                const variable = o.variable[1];
+                if (!(typeof func === 'string' && typeof variable === 'string' &&
+                             func              &&        variable)) {
+                    vscode.window.showErrorMessage(`"variable" entry should be array of function name and variable strings. given: [${typeof func}, ${typeof variable}]`);
+                    continue;
+                }
+
+                variableEntry = [func, variable];
+            }
+            
+            elements.push({
+                type,
+                member: memberEntry,
+                variable: variableEntry
+            })
+        }
+
+        return elements;
+    }
+
+    if (!(typeof configFile === 'object' && configFile)) {
+        return;
+    }
+
+    const configVersion = Number(configFile.version);
+    if (!(Number.isInteger(configVersion) && 1 <= configVersion && configVersion <= 4)) {
+        vscode.window.showErrorMessage(`unknown version of config file: ${configFile.version}`);
+        return;
     }
 
     const arrayMemberParser = configVersion == 1
         ? parseArraySm1
         : parseArraySm2;
 
-    const arrayInfos = Array.isArray(configFile.specialMembers?.array)
-        && configFile.specialMembers.array.length > 0
-        ? configFile.specialMembers.array.map(arrayMemberParser)
-        : undefined;
+    const arrayInfos = Array.isArray(configFile.specialMembers?.array) &&
+                       configFile.specialMembers.array.length > 0
+                ? configFile.specialMembers.array.map(arrayMemberParser).filter((a: any) => a !== undefined)
+                : undefined;
 
-    const aliasInfos = configVersion >= 2
-        && Array.isArray(configFile.aliases)
-        && configFile.aliases.length > 0
-        ? configFile.aliases.map(parseAliasV2)
-        : undefined;
+    const aliasInfos = configVersion >= 2 &&
+                       Array.isArray(configFile.aliases) &&
+                       configFile.aliases.length > 0
+                ? configFile.aliases.map(parseAliasV2).filter((a: any) => a !== undefined)
+                : undefined;
 
     const typedefs = configVersion >= 3
-        ? parseTypedefs(configFile.typedefs)
-        : undefined;
+                ? parseTypedefs(configFile.typedefs)
+                : undefined;
+
+    const customListTypes = configVersion >= 4
+                ? parseListTypes(configFile.customListTypes)
+                : undefined;
 
     return {
         arrayInfos,
         aliasInfos,
-        typedefs
+        typedefs,
+        customListTypes,
     }
 }
 
@@ -645,10 +742,12 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
                 logger.debug('adding %i array special members from config file', parseResult.arrayInfos.length);
                 specialMembers.addArraySpecialMembers(parseResult.arrayInfos);
             }
+
             if (parseResult.aliasInfos?.length) {
                 logger.debug('adding %i aliases from config file', parseResult.aliasInfos.length);
                 nodeVars.addAliases(parseResult.aliasInfos);
             }
+
             if (parseResult.typedefs) {
                 let typedefs: vscode.Uri;
                 if (path.isAbsolute(parseResult.typedefs)) {
@@ -667,6 +766,16 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
                     Configuration.CustomTypedefsFile = typedefs;
                 } else {
                     vscode.window.showErrorMessage(`typedefs file ${parseResult.typedefs} does not exist`);
+                }
+            }
+
+            if (parseResult.customListTypes) {
+                logger.debug('adding %i custom list types', parseResult.customListTypes.length);
+                try {
+                    specialMembers.addNodePtrSpecialMembers(parseResult.customListTypes);
+                } catch (e) {
+                    vscode.window.showErrorMessage('failed to add custom List types');
+                    logger.error('error occurred during adding custom List types', e);
                 }
             }
         }
@@ -737,11 +846,12 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
                     await utils.writeFile(configFilePath, JSON.stringify(
                         /* Example config file */
                         {
-                            version: 3,
+                            version: 4,
                             specialMembers: {
                                 array: []
                             },
-                            aliases: []
+                            aliases: [],
+                            customListTypes: []
                         },
                         undefined, '    '));
                 } catch (err: any) {

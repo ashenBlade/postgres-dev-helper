@@ -84,13 +84,40 @@
         },
         "version": {
             "type": "integer",
-            "default": 3,
+            "default": 4,
             "enum": [
                 1,
                 2,
-                3
+                3,
+                4
             ],
             "description": "Version of configuration file layout. Managed by extension"
+        },
+        "customListType": {
+            "type": "object",
+            "description": "Description of custom pointer type for specified List",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "pattern": "\\*$",
+                    "description": "Type to which 'ListCell's will be casted"
+                },
+                "member": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "Pair of parent struct name and member name inside this struct, identifying this List*"
+                },
+                "variable": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "Pair of function name and variable name inside this function, identifying this List*"
+                }
+            },
+            "required": [
+                "type"
+            ]
         }
     },
     "oneOf": [
@@ -166,6 +193,41 @@
                 },
                 "typedefs": {
                     "$ref": "#/definitions/typedefs"
+                }
+            }
+        },
+        {
+            "type": "object",
+            "properties": {
+                "version": {
+                    "const": 4,
+                    "$ref": "#/definitions/version"
+                },
+                "specialMembers": {
+                    "type": "object",
+                    "description": "Configurations for special members",
+                    "properties": {
+                        "array": {
+                            "type": "array",
+                            "description": "Special members that represent arrays - separate fields for array and it's length",
+                            "items": {
+                                "$ref": "#/definitions/arraySpecialMemberV2"
+                            }
+                        }
+                    }
+                },
+                "aliases": {
+                    "$ref": "#/definitions/aliasesV2"
+                },
+                "typedefs": {
+                    "$ref": "#/definitions/typedefs"
+                },
+                "customListTypes": {
+                    "type": "array",
+                    "description": "Array of definitions of custom List types",
+                    "items": {
+                        "$ref": "#/definitions/customListType"
+                    }
                 }
             }
         }

@@ -23,8 +23,7 @@ variables.
 
 ### Show contents of containers
 
-Extension support showing contents of containers: `List` (including subtypes)
-and `Bitmapset`.
+Extension support showing contents of containers: `List` (including Oid, TransactionId, int and custom user pointer types) and `Bitmapset`.
 
 ![List * expansion](resources/list.gif)
 
@@ -35,13 +34,11 @@ and `Bitmapset`.
 
 ![Bitmapset expansion](resources/bitmapset.gif)
 
-Also, there is support for C-arrays (like `PlannerInfo->simple_rel_array`) - 
-array is displayed using it's length.
+Also, there is support for C-arrays (like `PlannerInfo->simple_rel_array`) - array is displayed using it's length.
 
 ![Planner expansion](resources/planner.gif)
 
-Currently, there are 36 registered array members, but you can add your own
-using [pgsql_hacker_helper.json](#pgsql_hacker_helperjson) configuration file.
+Currently, there are 36 registered array members, but you can add your own using [pgsql_hacker_helper.json](#pgsql_hacker_helperjson) configuration file.
 
 ### Show where Bitmapset references
 
@@ -134,7 +131,7 @@ Example json:
 
 ```json
 {
-    "version": 3,
+    "version": 4,
     "specialMembers": {
         "array": [
             {
@@ -160,13 +157,30 @@ Example json:
             "type": "PlannerInfo *"
         }
     ],
-    "typedefs": "my.typedefs.file"
+    "typedefs": "my.typedefs.file",
+    "customListTypes": [
+        {
+            "type": "char *",
+            "member": ["UserData", "knownNames"]
+        },
+        {
+            "type": "struct FileChunks *",
+            "variable": ["ProcessFileChunks", "chunks"]
+        }
+    ]
 }
 ```
 
-In example 3 array special members - arrays will be shown with specified length,
-not just pointers to arrays start.
-Also, `PlannerRef` - typedef for `PlannerInfo *`.
+Features:
+
+- 3 *array* special members (pointer field used as array) - `"typeName"->"memberName"` will be shown with length `"typeName"->"lengthExpression"`, not as simple pointers.
+
+- `PlannerRef` - custom user typedef for `PlannerInfo *`.
+
+- `UserData->knownNames` is a `List *` that contains pointer elements not `Node *`, but `char *` (`List` of strings).
+Variable `chunks` in function `ProcessFileChunks` is a `List` that contains pointer elements not `Node *`, but `struct FileChunks *`.
+
+- User provided custom `typedefs` list (used by formatter).
 
 For more info check [configuration file documentation](./docs/config_file.md).
 
@@ -218,30 +232,34 @@ Minimal supported version of:
 > It is tested manually and not all use cases might be covered. If you found
 > bug specific to some version please [create issue](https://github.com/ashenBlade/postgres-dev-helper/issues).
 
-Also, extension will target latest VS Code version and try to use the full
-functionality of new versions. So, use latest VS Code versions to get new
-features earlier.
+Also, extension will target latest VS Code version and try to use the full functionality of new versions.
+So, use latest VS Code versions to get new features earlier.
 
 For using formatter minimal supported version Postgres is `10`.
+
+> WARN: I *do not stand* that all extension features will work as expected on all versions
 
 ## Known Issues
 
 Known issues:
 
-- If in pointer variable was garbage, extension will not detect it and expand
-  this variable (may be garbage).
+- If in pointer variable was garbage, extension will not detect it and expand this variable (may be garbage).
+  Usually, this will not lead to fatal errors, just note this.
 - To get NodeTags extension reads all available NodeTag files (from settings),
   but these files may be not created (./configure or make not run). I assume by
-  time of debugging start files will be created, so extension catch them and
-  process.
-- Tested only with [ms-vscode.cpptools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools)
-  extension. Currently, no support for other DAP adapters (i.e. Code LLDB)
+  time of debugging start files will be created, so extension catch them and process.
+- Works only with [ms-vscode.cpptools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools)
+  extension. Currently, no support for other DAP adapters (i.e. Code LLDB).
+  Reason: strongly tied to output format of this extension (not only expression evaluation, but stack trace format i.e.)
 - Sometimes formatting can misbehave. This is due to `pg_bsd_indent` internal
   logic. If formatting is not applied try run command again. If file after
   formatting is a mess this can be due to errors in logic.
 - Some operations require data to be allocated (usually, for function invocation).
   For this, `palloc` and `pfree` are used. So if you are debugging memory subsystem
   you may want to disable extension, because it may affect debugging process.
+- Some operations require for some work to be done with system catalog.
+  For example, to get function name using it's Oid. So, system catalog (system cache)
+  can be modified during extension work.
 
 ## Release Notes
 
@@ -386,5 +404,4 @@ Call `pprint(Node *)` on selected variable in `Variables` view.
 
 ## Contributing
 
-Go to [Issues](https://github.com/ashenBlade/postgres-dev-helper/issues) if you
-want to say something: bugs, features, etc...
+Go to [Issues](https://github.com/ashenBlade/postgres-dev-helper/issues) if you want to say something: bugs, features, etc...

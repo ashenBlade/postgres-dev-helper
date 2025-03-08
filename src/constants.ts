@@ -622,18 +622,15 @@ export function getDisplayedExprs(): string[] {
 }
 
 export function getKnownCustomListPtrs(): ListPtrSpecialMemberInfo[] {
-    const member = (type: string, struct: string, member: string): ListPtrSpecialMemberInfo => {
-        return {
-            type: type + ' *',
-            member: [struct, member]
-        }
-    }
-    const variable = (type: string, func: string, variable: string): ListPtrSpecialMemberInfo => {
-        return {
-            type: type + ' *',
-            variable: [func, variable]
-        }
-    }
+    const member = (type: string, struct: string, member: string): ListPtrSpecialMemberInfo => ({
+        type: type + ' *',
+        member: [struct, member]
+    });
+
+    const variable = (type: string, func: string, variable: string): ListPtrSpecialMemberInfo => ({
+        type: type + ' *',
+        variable: [func, variable]
+    });
 
     return [
         /* contrib/amcheck/verify_heapam.c */

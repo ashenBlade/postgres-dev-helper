@@ -92,6 +92,8 @@ Also, there are some Special Node types:
   - `IntList`
   - `OidList`
   - `XidList`
+  
+  Additionally, you can specify custom pointer type in `List`. See [custom `List` types](./config_file.md#custom-list-types) section in configuration file documentation.
 
 - Bitmapset - show elements of set in pseudo-member `$elements$`
 
@@ -200,9 +202,8 @@ this you should update config file like this:
 }
 ```
 
-There are about 36 supported asm. For example, `simple_rel_array` for `PlannerInfo`
+There are about 36 supported ASM. For example, `simple_rel_array` for `PlannerInfo`
 
 ![PlannerInfo->simple_rel_array](../resources/tutorial_array_sm.png)
 
 > For more info about configuration check [documentation](config_file.md)
-

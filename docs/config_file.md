@@ -5,10 +5,10 @@ It stored inside `.vscode` folder.
 
 ## Layout
 
-There are 2 versions of config file layout.
-Version is specified using top level `"version"` field.
+There are 4 versions of config file layout.
+Version is specified using `"version"` field.
 
-Current version - 3.
+Current version - 4.
 
 > This file belongs to latest schema version.
 
@@ -156,7 +156,7 @@ Read typedefs file `custom.typedefs.list` in current src path.
 }
 ```
 
-Read global typedefs file stored in temporary directory
+Read global typedefs file stored in temporary directory.
 
 ```json
 {
@@ -164,3 +164,50 @@ Read global typedefs file stored in temporary directory
     "typedefs": "/tmp/cached.custom.typedefs.list"
 }
 ```
+
+### Custom `List` types
+
+Usually, `List *` contains nodes (inherits from `Node`), but actually it can contain any pointer.
+Extension treats all `List` as they contain `Node` variables, but you can say that this variable or struct member contains custom type (pointer to it).
+
+This information stored in `customListTypes` member. This is array of objects:
+
+```json
+{
+    "version": 4,
+    "customListTypes": [
+        {
+            "type": "MyCustomType *",
+            "member": ["ParentStruct", "parent_member"]
+        },
+        {
+            "type": "MyCustomType *",
+            "variable": ["ParentFunction", "variable_name"]
+        }
+    ]
+}
+```
+
+Each object contain:
+
+- `type` - fully-qualified type name (that is `struct` or `pointer` should be included) to which pointer will be casted.
+- `member` - pair of struct name and member of this struct. Definition looks like this:
+
+    ```c
+    typedef struct ParentStruct
+    {
+        List *parent_member;
+    } ParentStruct;
+    ```
+
+- `variable` - pair of function name and variable inside it. Definition looks like this:
+
+    ```c
+    void
+    ParentFunction()
+    {
+        List *variable_name;
+    }
+    ```
+
+With this 2 strategies extension detects `List`s with custom types.
