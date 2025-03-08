@@ -100,7 +100,7 @@
                 "type": {
                     "type": "string",
                     "pattern": "\\*$",
-                    "description": "Type to which 'ListCell's will be casted"
+                    "description": "Type to which 'ListCell's will be casted. Must be pointer."
                 },
                 "member": {
                     "type": "array",
