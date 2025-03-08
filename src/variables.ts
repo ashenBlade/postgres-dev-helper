@@ -129,15 +129,43 @@ export interface ArraySpecialMemberInfo {
     lengthExpr: string;
 }
 
+export interface ListPtrSpecialMemberInfo {
+    /* 
+     * Real type of List members (must be pointer or alias)
+     */
+    type: string;
+
+    /**
+     * Pair of [Struct, Member] identifying this member
+     */
+    member?: [string, string];
+
+    /**
+     * Pair of [Function, Variable] identifying this member
+     */
+    variable?: [string, string];
+}
+
 export class SpecialMemberRegistry {
     /**
      * Double map: Type name -> (Member Name -> Info Object).
      */
     arraySpecialMembers: Map<string, Map<string, ArraySpecialMemberInfo>>;
 
+    /**
+     * Double map: Member/variable name -> (Struct/Function name -> Info object).
+     * 
+     * Outer key is name of member or variable.
+     * Inner key is name of structure or function (containing this member/variable
+     * respectively).
+     */
+    listCustomPtrs: Map<string, Map<string, ListPtrSpecialMemberInfo>>;
+
     constructor() {
         this.arraySpecialMembers = new Map();
+        this.listCustomPtrs = new Map();
         this.addArraySpecialMembers(constants.getArraySpecialMembers());
+        this.addNodePtrSpecialMembers(constants.getKnownCustomListPtrs());
     }
 
     addArraySpecialMembers(elements: ArraySpecialMemberInfo[]) {
@@ -149,6 +177,32 @@ export class SpecialMemberRegistry {
                 ]));
             } else {
                 typeMap.set(element.memberName, element);
+            }
+        }
+    }
+
+    addNodePtrSpecialMembers(elements: ListPtrSpecialMemberInfo[]) {
+        const addRecord = (member: string, funcOrStruct: string,
+                           info: ListPtrSpecialMemberInfo) => {
+            const map = this.listCustomPtrs.get(member);
+            if (map === undefined) {
+                this.listCustomPtrs.set(member, new Map([
+                    [funcOrStruct, info]
+                ]))
+            } else {
+                map.set(funcOrStruct, info);
+            }
+        }
+        
+        for (const e of elements) {
+            if (e.member) {
+                const [struct, member] = e.member;
+                addRecord(member, struct, e);
+            }
+            
+            if (e.variable) {
+                const [func, variable] = e.variable;
+                addRecord(variable, func, e);
             }
         }
     }
@@ -343,8 +397,13 @@ export abstract class Variable {
     abstract doGetChildren(): Promise<Variable[] | undefined>;
     protected isExpandable() {
         /* Pointer to struct */
-        if (utils.isValidPointer(this.value) && !utils.isBuiltInType(this.type)) {
+        if (utils.isValidPointer(this.value)) {
             return true;
+        }
+
+        /* Do not deref NULL */
+        if (utils.isNull(this.value)) {
+            return false;
         }
         
         /* Embedded or top level structs */
@@ -428,7 +487,7 @@ export abstract class Variable {
             !utils.isValidPointer(debugVariable.value)) {
             if (utils.isNull(debugVariable.value) && debugVariable.type === 'List *') {
                 /* Empty List is NIL == NULL == '0x0' */
-                return new ListNodeTagVariable('List', args);
+                return new ListNodeVariable('List', args);
             }
 
             return new RealVariable(args);
@@ -500,7 +559,9 @@ export abstract class Variable {
 
 /* 
  * Special class to store top level variables, extracted from this frame. 
- * Must not be returned 
+ * Used as container for top-level variables.
+ * 
+ * Now used to find 'PlannerInfo' or 'Query' in all current variables.
  */
 export class VariablesRoot extends Variable {
     static variableRootName = '$variables root$'
@@ -580,8 +641,8 @@ class NoMemberFoundError extends EvaluationError {
 class UnexpectedOutputError extends EvaluationError { }
 
 /**
- * Base class for all real variables in variables view.
- * There may be artificial variables - they just exist.
+ * Base class for all *real* variables (members or variables
+ * obtained using 'evaluate' or as members of structs).
  */
 export class RealVariable extends Variable {
     /**
@@ -725,7 +786,7 @@ export class RealVariable extends Variable {
      */
     async getListMemberElements(member: string) {
         const m = await this.getMember(member);
-        if (m instanceof ListNodeTagVariable) {
+        if (m instanceof ListNodeVariable) {
             const elements = await m.getListElements();
             if (elements === undefined) {
                 throw new UnexpectedOutputError(`failed to get elements from List member ${member}`);
@@ -1164,7 +1225,7 @@ export class NodeVariable extends RealVariable {
                 case 'OidList':
                 case 'XidList':
                 case 'IntList':
-                    return new ListNodeTagVariable(realTag, args);
+                    return new ListNodeVariable(realTag, args);
             }
         }
 
@@ -2625,7 +2686,12 @@ class ExprNodeVariable extends NodeVariable {
     }
 }
 
-
+/**
+ * Simple wrapper around 'Expr' containing variable,
+ * which must display it's repr in description member.
+ * 
+ * Used for 'EquivalenceMember' and 'RestrictInfo'.
+ */
 class DisplayExprReprVariable extends NodeVariable {
     /**
      * 'Expr' member which representation is shown
@@ -2685,16 +2751,16 @@ class ListElementsMember extends RealVariable {
 
     /**
      * Real type of stored data
-     * @example int, Oid
+     * @example int, Oid, Node * (or custom)
     */
     realType: string;
 
     /**
      * Parent List variable to which we belong
      */
-    listParent: ListNodeTagVariable;
+    listParent: ListNodeVariable;
 
-    constructor(listParent: ListNodeTagVariable, cellValue: string, realType: string,
+    constructor(listParent: ListNodeVariable, cellValue: string, realType: string,
                 args: RealVariableArgs) {
         super(args);
         this.listParent = listParent;
@@ -2702,14 +2768,14 @@ class ListElementsMember extends RealVariable {
         this.realType = realType;
     }
 
-    async getNodeElements() {
+    async getPointerElements() {
         const length = await this.listParent.getListLength();
         if (!length) {
             return;
         }
 
         const listType = this.listParent.getMemberExpression('elements');
-        const expression = `(Node **)(${listType})`;
+        const expression = `(${this.realType}*)(${listType})`;
         return super.getArrayMembers(expression, length);
     }
 
@@ -2751,7 +2817,7 @@ class ListElementsMember extends RealVariable {
         }
 
         this.members = await (this.listParent.realNodeTag === 'List'
-            ? this.getNodeElements()
+            ? this.getPointerElements()
             : this.getIntegerElements());
 
         return this.members;
@@ -2785,13 +2851,13 @@ class LinkedListElementsMember extends Variable {
     /**
      * List structure we observing
      */
-    listParent: ListNodeTagVariable;
+    listParent: ListNodeVariable;
 
     get frameId(): number {
         return this.listParent.frameId;
     }
 
-    constructor(listParent: ListNodeTagVariable, cellValue: string,
+    constructor(listParent: ListNodeVariable, cellValue: string,
                 realType: string, context: ExecContext) {
         super('$elements$', '', '', context, listParent, listParent.logger);
         this.listParent = listParent;
@@ -2847,7 +2913,7 @@ class LinkedListElementsMember extends Variable {
 /**
  * Special class to represent various Lists: Node, int, Oid, Xid...
  */
-export class ListNodeTagVariable extends NodeVariable {
+export class ListNodeVariable extends NodeVariable {
     listElements: ListElementsMember | LinkedListElementsMember | undefined;
     
     constructor(nodeTag: string, args: RealVariableArgs) {
@@ -2862,7 +2928,53 @@ export class ListNodeTagVariable extends NodeVariable {
         return true;
     }
 
-    private createArrayNodeElementsMember(dv: dap.DebugVariable) {
+    private async findTypeForPtr() {
+        /* 
+         * Usually (i.e. in planner) ptr value is a node variable (Node *),
+         * but actually it can be any pointer.
+         * 
+         * All `List`s hold Nodes, but sometimes it can be custom data.
+         * These special cases can be identified by:
+         * 
+         * 1. Function name + variable name (if this is top level variable)
+         * 2. Structure name + member name (if this is a member of structure)
+         */
+
+        if (!this.parent) {
+            /* 
+             * All valid Variable objects must have 'parent' set
+             * except special case 'VariablesRoot', but we are 'List',
+             * not 'VariablesRoot'.
+             */
+            return 'Node *';
+        }
+
+        let map = this.context.specialMemberRegistry.listCustomPtrs.get(this.name);
+        if (!map) {
+            return 'Node *';
+        }
+
+        /* Check only 1 case - they are mutually exclusive */
+        if (this.parent instanceof VariablesRoot) {
+            const func = await this.debug.getFunctionName(this.frameId);
+            if (func) {
+                const info = map.get(func);
+                if (info) {
+                    return info.type;
+                }
+            }
+        } else {
+            const parentType = utils.getStructNameFromType(this.parent.type);
+            const info = map.get(parentType);
+            if (info) {
+                return info.type;
+            }
+        }
+
+        return 'Node *';
+    }
+
+    private async createArrayNodeElementsMember(dv: dap.DebugVariable) {
         /* Default safe values */
         let cellValue = 'int_value';
         let realType = 'int';
@@ -2870,7 +2982,7 @@ export class ListNodeTagVariable extends NodeVariable {
         switch (this.realNodeTag) {
             case 'List':
                 cellValue = 'ptr_value';
-                realType = 'Node *';
+                realType = await this.findTypeForPtr();
                 break;
             case 'IntList':
                 break;
@@ -2897,7 +3009,7 @@ export class ListNodeTagVariable extends NodeVariable {
         });
     }
 
-    private createLinkedListNodeElementsMember() {
+    private async createLinkedListNodeElementsMember() {
         /* Default safe values */
         let cellValue = 'int_value';
         let realType = 'int';
@@ -2905,7 +3017,7 @@ export class ListNodeTagVariable extends NodeVariable {
         switch (this.realNodeTag) {
             case 'List':
                 cellValue = 'ptr_value';
-                realType = 'Node *';
+                realType = await this.findTypeForPtr();
                 break;
             case 'IntList':
                 break;
@@ -2965,12 +3077,14 @@ export class ListNodeTagVariable extends NodeVariable {
         for (let i = 0; i < debugVariables.length; i++) {
             const dv = debugVariables[i];
             if (dv.name === 'elements') {
-                this.listElements = this.createArrayNodeElementsMember(dv);
+                this.listElements = await this.createArrayNodeElementsMember(dv);
                 members.push(this.listElements);
                 isArrayImplementation = true;
             } else {
-                if (dv.name === 'initial_elements') {
-                    /* Do not want to see this member */
+                if (dv.name === 'initial_elements' ||
+                    dv.name === 'head' ||
+                    dv.name === 'tail') {
+                    /* Do not want to see these members */
                     continue;
                 }
 
@@ -2983,7 +3097,7 @@ export class ListNodeTagVariable extends NodeVariable {
         }
 
         if (!isArrayImplementation) {
-            this.listElements = this.createLinkedListNodeElementsMember();
+            this.listElements = await this.createLinkedListNodeElementsMember();
             members.push(this.listElements);
         }
 
@@ -3289,16 +3403,19 @@ class BitmapSetSpecialMember extends NodeVariable {
         relid: number;
 
         bmsParent: BitmapSetSpecialMember;
-        
+
+        ref?: constants.BitmapsetReference;
+
         constructor(index: number,
                     parent: Variable,
                     bmsParent: BitmapSetSpecialMember,
                     value: number,
                     context: ExecContext,
-                    private ref?: constants.BitmapsetReference) {
+                    ref: constants.BitmapsetReference | undefined) {
             super(`[${index}]`, value.toString(), 'int', context, parent, parent.logger);
             this.relid = value;
             this.bmsParent = bmsParent;
+            this.ref = ref;
         }
 
         findStartElement() {
@@ -3384,7 +3501,7 @@ class BitmapSetSpecialMember extends NodeVariable {
         async getArrayElement(field: Variable, indexDelta?: number) {
             const index = this.relid + (indexDelta ?? 0);
 
-            if (field instanceof ListNodeTagVariable) {
+            if (field instanceof ListNodeVariable) {
                 const members = await field.getListElements();
                 if (members && index < members.length) {
                     return members[index];

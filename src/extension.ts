@@ -1,22 +1,16 @@
 import * as vscode from 'vscode';
 import * as utils from './utils';
-import * as dap from './dap';
 import * as vars from './variables';
 import path from 'path';
 
 export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars.Variable> {
     subscriptions: vscode.Disposable[] = [];
 
-    private getCurrentFrameId = async (_: utils.IDebuggerFacade) => {
-        /* debugFocus API */
-        return (vscode.debug.activeStackItem as vscode.DebugStackFrame | undefined)?.frameId;
-    }
-
     constructor(
         private log: utils.ILogger,
         private nodeVars: vars.NodeVarRegistry,
         private specialMembers: vars.SpecialMemberRegistry,
-        private debug: utils.IDebuggerFacade) { }
+        private debug: utils.VsCodeDebuggerFacade) { }
 
     /* https://code.visualstudio.com/api/extension-guides/tree-view#updating-tree-view-content */
     private _onDidChangeTreeData = new vscode.EventEmitter<vars.Variable | undefined | null | void>();
@@ -46,17 +40,12 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
             if (element) {
                 return await element.getChildren();
             } else {
-                const frameId = await this.getCurrentFrameId(this.debug);
+                const frameId = await this.debug.getCurrentFrameId();
                 if (!frameId) {
                     return;
                 }
 
-                const exec: vars.ExecContext = {
-                    debug: this.debug,
-                    nodeVarRegistry: this.nodeVars,
-                    specialMemberRegistry: this.specialMembers,
-                    hasValueStruct: false,
-                }
+                const exec = new vars.ExecContext(this.nodeVars, this.specialMembers, this.debug);
                 const topLevel = await this.getTopLevelVariables(exec, frameId);
                 if (!topLevel) {
                     return;
@@ -87,71 +76,6 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
         const variables = await context.debug.getVariables(frameId);
         return await vars.Variable.mapVariables(variables, frameId, context,
             this.log, undefined);
-    }
-
-    switchToEventBasedRefresh(context: vscode.ExtensionContext) {
-        /* 
-         * Prior to VS Code version 1.90 there is no debugFocus API - 
-         * we can not track current stack frame. It is very convenient,
-         * because single event refreshes state and also we keep track
-         * of stack frame selected in debugger view.
-         * 
-         * For older versions we use event based implementation -
-         * subscribe to debugger events and filter out needed:
-         * continue execution, stopped (breakpoint), terminated etc...
-         * 
-         * NOTES:
-         *  - We can not track current stack frame, so this feature is
-         *    not available for users.
-         *  - Support only 'cppdbg' configuration - tested only for it
-         */
-
-        const provider = this;
-        let savedThreadId: undefined | number = undefined;
-        const disposable = vscode.debug.registerDebugAdapterTrackerFactory('cppdbg', {
-            createDebugAdapterTracker(_: vscode.DebugSession) {
-                return {
-                    onDidSendMessage(message: dap.ProtocolMessage) {
-                        if (message.type === 'response') {
-                            if (message.command === 'continue') {
-                                /* 
-                                 * `Continue' command - clear
-                                 */
-                                provider.refresh();
-                            }
-
-                            return;
-                        }
-
-                        if (message.type === 'event') {
-                            if (message.event === 'stopped' || message.event === 'terminated') {
-                                /* 
-                                 * Hit breakpoint - show variables
-                                 */
-                                provider.refresh();
-                                savedThreadId = message.body?.threadId as number | undefined;
-                            }
-                        }
-                    },
-
-                    onWillStopSession() {
-                        /* Debug session terminates - clear */
-                        provider.refresh();
-                    },
-                }
-            },
-        });
-        context.subscriptions.push(disposable);
-        this.getCurrentFrameId = async (debug: utils.IDebuggerFacade) => {
-            /* 
-             * We can not track selected stack frame - return last (top)
-             */
-            if (!(debug.isInDebug && savedThreadId)) {
-                return;
-            }
-
-            return await debug.getTopStackFrameId(savedThreadId);
-        }
     }
 }
 

@@ -202,6 +202,10 @@ export interface StackTraceArguments {
      */
     levels?: number;
 
+    /**
+     * The index of the first frame to return; if omitted frames start at 0.
+     */
+    startFrame?: number;
 }
 
 export interface StackFrame {
@@ -211,6 +215,11 @@ export interface StackFrame {
      * request or to restart the execution of a stack frame.
      */
     id: number;
+
+    /**
+     * The name of the stack frame, typically a method name.
+     */
+    name: string;
 }
 
 export interface StackTraceResponse {
@@ -230,4 +239,27 @@ export interface StackTraceResponse {
      * enforce paging in the client.
      */
     totalFrames?: number;
+}
+
+export interface ThreadsRequest extends Request {
+    command: 'threads';
+}
+
+export interface ThreadsResponse {
+    /**
+     * All threads.
+     */
+    threads: Thread[];
+}
+
+export interface Thread {
+    /**
+     * Unique identifier for the thread.
+     */
+    id: number;
+  
+    /**
+     * The name of the thread.
+     */
+    name: string;
 }

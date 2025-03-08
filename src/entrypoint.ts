@@ -3,7 +3,7 @@ import * as vars from './variables';
 import * as utils from './utils';
 import * as formatter from './formatter';
 import {
-    NodePreviewTreeViewProvider as PostgresVariablesView,
+    NodePreviewTreeViewProvider as PgVariablesView,
     Configuration as config,
     getCurrentLogLevel,
     setupExtension
@@ -53,8 +53,8 @@ function createPostgresVariablesView(context: vscode.ExtensionContext,
                                      logger: utils.ILogger,
                                      nodeVars: vars.NodeVarRegistry,
                                      specialMembers: vars.SpecialMemberRegistry,
-                                     debug: utils.IDebuggerFacade) {
-    const nodesView = new PostgresVariablesView(logger, nodeVars, 
+                                     debug: utils.VsCodeDebuggerFacade) {
+    const nodesView = new PgVariablesView(logger, nodeVars, 
                                                 specialMembers, debug);
     const nodesViewName = config.Views.NodePreviewTreeView;
     const treeDisposable = vscode.window.registerTreeDataProvider(nodesViewName,
@@ -64,8 +64,9 @@ function createPostgresVariablesView(context: vscode.ExtensionContext,
 }
 
 function setupDebugger(
-    dataProvider: PostgresVariablesView,
+    dataProvider: PgVariablesView,
     logger: utils.ILogger,
+    debug: utils.VsCodeDebuggerFacade,
     context: vscode.ExtensionContext) {
 
     if (utils.Features.debugFocusEnabled()) {
@@ -79,7 +80,7 @@ function setupDebugger(
             'Please update VS Code to version 1.90 or higher', vscode.version
         );
 
-        dataProvider.switchToEventBasedRefresh(context);
+        debug.switchToEventBasedRefresh(context, dataProvider);
     }
     return;
 }
@@ -97,7 +98,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         setupExtension(context, specialMembers, nodeVars, debug, logger, nodesView);
                 
-        setupDebugger(nodesView, logger, context);
+        setupDebugger(nodesView, logger, debug, context);
 
         formatter.registerFormatting(logger);
 
