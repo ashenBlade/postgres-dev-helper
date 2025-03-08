@@ -270,6 +270,22 @@ export class ExecContext {
      */
     hasAllowInCritSection = true;
 
+    /**
+     * This postgres version has 'bms_is_valid_set' function
+     * used to validate Bitmapset variable.
+     * Without such check next invocations of Bitmapset
+     * functions will crash backend (because of 'Assert's).
+     */
+    hasBmsIsValidSet = true;
+
+    /**
+     * This postgres version has 'bms_next_member' function.
+     * It is used to get members of Bitmapset faster than
+     * old version (by copying existing one and popping data
+     * from it + palloc/pfree).
+     */
+    hasBmsNextMember = true;
+
     constructor(nodeVarRegistry: NodeVarRegistry, specialMemberRegistry: SpecialMemberRegistry,
                 debug: utils.IDebuggerFacade) {
         this.nodeVarRegistry = nodeVarRegistry;
@@ -755,6 +771,8 @@ export class RealVariable extends Variable {
      * 
      * @param member member name of this var
      * @returns Variable that represent member of this var
+     * @throws `NoMemberFoundError` if no such member found
+     * @throws `EvaluationError` if failed to get members of this variable
      */
     async getMember(member: string) {
         /* 
@@ -764,7 +782,7 @@ export class RealVariable extends Variable {
          */
         const members = await this.getRealMembers();
         if (members === undefined) {
-            throw new NoMemberFoundError(member);
+            throw new EvaluationError(`failed to get members of "${this.type} ${this.name}"`);
         }
 
         const m = members.find(v => v.name === member);
@@ -1126,7 +1144,7 @@ export class NodeVariable extends RealVariable {
     async doGetChildren() {
         await this.checkTagMatch();
 
-        let members = await this.getRealMembers();
+        let members = await super.doGetChildren();
 
         if (members?.length) {
             return members;
@@ -2634,14 +2652,20 @@ class ExprNodeVariable extends NodeVariable {
 
     private async findRtable() {
         /* 
-         * We can go in 2 ways: PlannderInfo->parse (Query)->rtable or Query->rtable
+         * We can go in 3 ways: 
+         * 
+         * 1. PlannderInfo->parse (Query)->rtable
+         * 2. Query->rtable
+         * 3. PlannedStmt->rtable
          */
         let node = this.parent;
         while (node) {
             if (node instanceof VariablesRoot) {
                 node = node.topLevelVariables.find(v => 
                                 ((v instanceof NodeVariable && 
-                                 (v.realNodeTag === 'PlannerInfo' || v.realNodeTag === 'Query'))));
+                                 (v.realNodeTag === 'PlannerInfo' || 
+                                  v.realNodeTag === 'Query' ||
+                                  v.realNodeTag === 'PlannedStmt'))));
                 if (!node) {
                     /* No more variables */
                     return;
@@ -2649,7 +2673,9 @@ class ExprNodeVariable extends NodeVariable {
 
                 break;
             } else if (node instanceof NodeVariable &&
-                       (node.realNodeTag === 'PlannerInfo' || node.realNodeTag === 'Query')) {
+                       (node.realNodeTag === 'PlannerInfo' ||
+                        node.realNodeTag === 'Query' ||
+                        node.realNodeTag === 'PlannedStmt')) {
                 break;
             }
 
@@ -2660,15 +2686,35 @@ class ExprNodeVariable extends NodeVariable {
             return;
         }
 
-        const query = node.realNodeTag === 'Query' 
-                            ? node 
-                            : await node.getMember('parse');
+        let rtable;
+        switch (node.realNodeTag) {
+            case 'Query':
+                /* Query->rtable */
+                rtable = await node.getListMemberElements('rtable');
+                break;
+            case 'PlannerInfo':
+                /* PlannerInfo->parse->rtable */
+                const parse = await node.getMember('parse');
+                if (!(parse && parse instanceof NodeVariable)) {
+                    break;
+                }
 
-        if (!(query && query instanceof NodeVariable)) {
+                rtable = await parse.getListMemberElements('rtable');
+                break;
+            case 'PlannedStmt':
+                /* PlannedStmt->rtable */
+                rtable = node.getListMemberElements('rtable');
+                break;
+            default:
+                this.logger.warn('got unexpected NodeTag in findRtable: %s', node.realNodeTag);
+                return;
+        }
+
+        if (rtable === undefined) {
             return;
         }
 
-        return await query.getListMemberElements('rtable');
+        return rtable;
     }
 
     async doGetChildren() {
@@ -2766,6 +2812,15 @@ class ListElementsMember extends RealVariable {
         this.listParent = listParent;
         this.cellValue = cellValue;
         this.realType = realType;
+    }
+
+    async getTreeItem() {
+        return {
+            label: '$elements$',
+            collapsibleState: this.listParent.isEmpty() 
+                                    ? vscode.TreeItemCollapsibleState.None 
+                                    : vscode.TreeItemCollapsibleState.Collapsed,
+        };
     }
 
     async getPointerElements() {
@@ -2914,7 +2969,8 @@ class LinkedListElementsMember extends Variable {
  * Special class to represent various Lists: Node, int, Oid, Xid...
  */
 export class ListNodeVariable extends NodeVariable {
-    listElements: ListElementsMember | LinkedListElementsMember | undefined;
+    /* Special member, that manages elements of this List */
+    listElements?: ListElementsMember | LinkedListElementsMember;
     
     constructor(nodeTag: string, args: RealVariableArgs) {
         super(nodeTag, args);
@@ -2922,6 +2978,10 @@ export class ListNodeVariable extends NodeVariable {
 
     getMemberExpression(member: string) {
         return `((${this.getRealType()})${this.value})->${member}`
+    }
+
+    isEmpty() {
+        return utils.isNull(this.value);
     }
 
     protected isExpandable(): boolean {
@@ -2974,7 +3034,7 @@ export class ListNodeVariable extends NodeVariable {
         return 'Node *';
     }
 
-    private async createArrayNodeElementsMember(dv: dap.DebugVariable) {
+    private async createArrayNodeElementsMember(elementsMember: RealVariable) {
         /* Default safe values */
         let cellValue = 'int_value';
         let realType = 'int';
@@ -3001,7 +3061,7 @@ export class ListNodeVariable extends NodeVariable {
         }
 
         return new ListElementsMember(this, cellValue, realType, {
-            ...dv,
+            ...elementsMember.getRealVariableArgs(),
             frameId: this.frameId,
             parent: this,
             context: this.context,
@@ -3062,49 +3122,45 @@ export class ListNodeVariable extends NodeVariable {
     }
 
     async doGetChildren() {
+        if (this.isEmpty()) {
+            /* Just show empty members */
+            return await this.doGetRealMembers();
+        }
+        
         if (!this.tagsMatch()) {
             await this.castToList();
         }
 
-        const debugVariables = await this.debug.getMembers(this.variablesReference);
-        if (!debugVariables) {
-            return;
+        const m = await this.doGetRealMembers();
+        if (!m) {
+            return m;
         }
 
-        /* Replace `elements' variable with special case */
-        const members: Variable[] = [];
-        let isArrayImplementation = false;
-        for (let i = 0; i < debugVariables.length; i++) {
-            const dv = debugVariables[i];
-            if (dv.name === 'elements') {
-                this.listElements = await this.createArrayNodeElementsMember(dv);
-                members.push(this.listElements);
-                isArrayImplementation = true;
-            } else {
-                if (dv.name === 'initial_elements' ||
-                    dv.name === 'head' ||
-                    dv.name === 'tail') {
-                    /* Do not want to see these members */
-                    continue;
-                }
-
-                const v = await Variable.create(dv, this.frameId, this.context,
-                                                this.logger, this);
-                if (v) {
-                    members.push(v);
-                }
-            }
-        }
-
-        if (!isArrayImplementation) {
+        const e = m.find(v => v.name === 'elements');
+        if (!e) {
             this.listElements = await this.createLinkedListNodeElementsMember();
-            members.push(this.listElements);
+            return [
+                ...m.filter(v => v.name !== 'head' && v.name !== 'tail'),
+                this.listElements
+            ];
         }
 
-        return members;
+        if (!(e && e instanceof RealVariable)) {
+            return m;
+        }
+
+        this.listElements = await this.createArrayNodeElementsMember(e);
+        return [
+            ...m.filter(v => v.name !== 'elements' && v.name !== 'initial_elements'),
+            this.listElements,
+        ];
     }
 
     async getListLength() {
+        if (this.isEmpty()) {
+            return 0;
+        }
+        
         const lengthExpression = this.getMemberExpression('length');
         const evalResult = await this.debug.evaluate(lengthExpression, this.frameId);
         const length = Number(evalResult.result);
@@ -3116,6 +3172,10 @@ export class ListNodeVariable extends NodeVariable {
     }
 
     async getListElements() {
+        if (this.isEmpty()) {
+            return [];
+        }
+
         if (!this.listElements) {
             /* Initialize members */
             await this.getChildren();
@@ -3147,32 +3207,23 @@ export class ArraySpecialMember extends RealVariable {
         this.parent = parent;
     }
 
-    formatLengthExpression() {
-        return `(${this.parent.evaluateName})->${this.info.lengthExpr}`;
-    }
-
-    formatMemberExpression() {
-        return `(${this.parent.evaluateName})->${this.info.memberName}`;
-    }
-
-    async doGetChildren() {
-        const lengthExpression = this.formatLengthExpression();
-        const evalResult = await this.debug.evaluate(lengthExpression,
-                                                        this.frameId);
-        const arrayLength = Number(evalResult.result);
-        if (Number.isNaN(arrayLength)) {
-            this.logger.warn('failed to obtain array size using %s',
-                             lengthExpression);
-            return;
+    async doGetRealMembers() {
+        const lengthExpr = `(${this.parent.evaluateName})->${this.info.lengthExpr}`;
+        const evalResult = await this.evaluate(lengthExpr);
+        const length = Number(evalResult.result);
+        if (Number.isNaN(length)) {
+            this.logger.warn('failed to obtain array size using expr "%s" for (%s)->%s', 
+                                            lengthExpr, this.type, this.name);
+            return await super.doGetRealMembers();
         }
-
-        if (arrayLength === 0) {
-            return;
+    
+        if (length === 0) {
+            return await super.doGetRealMembers();
         }
-
-        const memberExpression = this.formatMemberExpression();
-        const debugVariables = await this.debug.getArrayVariables(memberExpression,
-                                                                     arrayLength, this.frameId);
+    
+        const memberExpr = `(${this.parent.evaluateName})->${this.info.memberName}`;
+        const debugVariables = await this.debug.getArrayVariables(memberExpr,
+                                                                  length, this.frameId);
         return await Variable.mapVariables(debugVariables, this.frameId, this.context,
                                            this.logger, this);
     }
@@ -3182,24 +3233,40 @@ export class ArraySpecialMember extends RealVariable {
  * Bitmapset* variable
  */
 class BitmapSetSpecialMember extends NodeVariable {
+    /* 
+     * List of functions that we are using for bitmapset evaluation.
+     * We need to ensure, that no breakpoints set on them, otherwise
+     * we encounter infinite loop
+     */
+    private static evaluationUsedFunctions = [
+        'bms_next_member',
+        'bms_first_member',
+        'bms_is_valid_set'
+    ]
+    
     constructor(args: RealVariableArgs) {
         super('Bitmapset', args,);
     }
 
     async isValidSet() {
-        const expression = `bms_is_valid_set(${this.evaluateName})`;
-        const response = await this.evaluate(expression);
-        if (!utils.isFailedVar(response)) {
-            /* 
-             * `bms_is_valid_set' introduced in 17.
-             * On other versions `type` member will be not set (undefined).
-             * We assume it is valid, because for NULL variables we do not
-             * create Variable instances.
-             */
-            return true;
+        if (this.context.hasBmsIsValidSet) {
+            const expression = `bms_is_valid_set((Bitmapset *)${this.value})`;
+            const response = await this.evaluate(expression);
+            if (utils.isFailedVar(response)) {
+                /* 
+                 * `bms_is_valid_set' introduced in 17.
+                 * On other versions `type` member will be not set (undefined).
+                 * We assume it is valid, because for NULL variables we do not
+                 * create Variable instances.
+                 */
+                this.context.hasBmsIsValidSet = false;
+                return true;
+            }
+    
+            return utils.extractBoolFromValue(response.result) ?? false;
         }
 
-        return utils.extractBoolFromValue(response.result) ?? false;
+        return true;
     }
 
     safeToObserve() {
@@ -3223,17 +3290,15 @@ class BitmapSetSpecialMember extends NodeVariable {
 
             if (bp instanceof vscode.SourceBreakpoint) {
                 if (bp.location.uri.path.endsWith('bitmapset.c')) {
-                    this.logger.debug('found breakpoint at bitmapset.c - set elements not shown');
+                    this.logger.info('found breakpoint at bitmapset.c - set elements not shown');
                     return false;
                 }
             } else if (bp instanceof vscode.FunctionBreakpoint) {
                 /* 
-                 * Need to check functions that are called to
-                 * get set elements
+                 * Need to check functions that are called to get set elements
                  */
-                if (bp.functionName === 'bms_next_member' ||
-                    bp.functionName === 'bms_first_member') {
-                    this.logger.debug('found breakpoint at %s - bms elements not shown',
+                if (BitmapSetSpecialMember.evaluationUsedFunctions.indexOf(bp.functionName) !== -1) {
+                    this.logger.info('found breakpoint at %s - bms elements not shown',
                                       bp.functionName);
                     return false;    
                 }
@@ -3253,7 +3318,7 @@ class BitmapSetSpecialMember extends NodeVariable {
         }
 
         /* 
-         * We MUST check validity of set, because otherwise
+         * We MUST check validity of set, because, otherwise,
          * `Assert` will fail and whole backend will crash
          */
         if (!await this.isValidSet()) {
@@ -3261,13 +3326,21 @@ class BitmapSetSpecialMember extends NodeVariable {
         }
 
         /* 
-         * Most likely, we use new Bitmapset API, 
-         * but fallback with old-styled 
+         * Most likely, we use new Bitmapset API, but fallback with old-styled 
          */
-        let result = await this.getSetElementsNextMember();
-        if (result === undefined) {
-            result = await this.getSetElementsFirstMember();
+        let result;
+        if (this.context.hasBmsNextMember) {
+            result = await this.getSetElementsNextMember();
+            if (result !== undefined) {
+                return result;
+            }
         }
+
+        result = await this.getSetElementsFirstMember();
+        if (result !== undefined) {
+            this.context.hasBmsNextMember = false;
+        }
+        
         return result;
     }
 
@@ -3282,12 +3355,12 @@ class BitmapSetSpecialMember extends NodeVariable {
          *    ...
          * }
          */
-        
+
         let number = -1;
         const numbers = [];
         do {
-            const expression = `bms_next_member(${this.evaluateName}, ${number})`;
-            const response = await this.debug.evaluate(expression, this.frameId);
+            const expression = `bms_next_member((Bitmapset *)${this.value}, ${number})`;
+            const response = await this.evaluate(expression);
             number = Number(response.result);
             if (Number.isNaN(number)) {
                 this.logger.warn('failed to get set elements for %s', this.name);
@@ -3300,6 +3373,7 @@ class BitmapSetSpecialMember extends NodeVariable {
 
             numbers.push(number);
         } while (number > 0);
+
         return numbers;
     }
 
@@ -3319,21 +3393,26 @@ class BitmapSetSpecialMember extends NodeVariable {
          * 
          * pfree(tmp);
          */
-        const tmpSet = await this.debug.evaluate(`bms_copy(${this.evaluateName})`,
-                                                 this.frameId);
+        const e = await this.evaluate(`bms_copy(${this.evaluateName})`);
+        const bms = e.result;
+        if (!utils.isValidPointer(bms)) {
+            if (utils.isNull(bms)) {
+                return;
+            }
 
-        if (!utils.isValidPointer(tmpSet.result)) {
+            this.logger.warn('error during "bms_copy" evaluation: %s', e.result);
             return;
         }
 
         let number = -1;
         const numbers = [];
         do {
-            const expression = `bms_first_member((Bitmapset*)${tmpSet.result})`;
-            const response = await this.debug.evaluate(expression, this.frameId);
+            const expression = `bms_first_member((Bitmapset*)${bms})`;
+            const response = await this.evaluate(expression);
             number = Number(response.result);
             if (Number.isNaN(number)) {
-                this.logger.warn('failed to get set elements for %s', this.name);
+                this.logger.warn('failed to get set elements for "%s": %s', 
+                                                            this.name, response.result);
                 return;
             }
 
@@ -3344,7 +3423,7 @@ class BitmapSetSpecialMember extends NodeVariable {
             numbers.push(number);
         } while (number > 0);
 
-        await this.pfree(tmpSet.result);
+        await this.pfree(bms);
 
         return numbers;
     }
@@ -3361,7 +3440,7 @@ class BitmapSetSpecialMember extends NodeVariable {
 
         let type;
         if (this.parent instanceof NodeVariable) {
-            type = await this.parent.getRealType();
+            type = this.parent.getRealType();
         } else {
             type = this.parent.type;
         }
@@ -3378,8 +3457,8 @@ class BitmapSetSpecialMember extends NodeVariable {
         const members = await Variable.getVariables(this.variablesReference,
                                                     this.frameId, this.context,
                                                     this.logger, this);
-        if (members === undefined || members.length === 0) {
-            return;
+        if (!members) {
+            return members;
         }
 
         /* + Set elements */
@@ -3404,6 +3483,9 @@ class BitmapSetSpecialMember extends NodeVariable {
 
         bmsParent: BitmapSetSpecialMember;
 
+        /* 
+         * Which objects this Bitmapset references
+         */
         ref?: constants.BitmapsetReference;
 
         constructor(index: number,
@@ -3418,8 +3500,8 @@ class BitmapSetSpecialMember extends NodeVariable {
             this.ref = ref;
         }
 
-        findStartElement() {
-            if (this.ref!.start === 'Self') {
+        findStartElement(ref: constants.BitmapsetReference) {
+            if (ref.start === 'Self') {
                 return this.bmsParent.parent;
             } else if (this.ref!.start === 'Parent') {
                 return this.bmsParent.parent?.parent;
@@ -3436,16 +3518,15 @@ class BitmapSetSpecialMember extends NodeVariable {
                 }
 
                 /* 
-                 * If this is last variable, it must be VariablesRoot.
+                 * If this is last variable, it must be 'VariablesRoot'.
                  * As last chance, find 'PlannerInfo' in declared variables,
-                 * not direct parent
+                 * not direct parent.
                  */
                 if (!parent.parent) {
                     if (parent.name === VariablesRoot.variableRootName &&
                         parent instanceof VariablesRoot) {
                         for (const v of parent.topLevelVariables) {
-                            if (v.type.indexOf('PlannerInfo') !== -1 &&
-                                v instanceof NodeVariable &&
+                            if (v instanceof NodeVariable &&
                                 v.realNodeTag === 'PlannerInfo') {
                                 return v;
                             }
@@ -3464,7 +3545,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                 return;
             }
 
-            const root = this.findStartElement();
+            const root = this.findStartElement(this.ref);
             if (!root) {
                 return;
             }
@@ -3474,12 +3555,25 @@ class BitmapSetSpecialMember extends NodeVariable {
             for (const path of this.ref.paths) {
                 let variable: Variable = root;
                 for (const p of path.path) {
-                    const members = await variable.getChildren();
-                    if (!members) {
-                        break;
+                    let member;
+
+                    /* Separation made for speed performance */
+                    if (variable instanceof RealVariable) {
+                        try {
+                            member = await variable.getMember(p);
+                        } catch (e) {
+                            if (!(e instanceof EvaluationError)) {
+                                throw e;
+                            }
+
+                            member = undefined;
+                        }
+                    } else {
+                        const members = await variable.getChildren();
+                        if (members)
+                            member = members.find((v) => v.name === p);
                     }
-    
-                    const member = members.find((v) => v.name === p);
+
                     if (!member) {
                         break;
                     }

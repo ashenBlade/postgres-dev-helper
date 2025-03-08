@@ -1618,7 +1618,7 @@ export interface BitmapsetReference {
         /* 
          * Delta to apply to result number for element in set.
          * Useful i.e. for rtable index in RelOptInfo->relids.
-         * By default - 0
+         * By default (not set) - 0
          */
         indexDelta?: number;
     }[];
