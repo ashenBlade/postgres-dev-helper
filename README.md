@@ -263,6 +263,20 @@ Known issues:
 
 ## Release Notes
 
+### 1.7.0
+
+Add support for custom pointer types in `List *` elements. Earlier, all `void *` were casted to `Node *`. Users also can specify their own custom `List` types in configuration file.
+
+Fix memory leaking when evaluating `Expr` representation (`get_func_name` and `get_opname` were not `pfree`d).
+
+Fix caching not working for `Expr` representations. This led to performance degradations (multiple same evaluations).
+
+Add more checking when working with system catalog or some other functions (`MemoryContext` validity checking and so on).
+
+Tracking of postgres binary features (i.e. `bms_next_member` presence) for more performance.
+
+Do not show `initial_elements`, `head` and `tail` members of `List *`.
+
 ### 1.6.1
 
 Fix error message appeared when making debugger steps too fast.

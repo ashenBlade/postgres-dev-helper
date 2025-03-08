@@ -2,7 +2,7 @@
     "name": "postgresql-hacker-helper",
     "displayName": "PostgreSQL Hacker Helper",
     "description": "Extension to assist Postgres hackers - source code developers",
-    "version": "1.6.1",
+    "version": "1.7.0",
     "engines": {
         "vscode": "^1.30.0"
     },
@@ -100,16 +100,6 @@
                 }
             ]
         },
-        "colors": [
-            {
-                "id": "pghelper.sample.color",
-                "description": "Color for ",
-                "defaults": {
-                    "dark": "errorForeground",
-                    "light": "errorForeground"
-                }
-            }
-        ],
         "views": {
             "debug": [
                 {
