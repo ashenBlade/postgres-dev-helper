@@ -5,6 +5,23 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1]
+
+### Fix
+
+Binary features info was cached only for current debug session and invalidated on debugger step.
+Now it used the same for whole debug session.
+
+Typedef logic not worked correctly for `Node` variables. Specifically, `MemoryContext` - it was shown as `MemoryContext` even if it's `type` is `AllocSetContext`.
+
+### Changed
+
+Do not show `List` as expandable in PG Variables, if it is empty (`NIL`).
+
+Do not show `words` member for `Bitmapset`.
+
+Add more validity checking for `Bitmapset`: check `NodeTag` (for 16+ version) and pointer validity (for older versions).
+
 ## [1.7.0]
 
 ### Added

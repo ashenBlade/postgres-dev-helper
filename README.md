@@ -263,6 +263,18 @@ Known issues:
 
 ## Release Notes
 
+### 1.7.1
+
+Do not show `List` as expandable if it is `NIL`.
+
+Add more checks for `Bitmapset` before search elements to prevent SEGFAULT and backend crash.
+
+Do not show `words` member for `Bitmapset`.
+
+Binary features info is cached for current debug session, not for current step.
+
+Typedef logic not worked correctly for Node variables. Specifically, `MemoryContext` did not show valid struct, i.e. not `AllocSetContext`.
+
 ### 1.7.0
 
 Add support for custom pointer types in `List *` elements. Earlier, all `void *` were casted to `Node *`. Users also can specify their own custom `List` types in configuration file.
