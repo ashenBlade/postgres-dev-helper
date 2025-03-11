@@ -618,6 +618,9 @@ export function getDisplayedExprs(): string[] {
         'WindowFunc',
         'WindowFuncFuncCondition',
         'XmlExpr',
+
+        /* This is actually not Expr, but handy to see representation */
+        'PlaceHolderVar',
     ]
 }
 
