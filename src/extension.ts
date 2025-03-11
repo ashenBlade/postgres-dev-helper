@@ -3,14 +3,42 @@ import * as utils from './utils';
 import * as vars from './variables';
 import path from 'path';
 
-export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars.Variable> {
+export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars.Variable>, vscode.Disposable {
     subscriptions: vscode.Disposable[] = [];
+
+    /**
+     * ExecContext used to pass to all members.
+     * Updated on each debug session start/end.
+     */
+    execContext?: vars.ExecContext;
 
     constructor(
         private log: utils.ILogger,
         private nodeVars: vars.NodeVarRegistry,
         private specialMembers: vars.SpecialMemberRegistry,
-        private debug: utils.VsCodeDebuggerFacade) { }
+        private debug: utils.VsCodeDebuggerFacade) { 
+        this.subscriptions = [
+            vscode.debug.onDidStartDebugSession(s => {
+                if (!this.execContext) {
+                    this.execContext = new vars.ExecContext(this.nodeVars, this.specialMembers, this.debug);
+                }
+            }),
+            vscode.debug.onDidTerminateDebugSession(s => {
+                if (this.execContext) {
+                    this.execContext = undefined;
+                }
+            }),
+        ];
+    }
+
+    private getExecContext() {
+        if (this.execContext) {
+            return this.execContext;
+        }
+
+        this.execContext = new vars.ExecContext(this.nodeVars, this.specialMembers, this.debug);
+        return this.execContext;
+    }
 
     /* https://code.visualstudio.com/api/extension-guides/tree-view#updating-tree-view-content */
     private _onDidChangeTreeData = new vscode.EventEmitter<vars.Variable | undefined | null | void>();
@@ -45,7 +73,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
                     return;
                 }
 
-                const exec = new vars.ExecContext(this.nodeVars, this.specialMembers, this.debug);
+                const exec = this.getExecContext();
                 const topLevel = await this.getTopLevelVariables(exec, frameId);
                 if (!topLevel) {
                     return;
@@ -76,6 +104,11 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
         const variables = await context.debug.getVariables(frameId);
         return await vars.Variable.mapVariables(variables, frameId, context,
             this.log, undefined);
+    }
+
+    dispose() {
+        this.subscriptions.forEach(s => s.dispose());
+        this.subscriptions = [];
     }
 }
 
