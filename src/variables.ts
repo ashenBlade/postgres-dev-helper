@@ -2985,7 +2985,7 @@ export class ListNodeVariable extends NodeVariable {
     }
 
     protected isExpandable(): boolean {
-        return true;
+        return !this.isEmpty();
     }
 
     private async findTypeForPtr() {
