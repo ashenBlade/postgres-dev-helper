@@ -286,6 +286,15 @@ export class ExecContext {
      */
     hasBmsNextMember = true;
 
+    /**
+     * Bitmapset in old pg versions do not have separate T_Bitmapset
+     * node tag.
+     * This is required to check whether Bitmapset is valid
+     * for further operations (function invocations), otherwise
+     * we can get SEGFAULT.
+     */
+    hasBmsNodeTag = true;
+
     constructor(nodeVarRegistry: NodeVarRegistry, specialMemberRegistry: SpecialMemberRegistry,
                 debug: utils.IDebuggerFacade) {
         this.nodeVarRegistry = nodeVarRegistry;
@@ -515,14 +524,14 @@ export abstract class Variable {
          * PostgreSQL versions prior 16 do not have Bitmapset Node.
          * So handle Bitmapset (with Relids) here.
          */
-        if (BitmapSetSpecialMember.isBitmapset(realType)) {
+        if (BitmapSetSpecialMember.isBitmapsetType(realType)) {
             return new BitmapSetSpecialMember(args);
         }
 
         /* NodeTag variables: Node, List, Bitmapset etc.. */
         if (context.nodeVarRegistry.isNodeVar(realType)) {
             const nodeTagVar = await NodeVariable.create(debugVariable, frameId,
-                                                            context, logger, parent);
+                                                         context, logger, parent);
             if (nodeTagVar) {
                 return nodeTagVar;
             }
@@ -3248,7 +3257,42 @@ class BitmapSetSpecialMember extends NodeVariable {
         super('Bitmapset', args,);
     }
 
-    async isValidSet() {
+    async isValidSet(): Promise<boolean> {
+        /*
+         * First, validate NodeTag. BitmapSetSpecialMember could be
+         * created using dumb type check, without actual NodeTag
+         * checking. So we do it here
+         */
+        if (this.context.hasBmsNodeTag) {
+            const tag = await this.evaluate(`((Bitmapset *)${this.value})->type`);
+            if (tag.result !== 'T_Bitmapset') {
+                if (!utils.isValidIdentifier(tag.result)) {
+                    /* Do not track NodeTag anymore and perform check again */
+                    this.context.hasBmsNodeTag = false;
+                    return await this.isValidSet();
+                } else {
+                    /* They do not match */
+                    return false;
+                }
+            }
+        } else {
+            /* 
+             * If we do not have NodeTag, then try to check that we can deref
+             * pointer (means that pointer is valid).
+             * 'nwords' member is only available option in this case.
+             * If output is empty, then pointer is invalid.
+             *
+             * Also, pointer may give valid (at first glance) result,
+             * but it contains garbage and value will be too large - we
+             * check this too. 50 seems big enough to start worrying about.
+             */
+            const result = await this.evaluate(`((Bitmapset *)${this.value})->nwords`);
+            const nwords = Number(result.result);
+            if (!(result.result && Number.isInteger(nwords) && nwords < 50)) {
+                return false;
+            }
+        }
+
         if (this.context.hasBmsIsValidSet) {
             const expression = `bms_is_valid_set((Bitmapset *)${this.value})`;
             const response = await this.evaluate(expression);
@@ -3262,7 +3306,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                 this.context.hasBmsIsValidSet = false;
                 return true;
             }
-    
+
             return utils.extractBoolFromValue(response.result) ?? false;
         }
 
@@ -3319,7 +3363,8 @@ class BitmapSetSpecialMember extends NodeVariable {
 
         /* 
          * We MUST check validity of set, because, otherwise,
-         * `Assert` will fail and whole backend will crash
+         * `Assert` will fail or SEGFAULT si thrown and whole
+         * backend will crash
          */
         if (!await this.isValidSet()) {
             return;
@@ -3464,7 +3509,7 @@ class BitmapSetSpecialMember extends NodeVariable {
         /* + Set elements */
         const setMembers = await this.getSetElements();
         if (setMembers === undefined) {
-            return members;
+            return members.filter(v => v.name !== 'words');
         }
 
         const ref = await this.getBmsRef();
@@ -3472,7 +3517,8 @@ class BitmapSetSpecialMember extends NodeVariable {
         members.push(new ScalarVariable('$length$', setMembers.length.toString(),
                                         'int', this.context, this.logger, this));
         members.push(new BitmapSetSpecialMember.BmsArrayVariable(this, setMembers, ref));
-        return members;
+
+        return members.filter(v => v.name !== 'words');
     }
 
     static BmsElementVariable = class extends Variable {
@@ -3677,7 +3723,7 @@ class BitmapSetSpecialMember extends NodeVariable {
         }
     }
 
-    static isBitmapset(type: string) {
+    static isBitmapsetType(type: string) {
         const typename = utils.getStructNameFromType(type);
         if (typename === 'Bitmapset') {
             /* Bitmapset* */
