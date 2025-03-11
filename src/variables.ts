@@ -106,7 +106,18 @@ export class NodeVarRegistry {
         let typeName = utils.getStructNameFromType(type);
 
         /* [const] [struct] NAME * */
-        return this.nodeTags.has(typeName) && utils.getPointersCount(type) === 1
+        if (this.nodeTags.has(typeName) && utils.getPointersCount(type) === 1) {
+            return true;
+        }
+
+        const alias = this.aliases.get(typeName);
+        if (!alias) {
+            return false;
+        }
+
+        type = type.replace(typeName, alias);
+        typeName = utils.getStructNameFromType(type);
+        return this.nodeTags.has(typeName) && utils.getPointersCount(type) === 1;
     }
 
     /**
@@ -432,7 +443,7 @@ export abstract class Variable {
         }
         
         /* Embedded or top level structs */
-        if (utils.isRawStruct(this)) {
+        if (utils.isRawStruct(this.type, this.value)) {
             return true;
         }
         
@@ -508,7 +519,9 @@ export abstract class Variable {
             context,
             logger,
         };
-        if (utils.isRawStruct(debugVariable) ||
+
+        const realType = Variable.getRealType(debugVariable, context);
+        if (utils.isRawStruct(realType, debugVariable.value) ||
             !utils.isValidPointer(debugVariable.value)) {
             if (utils.isNull(debugVariable.value) && debugVariable.type === 'List *') {
                 /* Empty List is NIL == NULL == '0x0' */
@@ -517,8 +530,6 @@ export abstract class Variable {
 
             return new RealVariable(args);
         }
-
-        const realType = Variable.getRealType(debugVariable, context);
 
         /* 
          * PostgreSQL versions prior 16 do not have Bitmapset Node.
@@ -531,7 +542,7 @@ export abstract class Variable {
         /* NodeTag variables: Node, List, Bitmapset etc.. */
         if (context.nodeVarRegistry.isNodeVar(realType)) {
             const nodeTagVar = await NodeVariable.create(debugVariable, frameId,
-                                                         context, logger, parent);
+                                                             context, logger, parent);
             if (nodeTagVar) {
                 return nodeTagVar;
             }
@@ -1052,7 +1063,7 @@ export class NodeVariable extends RealVariable {
      * 
      * @example `OpExpr *' was `Node *'
      */
-    realType: string | undefined;
+    realType?: string;
 
     constructor(realNodeTag: string, args: RealVariableArgs) {
         super(args);
@@ -1068,12 +1079,13 @@ export class NodeVariable extends RealVariable {
         /* 
          * Also try find aliases for some NodeTags
          */
-        const alias = this.context.nodeVarRegistry.aliases.get(this.realNodeTag);
+        let type = this.type;
+        const alias = this.context.nodeVarRegistry.aliases.get(tagFromType);
         if (alias) {
-            return utils.substituteStructName(this.type, alias);
+            type = utils.substituteStructName(type, alias);
         }
 
-        return utils.substituteStructName(this.type, this.realNodeTag);
+        return utils.substituteStructName(type, this.realNodeTag);
     }
 
     getRealType(): string {
@@ -1146,7 +1158,7 @@ export class NodeVariable extends RealVariable {
          * We should substitute current type with target, because 
          * there may be qualifiers such `struct' or `const'
          */
-        const resultType = utils.substituteStructName(this.type, tag);
+        const resultType = utils.substituteStructName(this.getRealType(), tag);
         return await this.castToType(resultType);
     }
 
@@ -1216,7 +1228,7 @@ export class NodeVariable extends RealVariable {
                         context: ExecContext, logger: utils.ILogger,
                         parent?: Variable): Promise<NodeVariable | undefined> {
         const getRealNodeTag = async () => {
-            const nodeTagExpression = `((Node*)(${variable.evaluateName}))->type`;
+            const nodeTagExpression = `((Node*)(${variable.value}))->type`;
             const response = await context.debug.evaluate(nodeTagExpression, frameId);
             let realTag = response.result?.replace('T_', '');
             if (!this.isValidNodeTag(realTag)) {

@@ -337,6 +337,7 @@ export function getDefaultNodeTags(): string[] {
         'MemoizePath',
         'MemoizeState',
         'MemoryContext',
+        'MemoryContextData',
         'MergeAction',
         'MergeActionState',
         'MergeAppend',
