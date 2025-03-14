@@ -290,6 +290,8 @@ export class ExecContext {
     hasBmsIsValidSet = true;
 
     /**
+     * TODO: описание подправить - сразу говорить, что за функция
+     * 
      * This postgres version has 'bms_next_member' function.
      * It is used to get members of Bitmapset faster than
      * old version (by copying existing one and popping data
@@ -305,6 +307,15 @@ export class ExecContext {
      * we can get SEGFAULT.
      */
     hasBmsNodeTag = true;
+
+    /**
+     * Has `get_attname` function.
+     * 
+     * It is used when formatting `Var` representation.
+     * This function is preferred, because allows not to throw ERROR
+     * if failed to get attribute.
+     */
+    hasGetAttname = true;
 
     constructor(nodeVarRegistry: NodeVarRegistry, specialMemberRegistry: SpecialMemberRegistry,
                 debug: utils.IDebuggerFacade) {
@@ -734,7 +745,7 @@ export class RealVariable extends Variable {
     /**
      * Check that {@link value value} is valid pointer value
      */
-    protected isValidPointer() {
+    isValidPointer() {
         return utils.isValidPointer(this.value);
     }
 
@@ -811,6 +822,15 @@ export class RealVariable extends Variable {
         }
 
         return m;
+    }
+
+    async getRealMember(member: string) {
+        const m = await this.getMember(member);
+        if (m instanceof RealVariable) {
+            return m;
+        }
+
+        throw new EvaluationError(`member "${member}" is not RealVariable`);
     }
 
     /**
@@ -1040,7 +1060,14 @@ export class RealVariable extends Variable {
     }
 }
 
+/* 
+ * Some constants from source code.
+ * Using them in such way is quite safe, because they haven't
+ * changed for many years (and I do not think will be changed
+ * in near future).
+ */
 const InvalidOid = 0;
+const InvalidAttrNumber = 0;
 
 /**
  * Variable/member with `NodeTag' assigned.
@@ -1510,52 +1537,112 @@ class ExprNodeVariable extends NodeVariable {
     private async formatVarExpr(rtable: RangeTableContainer) {
         const varno = await this.getMemberValueNumber('varno');
 
-        let relname: string, 
-            attname: string;
-        switch (varno) {
-            case -1:
-            case 65000:
-                /* INNER_VAR */
-                relname = 'INNER';
-                attname = '?';
-                break;
-            case -2:
-            case 65001:
-                /* OUTER_VAR */
-                relname = 'OUTER';
-                attname = '?';
-                break;
-            case -3:
-            case 65002:
-                /* INDEX_VAR */
-                relname = 'INDEX';
-                attname = '?';
-                break;
-            default:
-                if (!rtable.rtableSearched) {
-                    if (!rtable.rtable) {
-                        rtable.rtable = await this.findRtable() as NodeVariable[] | undefined;
-                        rtable.rtableSearched = true;
-                    }
-                }
-
-                if (rtable.rtable) {
-                    if (!(varno > 0 && varno <= rtable.rtable.length)) {
-                        /* This was an Assert */
-                        throw new EvaluationError('failed to get RTEs from range table');
-                    }
-    
-                    const rte = rtable.rtable[varno - 1];
-                    /* 'rte.value' will be pointer to RTE struct */
-                    relname = await this.evalStringResult(`((RangeTblEntry *)${rte.value})->eref->aliasname`) ?? '???';
-                    attname = await this.evalStringResult(`get_rte_attribute_name(((RangeTblEntry *)${rte.value}), ((Var *)${this.value})->varattno)`) ?? '???';
-                    break;
-                } else {
-                    relname = '???';
-                    attname = '???';
-                }
-
+        if (varno === -1 || varno === 65000) {
+            return 'INNER.???';
         }
+
+        if (varno === -2 || varno === 65001) {
+            return 'OUTER.???';
+        }
+
+        if (varno === -3 || varno === 65002) {
+            return 'INDEX.???';
+        }
+        
+        if (!rtable.rtableSearched) {
+            if (!rtable.rtable) {
+                rtable.rtable = await this.findRtable() as NodeVariable[] | undefined;
+                rtable.rtableSearched = true;
+            }
+        }
+
+        if (!rtable.rtable) {
+            return '???.???';
+        }
+        
+        if (!(varno > 0 && varno <= rtable.rtable.length)) {
+            /* This was an Assert */
+            throw new EvaluationError('failed to get RTEs from range table');
+        }
+
+        /* 
+         * We can safely get `relname` (eref->aliasname), but that's
+         * not true for `attname`.
+         * 
+         * We can use `get_rte_attribute_name` function, but
+         * main drawback is that it throws ERROR if failed to find
+         * one.
+         * You may think that this is valid, but not during development
+         * when you are creating a patch and modifying Query/Subquery
+         * such, that they can interleave each other. It can lead
+         * to `get_rte_attribute_name` throwing an ERROR.
+         * 
+         * Fortunately, this function is simple enough and here
+         * we just copy it's logic.
+         */
+
+        const rte = rtable.rtable[varno - 1];
+
+        const get_rte_attribute_name = async () => {
+            /* Copy of `get_rte_attribute_name` logic */
+
+            const varattno = await this.getMemberValueNumber('varattno');
+            if (varattno === InvalidAttrNumber) {
+                return '*';
+            }
+
+            if (varattno < InvalidAttrNumber) {
+                return '???';
+            }
+
+            const alias = await rte.getRealMember('alias');
+            if (alias.isValidPointer()) {
+                const aliasColnames = await alias.getListMemberElements('colnames');
+    
+                if (varattno <= aliasColnames.length) {
+                    const colname = aliasColnames[varattno - 1];
+                    if (colname instanceof ValueVariable) {
+                        return await colname.getStringValue() ?? '???';
+                    }
+                }
+            }
+            
+            const rtePtr = `((RangeTblEntry *)${this.value})`;
+            
+            if (this.context.hasGetAttname) {
+                const getAttnameExpr = `${rtePtr}->rtekind == RTE_RELATION && ${rtePtr}->relid != ${InvalidOid}`;
+                const useGetAttname = utils.extractBoolFromValue((await this.evaluate(getAttnameExpr)).result);
+                if (useGetAttname) {
+                    /* Call this with `true` last - do not throw error if no such attribute found */
+                    const r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno}, true)`);
+                    const attname = utils.extractStringFromResult(r.result);
+                    if (attname !== null) {
+                        return attname;
+                    }
+
+                    if (utils.isFailedVar(r)) {
+                        this.context.hasGetAttname = false;
+                    }
+                }
+            }
+
+            const eref = await rte.getRealMember('eref');
+            if (eref.isValidPointer()) {
+                const erefColnames = await eref.getListMemberElements('colnames');
+                if (varattno <= erefColnames.length) {
+                    const colname = erefColnames[varattno - 1];
+                    if (colname instanceof ValueVariable) {
+                        return await colname.getStringValue() ?? '???';
+                    }
+                }
+            }
+
+            return '???';
+        }
+        
+        /* 'rte.value' will be pointer to RTE struct */
+        const relname = await this.evalStringResult(`((RangeTblEntry *)${rte.value})->eref->aliasname`) ?? '???';
+        const attname = await get_rte_attribute_name();
 
         return `${relname}.${attname}`;
     }
@@ -2029,8 +2116,7 @@ class ExprNodeVariable extends NodeVariable {
         for (const entry of list) {
             if (entry instanceof ValueVariable) {
                 try {
-                    const sval = await entry.getStringValue();
-                    values.push(sval ?? 'NULL');
+                    values.push(await entry.getStringValue() ?? 'NULL');
                 } catch (e) {
                     if (e instanceof EvaluationError) {
                         this.logger.debug('error during getting string value from ValueVariable', e);
@@ -2289,20 +2375,8 @@ class ExprNodeVariable extends NodeVariable {
         /* SubLink->operName[0]->sval */
         let opname = '???';
         const elements = await this.getListMemberElements('operName');
-        if (elements?.length && elements[0] instanceof RealVariable) {
-            /* Depending of PG version, it can be Value or String (now) */
-            try {
-                /* Try String */
-                const sval = await elements[0].getMember('sval');
-                opname = utils.extractStringFromResult(sval.value) ?? '???';
-            } catch (e) {
-                if (!(e instanceof NoMemberFoundError)) {
-                    throw e;
-                }
-            }
-
-            /* Try Value */
-            opname = await this.evalStringResult(`((Value *)${elements[0].value})->val.str`) ?? '???';
+        if (elements?.length && elements[0] instanceof ValueVariable) {
+            opname = await elements[0].getStringValue() ?? '???'
         }
 
         /* Maybe, there are no reprs in array, so 'join' seems safe here */
