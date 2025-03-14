@@ -2,7 +2,7 @@
     "name": "postgresql-hacker-helper",
     "displayName": "PostgreSQL Hacker Helper",
     "description": "Extension to assist Postgres hackers - source code developers",
-    "version": "1.7.1",
+    "version": "1.8.0",
     "engines": {
         "vscode": "^1.30.0"
     },
@@ -72,6 +72,12 @@
                 "title": "Bootstrap extension",
                 "shortTitle": "Bootstrap extension",
                 "category": "PgSQL"
+            },
+            {
+                "command": "postgresql-hacker-helper.addVariableToWatch",
+                "title": "Add Variable to Watch",
+                "shortTitle": "Add to Watch",
+                "category": "PgSQL"
             }
         ],
         "menus": {
@@ -88,9 +94,19 @@
                     "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated"
                 }
             ],
+            "view/item/context": [
+                {
+                    "command": "postgresql-hacker-helper.addVariableToWatch",
+                    "when": "inDebugMode && view == postgresql-hacker-helper.node-tree-view"
+                }
+            ],
             "commandPalette": [
                 {
                     "command": "postgresql-hacker-helper.dumpNodeToLog",
+                    "when": "false"
+                },
+                {
+                    "command": "postgresql-hacker-helper.addVariableToWatch",
                     "when": "false"
                 },
                 {

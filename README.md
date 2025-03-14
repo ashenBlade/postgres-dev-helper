@@ -263,6 +263,12 @@ Known issues:
 
 ## Release Notes
 
+### 1.8.0
+
+Add variable from PG Variables to Watch view.
+
+More accurate `Var` representation extracting to prevent `ERROR` throwing.
+
 ### 1.7.1
 
 Do not show `List` as expandable if it is `NIL`.
