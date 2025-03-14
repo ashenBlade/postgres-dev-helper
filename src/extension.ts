@@ -959,11 +959,25 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
         nodesView.refresh();
     };
 
+    const addVariableToWatchCmd = async (args: any) => {
+        const expr = vars.getWatchExpressionCommandHandler(args);
+        if (!expr) {
+            return;
+        }
+
+        await vscode.commands.executeCommand('debug.addToWatchExpressions', {
+            variable: {
+                evaluateName: expr
+            }
+        });
+    }
+
     registerCommand(Configuration.Commands.RefreshConfigFile, refreshConfigCmd);
     registerCommand(Configuration.Commands.OpenConfigFile, openConfigFileCmd);
     registerCommand(Configuration.Commands.DumpNodeToLog, pprintVarToLogCmd);
     registerCommand(Configuration.Commands.RefreshPostgresVariables, refreshVariablesCommand);
     registerCommand(Configuration.Commands.BootstrapExtension, bootstrapExtensionCmd);
+    registerCommand('postgresql-hacker-helper.addVariableToWatch', addVariableToWatchCmd);
 
     /* Process config files immediately */
     if (vscode.workspace.workspaceFolders) {

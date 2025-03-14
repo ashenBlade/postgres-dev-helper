@@ -602,6 +602,15 @@ export abstract class Variable {
         ));
         return variables.filter(v => v !== undefined);
     }
+
+    /**
+     * Format expression to be inserted in 'Watch' view to evaluate.
+     * 
+     * @returns Expression to be evaluated in 'Watch' view
+     */
+    getWatchExpression(): string | null {
+        return null;
+    }
 }
 
 /* 
@@ -822,6 +831,10 @@ export class RealVariable extends Variable {
         }
 
         return m;
+    }
+
+    getRealType() {
+        return this.type;
     }
 
     async getRealMember(member: string) {
@@ -1057,6 +1070,54 @@ export class RealVariable extends Variable {
     async pfree(pointer: string) {
         if (!utils.isNull(pointer))
             await this.evaluate(`pfree((void *)${pointer})`);
+    }
+
+    protected formatWatchExpression(myType: string) {
+        if (this.parent instanceof VariablesRoot) {
+            /* Top level variable */
+            if (utils.isRawStruct(myType, this.value)) {
+                /* No way to evaluate raw structs as they just lie on stack */
+                return this.name;
+            } else if (utils.isValidPointer(this.value)) {
+                return `(${myType})${this.value}`;
+            }
+        }
+        else if (this.parent instanceof ListElementsMember || 
+                 this.parent instanceof LinkedListElementsMember) {
+            /* Pointer element of List, not int/Oid/TransactionId... */
+            if (utils.isValidPointer(this.value)) {
+                return `(${myType})${this.value}`;
+            }
+        } else if (this.parent instanceof ArraySpecialMember) {
+            if (utils.isValidPointer(this.value)) {
+                return `(${myType})${this.value}`
+            }
+        } else if (this.parent instanceof RealVariable) {
+            /* Member of real structure */
+            const typeModifier = this.type === myType ? '' : `(${myType})`;
+            if (utils.isRawStruct(this.parent.type, this.parent.value)) {
+                if (utils.isFixedSizeArray(this.parent) && utils.isValidPointer(this.value)) {
+                    return `(${myType})${this.value}`;
+                } else {
+                    return `${typeModifier}${this.parent.evaluateName}.${this.name}`;
+                }
+            } else if (utils.isValidPointer(this.parent.value)) {
+                return `${typeModifier}((${this.parent.getRealType()})${this.parent.value})->${this.name}`;
+            }
+        } else {
+            /* Child of pseudo-member */
+            if (utils.isRawStruct(myType, this.value)) {
+                return this.evaluateName;
+            } else if (utils.isValidPointer(this.value)) {
+                return `(${myType})${this.value}`
+            }
+        }
+
+        return null;
+    }
+
+    getWatchExpression() {
+        return this.formatWatchExpression(this.type);
     }
 }
 
@@ -1328,6 +1389,10 @@ export class NodeVariable extends RealVariable {
         }
 
         return new NodeVariable(realTag, args);
+    }
+
+    getWatchExpression() {
+        return this.formatWatchExpression(this.computeRealType());
     }
 }
 
@@ -2894,19 +2959,19 @@ class ListElementsMember extends RealVariable {
      * Real type of stored data
      * @example int, Oid, Node * (or custom)
     */
-    realType: string;
+    listCellType: string;
 
     /**
      * Parent List variable to which we belong
      */
     listParent: ListNodeVariable;
 
-    constructor(listParent: ListNodeVariable, cellValue: string, realType: string,
+    constructor(listParent: ListNodeVariable, cellValue: string, listCellType: string,
                 args: RealVariableArgs) {
         super(args);
         this.listParent = listParent;
         this.cellValue = cellValue;
-        this.realType = realType;
+        this.listCellType = listCellType;
     }
 
     async getTreeItem() {
@@ -2925,7 +2990,7 @@ class ListElementsMember extends RealVariable {
         }
 
         const listType = this.listParent.getMemberExpression('elements');
-        const expression = `(${this.realType}*)(${listType})`;
+        const expression = `(${this.listCellType}*)(${listType})`;
         return super.getArrayMembers(expression, length);
     }
 
@@ -2946,7 +3011,7 @@ class ListElementsMember extends RealVariable {
             const response = await this.debug.evaluate(expression, this.frameId);
             elements.push(new RealVariable({
                 name: `[${i}]` /* array elements behaviour */,
-                type: this.realType,
+                type: this.listCellType,
                 evaluateName: expression,
                 variablesReference: response.variablesReference,
                 value: response.result,
@@ -3311,7 +3376,7 @@ export class ArraySpecialMember extends RealVariable {
                                             lengthExpr, this.type, this.name);
             return await super.doGetRealMembers();
         }
-    
+
         if (length === 0) {
             return await super.doGetRealMembers();
         }
@@ -3972,57 +4037,12 @@ class ValueVariable extends NodeVariable {
 }
 
 /**
- * Create {@link NodeVariable SpecialMember} object with required type
- * from parsed JSON object in settings file.
- * If there is error occured (i.e. invalid configuration) - it will throw 
- * exception with message describing error.
+ * Get expression to fill in 'Watch' window in Debug view container.
  * 
- * @param object parsed JSON object of special member from setting file
+ * @param variable Instance of variable user clicked on
  */
-export function createArraySpecialMemberInfo(object: any): ArraySpecialMemberInfo {
-    let typeName = object.nodeTag;
-    if (!typeName) {
-        throw new Error("nodeTag field not provided");
-    }
-
-    if (typeof typeName !== 'string') {
-        throw new Error(`nodeTag type must be string, given: ${typeof typeName}`);
-    }
-
-    typeName = typeName.trim().replace('T_', '');
-
-    /* NodeTag used also as type name, so it must be valid identifier */
-    if (!utils.isValidIdentifier(typeName)) {
-        throw new Error(`nodeTag must be valid identifier. given: ${object.nodeTag}`);
-    }
-
-    let arrayMemberName = object.memberName;
-    if (!arrayMemberName) {
-        throw new Error(`memberName field not provided for type with NodeTag: ${object.nodeTag}`);
-    }
-
-    if (typeof arrayMemberName !== 'string') {
-        throw new Error(`memberName field must be string for type with NodeTag: ${object.nodeTag}`);
-    }
-
-    arrayMemberName = arrayMemberName.trim();
-    if (!utils.isValidIdentifier(arrayMemberName)) {
-        throw new Error(`memberName field ${arrayMemberName} is not valid identifier - contains invalid characters`)
-    }
-
-    let lengthExpr = object.lengthExpression;
-    if (!lengthExpr) {
-        throw new Error(`lengthExpression not provided for: ${object.nodeTag}->${arrayMemberName}`);
-    }
-
-    if (typeof lengthExpr !== 'string') {
-        throw new Error(`lengthExpression field must be string for: ${object.nodeTag}->${arrayMemberName}`);
-    }
-
-    lengthExpr = lengthExpr.trim();
-    if (!lengthExpr) {
-        throw new Error('lengthExpression can not be empty string');
-    }
-
-    return { typeName, memberName: arrayMemberName, lengthExpr };
+export function getWatchExpressionCommandHandler(variable: any) {
+    return variable instanceof Variable 
+                ? variable.getWatchExpression()
+                : null;
 }
