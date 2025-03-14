@@ -1019,7 +1019,9 @@ export function getKnownCustomListPtrs(): ListPtrSpecialMemberInfo[] {
         variable('OpBtreeInterpretation', 'find_window_run_conditions', 'opinfos'),
 
         /* src/backend/optimizer/prep/prepjointree.c */
-        variable('reduce_outer_joins_state', 'reduce_outer_joins_state', 'sub_states'),
+        member('reduce_outer_joins_state', 'reduce_outer_joins_state', 'sub_states'),
+        member('reduce_outer_joins_pass1_state', 'reduce_outer_joins_pass1_state', 'sub_states'),
+        member('reduce_outer_joins_partial_state', 'reduce_outer_joins_pass2_state', 'sub_states'),
 
         /* src/include/nodes/pathnodes.h */
         member('MergeScanSelCache', 'RestrictInfo', 'scansel_cache'),
