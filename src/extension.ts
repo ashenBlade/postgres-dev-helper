@@ -954,7 +954,7 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
         }
     };
 
-    const refreshVariablesCommand = () => {
+    const refreshVariablesCmd = () => {
         logger.info('refreshing variables view due to command')
         nodesView.refresh();
     };
@@ -975,9 +975,9 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
     registerCommand(Configuration.Commands.RefreshConfigFile, refreshConfigCmd);
     registerCommand(Configuration.Commands.OpenConfigFile, openConfigFileCmd);
     registerCommand(Configuration.Commands.DumpNodeToLog, pprintVarToLogCmd);
-    registerCommand(Configuration.Commands.RefreshPostgresVariables, refreshVariablesCommand);
+    registerCommand(Configuration.Commands.RefreshPostgresVariables, refreshVariablesCmd);
     registerCommand(Configuration.Commands.BootstrapExtension, bootstrapExtensionCmd);
-    registerCommand('postgresql-hacker-helper.addVariableToWatch', addVariableToWatchCmd);
+    registerCommand(Configuration.Commands.AddToWatchView, addVariableToWatchCmd);
 
     /* Process config files immediately */
     if (vscode.workspace.workspaceFolders) {
@@ -1105,6 +1105,7 @@ export class Configuration {
         RefreshConfigFile: `${this.ExtensionName}.refreshConfigFile`,
         FormatterDiffView: `${this.ExtensionName}.formatterShowDiff`,
         BootstrapExtension: `${this.ExtensionName}.bootstrapExtension`,
+        AddToWatchView: `${this.ExtensionName}.addVariableToWatch`,
     };
     static Views = {
         NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`,
