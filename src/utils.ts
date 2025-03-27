@@ -312,9 +312,10 @@ export interface IDebuggerFacade {
     getVariables: (frameId: number) => Promise<dap.DebugVariable[]>;
     getMembers: (variablesReference: number) => Promise<dap.DebugVariable[]>;
     getTopStackFrameId: (threadId: number) => Promise<number | undefined>;
+    getCurrentFrameId: () => Promise<number | undefined>;
     getSession: () => vscode.DebugSession;
     getArrayVariables: (expression: string, length: number,
-        frameId: number | undefined) => Promise<dap.DebugVariable[]>;
+                        frameId: number | undefined) => Promise<dap.DebugVariable[]>;
     getFunctionName: (frameId: number) => Promise<string | undefined>;
 }
 

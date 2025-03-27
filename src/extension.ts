@@ -133,11 +133,17 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
         return;
     }
 
+    const stackFrame = await debug.getCurrentFrameId();
+    if (stackFrame === undefined) {
+        log.error('could not obtain current frameId');
+        return;
+    }
+    
     /* Simple `pprint(Node*)' function call */
     const expression = `-exec call pprint((const void *) ${variable.value})`;
 
     try {
-        await debug.evaluate(expression, undefined);
+        await debug.evaluate(expression, stackFrame);
     } catch (err: any) {
         log.error('could not dump variable %s to log', variable.name, err);
         vscode.window.showErrorMessage(`Could not dump variable ${variable.name}. `
