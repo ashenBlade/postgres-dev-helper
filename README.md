@@ -263,6 +263,10 @@ Known issues:
 
 ## Release Notes
 
+### 1.8.1
+
+Fix `Dump Node to stdout` not working.
+
 ### 1.8.0
 
 Add variable from PG Variables to Watch view.

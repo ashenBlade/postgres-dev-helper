@@ -5,6 +5,12 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.1]
+
+### Fix
+
+`Dump Node to stdout` command not worked, because `frameId` not passed for evaluation.
+
 ## [1.8.0]
 
 ### Added
