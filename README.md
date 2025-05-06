@@ -263,6 +263,12 @@ Known issues:
 
 ## Release Notes
 
+### 1.8.2
+
+Fix `Bitmapset` elements iteration stops if `0` appears in it.
+
+Remove trailing `=` from variables view.
+
 ### 1.8.1
 
 Fix `Dump Node to stdout` not working.
