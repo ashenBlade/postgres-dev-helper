@@ -476,7 +476,7 @@ export abstract class Variable {
     async getTreeItem(): Promise<vscode.TreeItem> {
         try {
             return {
-                label: `${this.name}: ${this.type} = `,
+                label: `${this.name}: ${this.type}`,
                 description: await this.getDescription(),
                 collapsibleState: this.isExpandable()
                     ? vscode.TreeItemCollapsibleState.Collapsed
@@ -1199,8 +1199,8 @@ export class NodeVariable extends RealVariable {
         try {
             return {
                 label: this.tagsMatch()
-                    ? `${this.name}: ${this.type} = `
-                    : `${this.name}: ${this.type} [${this.realNodeTag}] = `,
+                    ? `${this.name}: ${this.type}`
+                    : `${this.name}: ${this.type} [${this.realNodeTag}]`,
                 description: await this.getDescription(),
                 collapsibleState: this.isExpandable()
                     ? vscode.TreeItemCollapsibleState.Collapsed
