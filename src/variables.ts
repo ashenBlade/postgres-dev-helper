@@ -3568,7 +3568,7 @@ class BitmapSetSpecialMember extends NodeVariable {
             }
 
             numbers.push(number);
-        } while (number > 0);
+        } while (number >= 0);
 
         return numbers;
     }
@@ -3617,7 +3617,7 @@ class BitmapSetSpecialMember extends NodeVariable {
             }
 
             numbers.push(number);
-        } while (number > 0);
+        } while (number >= 0);
 
         await this.pfree(bms);
 
