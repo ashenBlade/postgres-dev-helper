@@ -1364,6 +1364,7 @@ export function getArraySpecialMembers(): ArraySpecialMember[] {
         _('PlannerInfo', 'simple_rte_array', 'simple_rel_array_size'),
         _('PlannerInfo', 'append_rel_array', 'simple_rel_array_size'),
         _('PlannerInfo', 'placeholder_array', 'placeholder_array_size'),
+        _('PlannerInfo', 'join_rel_level', 'join_cur_level'),
 
         _('ResultRelInfo', 'ri_IndexRelationInfo', 'ri_NumIndices'),
         _('ResultRelInfo', 'ri_TrigWhenExprs', 'ri_TrigDesc->numtriggers'),
