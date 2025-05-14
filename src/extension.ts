@@ -16,11 +16,13 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
         private log: utils.ILogger,
         private nodeVars: vars.NodeVarRegistry,
         private specialMembers: vars.SpecialMemberRegistry,
-        private debug: utils.VsCodeDebuggerFacade) { 
+        private debug: utils.VsCodeDebuggerFacade,
+        private hashTableTypes: vars.HashTableTypes) { 
         this.subscriptions = [
             vscode.debug.onDidStartDebugSession(s => {
                 if (!this.execContext) {
-                    this.execContext = new vars.ExecContext(this.nodeVars, this.specialMembers, this.debug);
+                    this.execContext = new vars.ExecContext(this.nodeVars, this.specialMembers,
+                                                            this.debug, this.hashTableTypes);
                 }
             }),
             vscode.debug.onDidTerminateDebugSession(s => {
@@ -36,7 +38,8 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
             return this.execContext;
         }
 
-        this.execContext = new vars.ExecContext(this.nodeVars, this.specialMembers, this.debug);
+        this.execContext = new vars.ExecContext(this.nodeVars, this.specialMembers,
+                                                this.debug, this.hashTableTypes);
         return this.execContext;
     }
 
@@ -729,8 +732,9 @@ function addElogErrorBreakpoint() {
 }
 
 export function setupExtension(context: vscode.ExtensionContext, specialMembers: vars.SpecialMemberRegistry,
-                               nodeVars: vars.NodeVarRegistry, debug: utils.IDebuggerFacade,
-                               logger: utils.ILogger, nodesView: NodePreviewTreeViewProvider) {
+                               nodeVars: vars.NodeVarRegistry, hashTableTypes: vars.HashTableTypes,
+                               debug: utils.IDebuggerFacade, logger: utils.ILogger,
+                               nodesView: NodePreviewTreeViewProvider) {
 
     function registerCommand(name: string, command: (...args: any[]) => void) {
         const disposable = vscode.commands.registerCommand(name, command);

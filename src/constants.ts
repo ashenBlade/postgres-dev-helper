@@ -1,4 +1,4 @@
-import { ListPtrSpecialMemberInfo } from "./variables";
+import { HashTableTypeInfo, ListPtrSpecialMemberInfo } from "./variables";
 
 export function getDefaultNodeTags(): string[] {
     /* Compiled from versions from 8.0 to 17 */
@@ -1722,4 +1722,25 @@ export function getWellKnownBitmapsetReferences(): [string, BitmapsetReference][
 
         ref('MergeAppendState', 'ms_valid_subplans', [{path: ['mergeplans']}], 'Self'),
     ]
+}
+
+export function getWellKnownHashTableTypes(): HashTableTypeInfo[] {
+    const type = (parent: string, member: string, type: string) => ({
+        parent, member, type
+    } as HashTableTypeInfo);
+
+    return [
+        type('PlannerInfo', 'join_rel_hash', 'JoinHashEntry *'),
+        type('RewriteStateData', 'rs_unresolved_tups', 'UnresolvedTupData *'),
+        type('RewriteStateData', 'rs_old_new_tid_map', 'OldToNewMappingData *'),
+        type('TIDBitmap', 'pagetable', 'PagetableEntry *'),
+        type('do_autovacuum', 'table_toast_map', 'av_relation *'),
+        type('rebuild_database_list', 'dbhash', 'avl_dbase *'),
+        type('compute_tsvector_stats', 'lexemes_tab', 'TrackItem *'),
+        type('prune_lexemes_hashtable', 'lexemes_tab', 'TrackItem *'),
+        type('TupleHashTableData', 'hashtab', 'TupleHashEntryData *'),
+        type('plperl_interp_desc', 'query_hash', 'plperl_query_entry *'),
+        type('PgStat_StatDBEntry', 'tables', 'PgStat_StatTabEntry *'),
+        type('PgStat_StatDBEntry', 'functions', 'PgStat_StatFuncEntry *'),
+    ];
 }
