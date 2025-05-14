@@ -340,8 +340,6 @@ export class ExecContext {
     hasBmsIsValidSet = true;
 
     /**
-     * TODO: описание подправить - сразу говорить, что за функция
-     *
      * This postgres version has 'bms_next_member' function.
      * It is used to get members of Bitmapset faster than
      * old version (by copying existing one and popping data
@@ -4146,7 +4144,6 @@ class HashTableSpecialMember extends RealVariable {
             if (!bp.enabled) {
                 continue;
             }
-
 
             if (bp instanceof vscode.SourceBreakpoint) {
                 if (bp.location.uri.path.endsWith('bitmapset.c')) {

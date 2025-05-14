@@ -84,12 +84,13 @@
         },
         "version": {
             "type": "integer",
-            "default": 4,
+            "default": 5,
             "enum": [
                 1,
                 2,
                 3,
-                4
+                4,
+                5
             ],
             "description": "Version of configuration file layout. Managed by extension"
         },
@@ -113,6 +114,32 @@
                     "minItems": 2,
                     "maxItems": 2,
                     "description": "Pair of function name and variable name inside this function, identifying this List*"
+                }
+            },
+            "required": [
+                "type"
+            ]
+        },
+        "hashTableType": {
+            "type": "object",
+            "description": "Description of types of entries in Hash Table",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "pattern": "\\*$",
+                    "description": "Type of entry in Hash Table. Must be pointer."
+                },
+                "member": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "Pair of parent struct name and member name inside this struct, identifying this HTAB*"
+                },
+                "variable": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "Pair of function name and variable inside this function, identifying this HTAB*"
                 }
             },
             "required": [
@@ -227,6 +254,48 @@
                     "description": "Array of definitions of custom List types",
                     "items": {
                         "$ref": "#/definitions/customListType"
+                    }
+                }
+            }
+        },
+        {
+            "type": "object",
+            "properties": {
+                "version": {
+                    "const": 5,
+                    "$ref": "#/definitions/version"
+                },
+                "specialMembers": {
+                    "type": "object",
+                    "description": "Configurations for special members",
+                    "properties": {
+                        "array": {
+                            "type": "array",
+                            "description": "Special members that represent arrays - separate fields for array and it's length",
+                            "items": {
+                                "$ref": "#/definitions/arraySpecialMemberV2"
+                            }
+                        }
+                    }
+                },
+                "aliases": {
+                    "$ref": "#/definitions/aliasesV2"
+                },
+                "typedefs": {
+                    "$ref": "#/definitions/typedefs"
+                },
+                "customListTypes": {
+                    "type": "array",
+                    "description": "Array of definitions of custom List types",
+                    "items": {
+                        "$ref": "#/definitions/customListType"
+                    }
+                },
+                "hashTableTypes": {
+                    "type": "array",
+                    "description": "Array of definitions of types of entries in HTAB",
+                    "items": {
+                        "$ref": "#/definitions/hashTableType"
                     }
                 }
             }

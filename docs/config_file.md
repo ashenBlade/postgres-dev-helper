@@ -216,3 +216,47 @@ With this 2 strategies extension detects `List`s with custom types.
 > Just like you see this extension name in `Call Stack` view in VS Code.
 >
 > i.e. for function `pgss_store` in `pg_stat_statements` you will use `pg_stat_statements!pgss_store` (because it's shared library name is `pg_stat_statements.so`).
+
+### Explore entries in Hash Tables
+
+`HTAB *` Hash Table entries can be traversed using `hash_seq_search`, but it returns `void *` - no information about it's type.
+Extension has built-in types for several `HTAB`s. If you want to create your own hash table and see entries, then you can add information about that hash table entries types.
+
+This information stored in `hashTableTypes` member. This is an array of objects similar to `customListTypes`:
+
+```json
+{
+    "version": 5,
+    "hashTableTypes": [
+        {
+            "type": "SampleType *",
+            "member": ["ParentStruct", "parent_member"]
+        },
+        {
+            "type": "SampleType *",
+            "variable": ["ParentFunction", "variable_name"]
+        }
+    ]
+}
+```
+
+Each object contain:
+
+- `type` - fully qualified type name of entry in `HTAB`
+- `member` - array of struct name and member inside this struct with `HTAB *` type. Definition looks like this:
+
+    ```c
+    typedef struct ParentStruct
+    {
+        HTAB *parent_member;
+    } ParentStruct;
+    ```
+
+- `variable` - array of function name and variable inside this function with `HTAB *` type. Definition looks like this
+
+    ```c
+    void ParentFunction()
+    {
+        HTAB *variable_name;
+    }
+    ```

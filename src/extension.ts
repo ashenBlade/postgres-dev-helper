@@ -162,7 +162,9 @@ class ConfigFileParseResult {
     /* Path to custom typedef's file */
     typedefs?: string;
     /* Custom List types */
-    customListTypes?: vars.ListPtrSpecialMemberInfo[];    
+    customListTypes?: vars.ListPtrSpecialMemberInfo[];   
+    /* Types stored in HTABs */
+    hashTableTypes?: vars.HashTableTypeInfo[];
 }
 
 function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefined {
@@ -357,7 +359,7 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
 
         const elements: vars.ListPtrSpecialMemberInfo[] = [];
         for (const o of obj) {
-            if (!(typeof obj === 'object' && obj)) {
+            if (!(typeof o === 'object' && o)) {
                 continue;
             }
 
@@ -403,12 +405,68 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
         return elements;
     }
 
+    const parseHashTableTypes = (obj: any): vars.HashTableTypeInfo[] | undefined => {
+        /*
+         * {
+         *     "parent": "string",
+         *     "member": ["string", "string"],
+         *     "variable": ["string", "string"]
+         * }
+         */
+        const extractParentMember = (o: any): [string, string] | undefined => {
+            if (!(Array.isArray(o) && o.length === 2)) {
+                return;
+            }
+
+            const [parent, member] = o;
+            if (typeof parent === 'string' && typeof member === 'string'
+                    && parent              &&        member) {
+                return [parent, member];
+            }
+
+            return;
+        }
+
+        if (!Array.isArray(obj)) {
+            return;
+        }
+
+        const elements: vars.HashTableTypeInfo[] = [];
+        for (const o of obj) {
+            if (!(o && typeof o === 'object')) {
+                continue;
+            }
+
+            const type = o.type;
+            if (typeof type !== 'string' && type) {
+                continue;
+            }
+
+            let pair = extractParentMember(o.member);
+            if (!pair) {
+                pair = extractParentMember(o.variable);
+            }
+            
+            if (!pair) {
+                continue;
+            }
+
+            elements.push({
+                type, 
+                member: pair[1],
+                parent: pair[0],
+            });
+        }
+
+        return elements;
+    }
+
     if (!(typeof configFile === 'object' && configFile)) {
         return;
     }
 
     const configVersion = Number(configFile.version);
-    if (!(Number.isInteger(configVersion) && 1 <= configVersion && configVersion <= 4)) {
+    if (!(Number.isInteger(configVersion) && 1 <= configVersion && configVersion <= 5)) {
         vscode.window.showErrorMessage(`unknown version of config file: ${configFile.version}`);
         return;
     }
@@ -436,11 +494,16 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
                 ? parseListTypes(configFile.customListTypes)
                 : undefined;
 
+    const hashTableTypes = configVersion >= 5
+                ? parseHashTableTypes(configFile.hashTableTypes)
+                : undefined;
+
     return {
         arrayInfos,
         aliasInfos,
         typedefs,
         customListTypes,
+        hashTableTypes
     }
 }
 
@@ -821,6 +884,16 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
                     logger.error('error occurred during adding custom List types', e);
                 }
             }
+
+            if (parseResult.hashTableTypes) {
+                logger.debug('adding %i hash table types', parseResult.hashTableTypes.length);
+                try {
+                    hashTableTypes.addHashTypeTypes(parseResult.hashTableTypes);
+                } catch (e) {
+                    vscode.window.showErrorMessage('failed to add custom hash table types');
+                    logger.error('error occurred during adding custom hash table types', e);
+                }
+            }
         }
     }
 
@@ -889,12 +962,13 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
                     await utils.writeFile(configFilePath, JSON.stringify(
                         /* Example config file */
                         {
-                            version: 4,
+                            version: 5,
                             specialMembers: {
                                 array: []
                             },
                             aliases: [],
-                            customListTypes: []
+                            customListTypes: [],
+                            hashTableTypes: [],
                         },
                         undefined, '    '));
                 } catch (err: any) {
