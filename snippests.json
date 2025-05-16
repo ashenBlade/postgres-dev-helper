@@ -1,0 +1,50 @@
+{
+    "foreach loop": {
+        "prefix": "foreach",
+        "body": [
+            "foreach(${1:lc}, $2)",
+            "{",
+            "\t$4 ${3:node} = ($4) lfirst($1);",
+            "\t$0",
+            "}"
+        ]
+    },
+    "if (IsA())": {
+        "prefix": "ifisa",
+        "body": [
+            "if (IsA(${1:node}, $2))",
+            "{",
+            "\t$2 *$3 = ($2 *) $1;",
+            "\t$0",
+            "}"
+        ]
+    },
+    "PG_TRY()/PG_CATCH() block": {
+        "prefix": "try",
+        "body": [
+            "PG_TRY();",
+            "{",
+            "\t${TM_SELECTED_TEXT}$1",
+            "}",
+            "PG_CATCH();",
+            "{",
+            "\t$0",
+            "}",
+            "PG_END_TRY();"
+        ]
+    },
+    "PG_TRY()/PG_FINALLY() block": {
+        "prefix": "tryf",
+        "body": [
+            "PG_TRY();",
+            "{",
+            "\t${TM_SELECTED_TEXT}$1",
+            "}",
+            "PG_FINALLY();",
+            "{",
+            "\t$0",
+            "}",
+            "PG_END_TRY();"
+        ]
+    }
+}

@@ -166,6 +166,12 @@
                 "fileMatch": "pgsql_hacker_helper.json",
                 "url": "./properties.schema.json"
             }
+        ],
+        "snippets": [
+            {
+                "language": "c",
+                "path": "./snippets.json"
+            }
         ]
     },
     "scripts": {
