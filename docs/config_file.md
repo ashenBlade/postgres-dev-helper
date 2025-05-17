@@ -222,12 +222,12 @@ With this 2 strategies extension detects `List`s with custom types.
 `HTAB *` Hash Table entries can be traversed using `hash_seq_search`, but it returns `void *` - no information about it's type.
 Extension has built-in types for several `HTAB`s. If you want to create your own hash table and see entries, then you can add information about that hash table entries types.
 
-This information stored in `hashTableTypes` member. This is an array of objects similar to `customListTypes`:
+This information stored in `htab` member. This is an array of objects similar to `customListTypes`:
 
 ```json
 {
     "version": 5,
-    "hashTableTypes": [
+    "htab": [
         {
             "type": "SampleType *",
             "member": ["ParentStruct", "parent_member"]
@@ -260,3 +260,29 @@ Each object contain:
         HTAB *variable_name;
     }
     ```
+
+Also, there is support for `simplehash.c` hash tables ("simplehash" further). They are code generated using macros, so for each specific hash table there are functions and structures defined.
+Several builtin simplehashes exists and using configuration file you can add your own.
+To define your custom simplehash you need to specify 2 things: prefix and entry type:
+
+```json
+{
+    "version": 5,
+    "simplehash": [
+        {
+            "prefix": "sometableprefix",
+            "type": "HashTableEntry *"
+        }
+    ]
+}
+```
+
+So, `simplehash` is an array of objects with members defining simplehash:
+
+- `prefix` - prefix for simplehash, that was specified by `SH_PREFIX` macro, when simplehash was defined in source code
+- `type` - fully qualified type of entry stored in this simplehash
+
+Identifiers of structures and functions are derived from `prefix` and generated the same way, i.e. `PREFIX_iterator` - structure-state for iterator.
+
+> NOTE: compiler can apply unused symbol stripping, so after compilation there can be no structures/functions for iteration.
+> In such situation, you should add some code that uses `PREFIX_iterator`, `PREFIX_start_iterate` and `PREFIX_iterate` (i.e. wrap such code with debug macros).

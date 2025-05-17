@@ -164,7 +164,9 @@ class ConfigFileParseResult {
     /* Custom List types */
     customListTypes?: vars.ListPtrSpecialMemberInfo[];   
     /* Types stored in HTABs */
-    hashTableTypes?: vars.HashTableTypeInfo[];
+    htabTypes?: vars.HtabEntryInfo[];
+    /* Types for simple hash */
+    simpleHashTableTypes?: vars.SimplehashEntryInfo[];
 }
 
 function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefined {
@@ -405,7 +407,7 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
         return elements;
     }
 
-    const parseHashTableTypes = (obj: any): vars.HashTableTypeInfo[] | undefined => {
+    const parseHtabTypes = (obj: any): vars.HtabEntryInfo[] | undefined => {
         /*
          * {
          *     "parent": "string",
@@ -431,7 +433,7 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
             return;
         }
 
-        const elements: vars.HashTableTypeInfo[] = [];
+        const elements: vars.HtabEntryInfo[] = [];
         for (const o of obj) {
             if (!(o && typeof o === 'object')) {
                 continue;
@@ -458,6 +460,45 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
             });
         }
 
+        return elements;
+    }
+
+    const parseSimplehashTypes = (obj: any): vars.SimplehashEntryInfo[] | undefined => {
+        /* 
+         * [
+         *     {
+         *         "prefix": "string",
+         *         "type": "string"
+         *     }
+         * ]
+         */
+
+        if (!Array.isArray(obj)) {
+            return;
+        }
+
+        const elements = [];
+        for (const o of obj) {
+            if (!(typeof o === 'object' && o)) {
+                continue;
+            }
+
+
+            const prefix = o.prefix;
+            const type = o.type;
+
+            if (!(prefix && typeof prefix === 'string' &&
+                  type && typeof type === 'string')) {
+                continue;
+            }
+
+            elements.push({
+                prefix,
+                canIterate: true,
+                elementType: type
+            } as vars.SimplehashEntryInfo);
+        }
+        
         return elements;
     }
 
@@ -494,8 +535,12 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
                 ? parseListTypes(configFile.customListTypes)
                 : undefined;
 
-    const hashTableTypes = configVersion >= 5
-                ? parseHashTableTypes(configFile.hashTableTypes)
+    const htabTypes = configVersion >= 5
+                ? parseHtabTypes(configFile.htab)
+                : undefined;
+    
+    const simpleHashTableTypes = configVersion >= 5
+                ? parseSimplehashTypes(configFile.simplehash)
                 : undefined;
 
     return {
@@ -503,7 +548,8 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
         aliasInfos,
         typedefs,
         customListTypes,
-        hashTableTypes
+        htabTypes,
+        simpleHashTableTypes,
     }
 }
 
@@ -885,13 +931,23 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
                 }
             }
 
-            if (parseResult.hashTableTypes) {
-                logger.debug('adding %i hash table types', parseResult.hashTableTypes.length);
+            if (parseResult.htabTypes) {
+                logger.debug('adding %i htab types', parseResult.htabTypes.length);
                 try {
-                    hashTableTypes.addHTABTypes(parseResult.hashTableTypes);
+                    hashTableTypes.addHTABTypes(parseResult.htabTypes);
                 } catch (e) {
-                    vscode.window.showErrorMessage('failed to add custom hash table types');
-                    logger.error('error occurred during adding custom hash table types', e);
+                    vscode.window.showErrorMessage('failed to add custom htab types');
+                    logger.error('error occurred during adding custom HTAB types', e);
+                }
+            }
+
+            if (parseResult.simpleHashTableTypes) {
+                logger.debug('adding %i simplehash types', parseResult.simpleHashTableTypes.length);
+                try {
+                    hashTableTypes.addSimplehashTypes(parseResult.simpleHashTableTypes);
+                } catch (e) {
+                    vscode.window.showErrorMessage('failed to add custom simple hash table types');
+                    logger.error('error occurred during adding custom simple hash table types', e);
                 }
             }
         }

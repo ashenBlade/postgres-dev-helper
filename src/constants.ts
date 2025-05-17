@@ -1,4 +1,4 @@
-import { HashTableTypeInfo, ListPtrSpecialMemberInfo, SimpleHashTableEntryInfo } from "./variables";
+import { HtabEntryInfo, ListPtrSpecialMemberInfo, SimplehashEntryInfo } from "./variables";
 
 export function getDefaultNodeTags(): string[] {
     /* Compiled from versions from 8.0 to 17 */
@@ -1725,10 +1725,10 @@ export function getWellKnownBitmapsetReferences(): [string, BitmapsetReference][
     ]
 }
 
-export function getWellKnownHTABTypes(): HashTableTypeInfo[] {
+export function getWellKnownHTABTypes(): HtabEntryInfo[] {
     const type = (parent: string, member: string, type: string) => ({
         parent, member, type
-    } as HashTableTypeInfo);
+    } as HtabEntryInfo);
 
     return [
         type('PlannerInfo', 'join_rel_hash', 'JoinHashEntry *'),
@@ -1746,10 +1746,10 @@ export function getWellKnownHTABTypes(): HashTableTypeInfo[] {
     ];
 }
 
-export function getWellKnownSimpleHashTableTypes(): SimpleHashTableEntryInfo[] {
+export function getWellKnownSimpleHashTableTypes(): SimplehashEntryInfo[] {
     const type = (prefix: string, elementType: string, canIterate: boolean = true) => ({
         prefix, elementType, canIterate
-    } as SimpleHashTableEntryInfo);
+    } as SimplehashEntryInfo);
 
     return [
         type('blockreftable', 'BlockRefTableEntry *'),

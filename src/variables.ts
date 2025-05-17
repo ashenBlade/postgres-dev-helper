@@ -236,7 +236,16 @@ export class SpecialMemberRegistry {
     }
 }
 
-export interface HashTableTypeInfo {
+/**
+ * Container type to store information about HTAB hash tables.
+ * HTAB is generalized, so there only 2 ways to identify HTAB and it's
+ * stored type - variable and member of another structure.
+ *
+ * This is also generalized - "parent" can be name of function or
+ * name of structure, and "member" - name of variable in function
+ * or member of structure, accordingly.
+ */
+export interface HtabEntryInfo {
     /**
      * Type of entry in HTAB*
      */
@@ -254,7 +263,7 @@ export interface HashTableTypeInfo {
 }
 
 /**
- * Container type to store information about simple hash table.
+ * Container type to store information about simple hash table - simplehash.
  * 
  * Main reason to introduce it - is to track 'iteration' facility.
  * Due to compiler optimizations (unused symbol pruning) iterator type
@@ -273,7 +282,7 @@ export interface HashTableTypeInfo {
  * We can overcome this by rewriting everything here (in extension).
  * Currently, I do not want to do that, but maybe in future I'll change my mind.
  */
-export interface SimpleHashTableEntryInfo {
+export interface SimplehashEntryInfo {
     /* 
      * 'SH_PREFIX' defined when declaring/defining hash table
      */
@@ -296,25 +305,25 @@ export class HashTableTypes {
     /**
      * Map (member name -> (parent struct name -> type info structure))
      */
-    htabMembers: Map<string, Map<string, HashTableTypeInfo>>;
+    htab: Map<string, Map<string, HtabEntryInfo>>;
 
     /**
      * Map (prefix -> entry type).
      */
-    simpleHashTypes: Map<string, SimpleHashTableEntryInfo>;
+    simplehash: Map<string, SimplehashEntryInfo>;
 
     constructor() {
-        this.htabMembers = new Map();
-        this.simpleHashTypes = new Map();
+        this.htab = new Map();
+        this.simplehash = new Map();
         this.addHTABTypes(constants.getWellKnownHTABTypes());
-        this.addSimpleHashTypes(constants.getWellKnownSimpleHashTableTypes());
+        this.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
     }
 
-    addHTABTypes(elements: HashTableTypeInfo[]) {
+    addHTABTypes(elements: HtabEntryInfo[]) {
         for (const element of elements) {
-            const map = this.htabMembers.get(element.member);
+            const map = this.htab.get(element.member);
             if (map === undefined) {
-                this.htabMembers.set(element.member, new Map([[element.parent, element]]));
+                this.htab.set(element.member, new Map([[element.parent, element]]));
             } else {
                 /*
                  * Don't bother with duplicate types - this is normal situation,
@@ -326,20 +335,20 @@ export class HashTableTypes {
         }
     }
 
-    addSimpleHashTypes(elements: SimpleHashTableEntryInfo[]) {
+    addSimplehashTypes(elements: SimplehashEntryInfo[]) {
         for (const e of elements) {
-            this.simpleHashTypes.set(e.prefix, e);
+            this.simplehash.set(e.prefix, e);
         }
     }
 
     findSimpleHashTableType(type: string) {
         const struct = utils.getStructNameFromType(type);
-        const prefix = SimpleHashTableMember.getPrefix(struct);
+        const prefix = SimplehashMember.getPrefix(struct);
         if (!prefix) {
             return undefined;
         }
 
-        return this.simpleHashTypes.get(prefix);
+        return this.simplehash.get(prefix);
     }
 }
 
@@ -717,10 +726,10 @@ export abstract class Variable {
         }
 
         /* Simple hash table */
-        if (SimpleHashTableMember.looksLikeSimpleHashTable(realType)) {
+        if (SimplehashMember.looksLikeSimpleHashTable(realType)) {
             const entry = context.hashTableTypes.findSimpleHashTableType(realType);
             if (entry) {
-                return new SimpleHashTableMember(entry, args);
+                return new SimplehashMember(entry, args);
             }
         }
 
@@ -4191,7 +4200,7 @@ class HTABSpecialMember extends RealVariable {
     ];
 
     async findEntryType(): Promise<string | undefined> {
-        const map = this.context.hashTableTypes.htabMembers.get(this.name);
+        const map = this.context.hashTableTypes.htab.get(this.name);
         if (!map) {
             return;
         }
@@ -4260,7 +4269,7 @@ class HTABSpecialMember extends RealVariable {
             return members;
         }
 
-        members.push(new HTABEntriesMember(this, entryType));
+        members.push(new HTABElementsMember(this, entryType));
         return members;
     }
 }
@@ -4269,7 +4278,7 @@ class HTABSpecialMember extends RealVariable {
  * Represents array of stored entries of Hash Table.
  * Loaded lazily when member is expanded.
  */
-class HTABEntriesMember extends Variable {
+class HTABElementsMember extends Variable {
     /*
      * Parent HTAB
      */
@@ -4368,12 +4377,15 @@ class HTABEntriesMember extends Variable {
     }
 }
 
-class SimpleHashTableMember extends RealVariable {
+/**
+ * Represents simplehash hash table, created using '#include "lib/simplehash.h"'
+ */
+class SimplehashMember extends RealVariable {
     /* 
      * Stores information about simple hash table: prefix for identifier names,
      * type of entry and flag, indicating if it has facility to iterate over it.
      */
-    entry: SimpleHashTableEntryInfo;
+    entry: SimplehashEntryInfo;
 
     get prefix(): string {
         return this.entry.prefix;
@@ -4383,7 +4395,7 @@ class SimpleHashTableMember extends RealVariable {
         return this.entry.elementType;
     }
   
-    constructor(entry: SimpleHashTableEntryInfo, args: RealVariableArgs) {
+    constructor(entry: SimplehashEntryInfo, args: RealVariableArgs) {
         super(args);
         this.entry = entry;
     }
@@ -4394,7 +4406,7 @@ class SimpleHashTableMember extends RealVariable {
             return members;
         }
 
-        members.push(new SimpleHashTableElementsMember(this));
+        members.push(new SimplehashElementsMember(this));
         return members;
     }
 
@@ -4438,13 +4450,16 @@ class SimpleHashTableMember extends RealVariable {
     }
 }
 
-class SimpleHashTableElementsMember extends Variable {
+/**
+ * Represents members of simplehash variable, stored in $elements$
+ */
+class SimplehashElementsMember extends Variable {
     /* 
      * Parent simple hash table
      */
-    hashTable: SimpleHashTableMember;
+    hashTable: SimplehashMember;
 
-    constructor(hashTable: SimpleHashTableMember) {
+    constructor(hashTable: SimplehashMember) {
         super('$elements$', '', '', hashTable.context, hashTable.frameId, hashTable, hashTable.logger);
         this.hashTable = hashTable;
     }
@@ -4483,6 +4498,9 @@ class SimpleHashTableElementsMember extends Variable {
         const iteratorType = this.getIteratorType();
         const hashTableType = this.getHashTableType();
 
+        /* 
+         * Using 'sizeof' can be first filter to define wheter it has any iteration facility.
+         */
         let value;
         try {
             value = await this.palloc(`sizeof(${iteratorType})`);
@@ -4494,6 +4512,7 @@ class SimpleHashTableElementsMember extends Variable {
             throw error;
         }
 
+        /* 'start_iterate' seems not important to cache for optimization */
         const result = await this.evaluate(`${this.hashTable.prefix}_start_iterate((${hashTableType} *) ${this.hashTable.value}, (${iteratorType} *)${value})`)
         if (utils.isFailedVar(result)) {
             await this.pfree(value);

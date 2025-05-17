@@ -120,9 +120,9 @@
                 "type"
             ]
         },
-        "hashTableType": {
+        "htab": {
             "type": "object",
-            "description": "Description of types of entries in Hash Table",
+            "description": "Description of types of entries in HTAB",
             "properties": {
                 "type": {
                     "type": "string",
@@ -143,6 +143,26 @@
                 }
             },
             "required": [
+                "type"
+            ]
+        },
+        "simplehash": {
+            "type": "object",
+            "description": "Description of types of entries in simplehash",
+            "properties": {
+                "prefix": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+                    "description": "Prefix for simplehash operations/structures specified in SH_PREFIX"
+                },
+                "type": {
+                    "type": "string",
+                    "pattern": "\\*$",
+                    "description": "Type of entry in Hash Table. Must be pointer."
+                }
+            },
+            "required": [
+                "prefix",
                 "type"
             ]
         }
@@ -291,11 +311,18 @@
                         "$ref": "#/definitions/customListType"
                     }
                 },
-                "hashTableTypes": {
+                "htab": {
                     "type": "array",
                     "description": "Array of definitions of types of entries in HTAB",
                     "items": {
-                        "$ref": "#/definitions/hashTableType"
+                        "$ref": "#/definitions/htab"
+                    }
+                },
+                "simplehash": {
+                    "type": "array",
+                    "description": "Array of definitions of types in simple hash tables",
+                    "items": {
+                        "$ref": "#/definitions/simplehash"
                     }
                 }
             }
