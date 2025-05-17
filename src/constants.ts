@@ -1770,12 +1770,14 @@ export function getWellKnownSimpleHashTableTypes(): SimplehashEntryInfo[] {
          * These simple hash tables have iteration logic trimmed,
          * but leave it to show, that I hadn't forgotten it.
          */
-        type('rolename', 'RoleNameEntry *', false),
         type('backup_file', 'backup_file_entry *', false),
         type('catalogid', 'CatalogIdMapEntry *', false),
+        type('collation_cache', 'collation_cache_entry *', false),
+        type('derives', 'ECDerivesEntry *', false),
         type('keepwal', 'keepwal_entry *', false),
         type('nsphash', 'SearchPathCacheEntry *', false),
         type('pgstat_snapshot', 'PgStat_SnapshotEntry *', false),
+        type('rolename', 'RoleNameEntry *', false),
         type('saophash', 'ScalarArrayOpExprHashEntry *', false),
     ];
 }
