@@ -1,4 +1,4 @@
-import { HashTableTypeInfo, ListPtrSpecialMemberInfo } from "./variables";
+import { HashTableTypeInfo, ListPtrSpecialMemberInfo, SimpleHashTableEntryInfo } from "./variables";
 
 export function getDefaultNodeTags(): string[] {
     /* Compiled from versions from 8.0 to 17 */
@@ -1725,7 +1725,7 @@ export function getWellKnownBitmapsetReferences(): [string, BitmapsetReference][
     ]
 }
 
-export function getWellKnownHashTableTypes(): HashTableTypeInfo[] {
+export function getWellKnownHTABTypes(): HashTableTypeInfo[] {
     const type = (parent: string, member: string, type: string) => ({
         parent, member, type
     } as HashTableTypeInfo);
@@ -1743,5 +1743,33 @@ export function getWellKnownHashTableTypes(): HashTableTypeInfo[] {
         type('plperl_interp_desc', 'query_hash', 'plperl_query_entry *'),
         type('PgStat_StatDBEntry', 'tables', 'PgStat_StatTabEntry *'),
         type('PgStat_StatDBEntry', 'functions', 'PgStat_StatFuncEntry *'),
+    ];
+}
+
+export function getWellKnownSimpleHashTableTypes(): SimpleHashTableEntryInfo[] {
+    const type = (prefix: string, elementType: string, canIterate: boolean = true) => ({
+        prefix, elementType, canIterate
+    } as SimpleHashTableEntryInfo);
+
+    return [
+        type('blockreftable', 'BlockRefTableEntry *'),
+        type('filehash', 'file_entry_t *'),
+        type('manifest_files', 'manifest_file *'),
+        type('memoize', 'MemoizeEntry *'),
+        type('pagetable', 'PagetableEntry *'),
+        type('pgstat_entry_ref_hash', 'PgStat_EntryRefHashEntry *'),
+        type('tuplehash', 'TupleHashEntryData *'),
+
+        /* 
+         * These simple hash tables have iteration logic trimmed,
+         * but leave it to show, that I hadn't forgotten it.
+         */
+        type('rolename', 'RoleNameEntry *', false),
+        type('backup_file', 'backup_file_entry *', false),
+        type('catalogid', 'CatalogIdMapEntry *', false),
+        type('keepwal', 'keepwal_entry *', false),
+        type('nsphash', 'SearchPathCacheEntry *', false),
+        type('pgstat_snapshot', 'PgStat_SnapshotEntry *', false),
+        type('saophash', 'ScalarArrayOpExprHashEntry *', false),
     ];
 }

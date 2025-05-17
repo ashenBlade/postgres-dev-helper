@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import * as utils from "./utils";
 import * as dap from "./dap";
 import * as constants from './constants';
+import { getActiveResourcesInfo } from 'process';
+import { stringify } from 'querystring';
 
 export interface AliasInfo {
     alias: string;
@@ -63,8 +65,8 @@ export class NodeVarRegistry {
             }
 
             const tag = text.replace(',', '')
-                            .replace('T_', '')
-                            .split(' ', 1)[0];
+                .replace('T_', '')
+                .split(' ', 1)[0];
             if (tag.trim() === '') {
                 continue;
             }
@@ -194,7 +196,7 @@ export class SpecialMemberRegistry {
 
     addNodePtrSpecialMembers(elements: ListPtrSpecialMemberInfo[]) {
         const addRecord = (member: string, funcOrStruct: string,
-                           info: ListPtrSpecialMemberInfo) => {
+            info: ListPtrSpecialMemberInfo) => {
             const map = this.listCustomPtrs.get(member);
             if (map === undefined) {
                 this.listCustomPtrs.set(member, new Map([
@@ -251,22 +253,68 @@ export interface HashTableTypeInfo {
     parent: string;
 }
 
+/**
+ * Container type to store information about simple hash table.
+ * 
+ * Main reason to introduce it - is to track 'iteration' facility.
+ * Due to compiler optimizations (unused symbol pruning) iterator type
+ * and iteration functions can be removed if they are not used.
+ * 
+ * For this purpose 'canIterate' flag was introduced. Initially, it set to 'true'
+ * and then set to 'false' if error like 'unable to create variable' appears -
+ * it serves as a signal, that there is no means to implement iteration.
+ * 
+ * You may think, that we can monkey-patch iteration functions/types, but no.
+ * Main reason is that 'start_iterate' and 'iterate' logic is quite complex
+ * and *iteration state* stored in each entry of hash table (state member),
+ * so it heavily depends on internal structure layout and doing monkey-patching
+ * can break everything.
+ * 
+ * We can overcome this by rewriting everything here (in extension).
+ * Currently, I do not want to do that, but maybe in future I'll change my mind.
+ */
+export interface SimpleHashTableEntryInfo {
+    /* 
+     * 'SH_PREFIX' defined when declaring/defining hash table
+     */
+    prefix: string;
+
+    /* 
+     * Type of element stored in this hash table.
+     * Should be a pointer type, because no checks and adding pointer performed.
+     */
+    elementType: string;
+
+    /* 
+     * Flag, indicating that 'start_iterate' and 'iterate' functions
+     * and 'iterator' struct exist.
+     */
+    canIterate: boolean;
+}
+
 export class HashTableTypes {
     /**
      * Map (member name -> (parent struct name -> type info structure))
      */
-    members: Map<string, Map<string, HashTableTypeInfo>>;
+    htabMembers: Map<string, Map<string, HashTableTypeInfo>>;
+
+    /**
+     * Map (prefix -> entry type).
+     */
+    simpleHashTypes: Map<string, SimpleHashTableEntryInfo>;
 
     constructor() {
-        this.members = new Map();
-        this.addHashTypeTypes(constants.getWellKnownHashTableTypes());
+        this.htabMembers = new Map();
+        this.simpleHashTypes = new Map();
+        this.addHTABTypes(constants.getWellKnownHTABTypes());
+        this.addSimpleHashTypes(constants.getWellKnownSimpleHashTableTypes());
     }
 
-    addHashTypeTypes(elements: HashTableTypeInfo[]) {
+    addHTABTypes(elements: HashTableTypeInfo[]) {
         for (const element of elements) {
-            const map = this.members.get(element.member);
+            const map = this.htabMembers.get(element.member);
             if (map === undefined) {
-                this.members.set(element.member, new Map([[element.parent, element]]));
+                this.htabMembers.set(element.member, new Map([[element.parent, element]]));
             } else {
                 /*
                  * Don't bother with duplicate types - this is normal situation,
@@ -276,6 +324,22 @@ export class HashTableTypes {
                 map.set(element.parent, element);
             }
         }
+    }
+
+    addSimpleHashTypes(elements: SimpleHashTableEntryInfo[]) {
+        for (const e of elements) {
+            this.simpleHashTypes.set(e.prefix, e);
+        }
+    }
+
+    findSimpleHashTableType(type: string) {
+        const struct = utils.getStructNameFromType(type);
+        const prefix = SimpleHashTableMember.getPrefix(struct);
+        if (!prefix) {
+            return undefined;
+        }
+
+        return this.simpleHashTypes.get(prefix);
     }
 }
 
@@ -294,7 +358,7 @@ export class ExecContext {
     specialMemberRegistry: SpecialMemberRegistry;
 
     /**
-     * Types of entries, that different HTAB store
+     * Types of entries, that different HTAB store (dynahash.c)
      */
     hashTableTypes: HashTableTypes;
 
@@ -485,8 +549,8 @@ export abstract class Variable {
                 * return `undefined` if no children - scalar variable
                 */
                 return this.children.length
-                        ? this.children
-                        : undefined;
+                    ? this.children
+                    : undefined;
             }
 
             const children = await this.doGetChildren();
@@ -553,7 +617,7 @@ export abstract class Variable {
 
             if (isExpectedError(error)) {
                 /* Placeholder */
-                return {  };
+                return {};
             } else {
                 throw error;
             }
@@ -598,10 +662,16 @@ export abstract class Variable {
         };
 
         const realType = Variable.getRealType(debugVariable, context);
-        if (utils.isRawStruct(realType, debugVariable.value) ||
-            !utils.isValidPointer(debugVariable.value)) {
-            if (utils.isNull(debugVariable.value) && debugVariable.type === 'List *') {
-                /* Empty List is NIL == NULL == '0x0' */
+        if (utils.isRawStruct(realType, debugVariable.value) ||      /* Raw struct, i.e. allocated on stack */
+            utils.getPointersCount(realType) > 1 ||                  /* Pointer to pointer */
+            !utils.isValidPointer(debugVariable.value)) {            /* NULL */
+            if (utils.isNull(debugVariable.value) && 
+                debugVariable.type.endsWith('List *')) {
+                /* 
+                 * Empty List is NIL == NULL == '0x0'
+                 *
+                 * Also 'endsWith' checks for 'const List *'
+                 */
                 return new ListNodeVariable('List', args);
             }
 
@@ -619,7 +689,7 @@ export abstract class Variable {
         /* NodeTag variables: Node, List, Bitmapset etc.. */
         if (context.nodeVarRegistry.isNodeVar(realType)) {
             const nodeTagVar = await NodeVariable.create(debugVariable, frameId,
-                                                             context, logger, parent);
+                                                         context, logger, parent);
             if (nodeTagVar) {
                 return nodeTagVar;
             }
@@ -643,7 +713,15 @@ export abstract class Variable {
         /* HTAB* */
         if (utils.getPointersCount(realType) === 1 &&
             utils.getStructNameFromType(realType) === 'HTAB') {
-            return new HashTableSpecialMember(args);
+            return new HTABSpecialMember(args);
+        }
+
+        /* Simple hash table */
+        if (SimpleHashTableMember.looksLikeSimpleHashTable(realType)) {
+            const entry = context.hashTableTypes.findSimpleHashTableType(realType);
+            if (entry) {
+                return new SimpleHashTableMember(entry, args);
+            }
         }
 
         /* At the end - it is simple variable */
@@ -672,6 +750,7 @@ export abstract class Variable {
         const variables = await (Promise.all(debugVariables.map(v =>
             Variable.create(v, frameId, context, logger, parent))
         ));
+
         return variables.filter(v => v !== undefined);
     }
 
@@ -826,7 +905,7 @@ export class VariablesRoot extends Variable {
 
     constructor(public topLevelVariables: Variable[], context: ExecContext, logger: utils.ILogger) {
         super(VariablesRoot.variableRootName, '', '', context, invalidFrameId, undefined, logger);
-     }
+    }
 
     async doGetChildren(): Promise<Variable[] | undefined> {
         return undefined;
@@ -987,14 +1066,14 @@ export class RealVariable extends Variable {
 
     protected async doGetRealMembers() {
         return await Variable.getVariables(this.variablesReference, this.frameId,
-                                           this.context, this.logger, this);
+            this.context, this.logger, this);
     }
 
     protected async getArrayMembers(expression: string, length: number) {
         const variables = await this.debug.getArrayVariables(expression,
-                                                             length, this.frameId);
+            length, this.frameId);
         return await Variable.mapVariables(variables, this.frameId, this.context,
-                                           this.logger, this);
+            this.logger, this);
     }
 
     /**
@@ -1157,7 +1236,7 @@ export class RealVariable extends Variable {
             }
         }
         else if (this.parent instanceof ListElementsMember ||
-                 this.parent instanceof LinkedListElementsMember) {
+            this.parent instanceof LinkedListElementsMember) {
             /* Pointer element of List, not int/Oid/TransactionId... */
             if (utils.isValidPointer(this.value)) {
                 return `(${myType})${this.value}`;
@@ -1283,7 +1362,7 @@ export class NodeVariable extends RealVariable {
         } catch (e) {
             this.logger.debug('failed to get TreeItem for %s', this.name, e);
             if (isExpectedError(e)) {
-                return { };
+                return {};
             } else {
                 throw e;
             }
@@ -1302,7 +1381,7 @@ export class NodeVariable extends RealVariable {
         if (utils.isFailedVar(response)) {
             /* Error - do not apply cast */
             this.logger.debug('failed to cast type "%s" to tag "%s": %s',
-                              this.type, type, response.result);
+                this.type, type, response.result);
             return response;
         }
 
@@ -1387,8 +1466,8 @@ export class NodeVariable extends RealVariable {
     }
 
     static async create(variable: dap.DebugVariable, frameId: number,
-                        context: ExecContext, logger: utils.ILogger,
-                        parent?: Variable): Promise<NodeVariable | undefined> {
+        context: ExecContext, logger: utils.ILogger,
+        parent?: Variable): Promise<NodeVariable | undefined> {
         const getRealNodeTag = async () => {
             const nodeTagExpression = `((Node*)(${variable.value}))->type`;
             const response = await context.debug.evaluate(nodeTagExpression, frameId);
@@ -2249,30 +2328,30 @@ class ExprNodeVariable extends NodeVariable {
 
     private async formatXmlExpr(rtable: RangeTableContainer) {
         const getArgNameListOfStrings = async () => {
-        /* Get List of T_String elements and take their 'sval' values */
-        const list = await this.getListMemberElements('arg_names');
-        const values = [];
-        for (const entry of list) {
-            if (entry instanceof ValueVariable) {
-                try {
-                    values.push(await entry.getStringValue() ?? 'NULL');
-                } catch (e) {
-                    if (e instanceof EvaluationError) {
-                        this.logger.debug('error during getting string value from ValueVariable', e);
-                        values.push('???');
-                    } else {
-                        throw e;
+            /* Get List of T_String elements and take their 'sval' values */
+            const list = await this.getListMemberElements('arg_names');
+            const values = [];
+            for (const entry of list) {
+                if (entry instanceof ValueVariable) {
+                    try {
+                        values.push(await entry.getStringValue() ?? 'NULL');
+                    } catch (e) {
+                        if (e instanceof EvaluationError) {
+                            this.logger.debug('error during getting string value from ValueVariable', e);
+                            values.push('???');
+                        } else {
+                            throw e;
+                        }
                     }
+                } else if (entry instanceof ExprNodeVariable) {
+                    values.push(await entry.getReprInternal(rtable));
+                } else {
+                    values.push('???');
                 }
-            } else if (entry instanceof ExprNodeVariable) {
-                values.push(await entry.getReprInternal(rtable));
-            } else {
-                values.push('???');
             }
-        }
 
-        return values;
-    }
+            return values;
+        }
 
         const xmlOp = await this.getMemberValueEnum('op');
         switch (xmlOp) {
@@ -2435,7 +2514,7 @@ class ExprNodeVariable extends NodeVariable {
                         return '??? IS DOCUMENT';
                     }
                 }
-            }
+        }
         return '???';
     }
 
@@ -2520,8 +2599,8 @@ class ExprNodeVariable extends NodeVariable {
 
         /* Maybe, there are no reprs in array, so 'join' seems safe here */
         const leftRepr = leftReprs.length > 1 || leftReprs.length === 0
-                            ? `ROW(${leftReprs.join(', ')})`
-                            : leftReprs[0];
+            ? `ROW(${leftReprs.join(', ')})`
+            : leftReprs[0];
 
         let funcname;
         switch (type) {
@@ -2896,10 +2975,10 @@ class ExprNodeVariable extends NodeVariable {
         while (node) {
             if (node instanceof VariablesRoot) {
                 node = node.topLevelVariables.find(v =>
-                                ((v instanceof NodeVariable &&
-                                 (v.realNodeTag === 'PlannerInfo' ||
-                                  v.realNodeTag === 'Query' ||
-                                  v.realNodeTag === 'PlannedStmt'))));
+                ((v instanceof NodeVariable &&
+                    (v.realNodeTag === 'PlannerInfo' ||
+                        v.realNodeTag === 'Query' ||
+                        v.realNodeTag === 'PlannedStmt'))));
                 if (!node) {
                     /* No more variables */
                     return;
@@ -2907,9 +2986,9 @@ class ExprNodeVariable extends NodeVariable {
 
                 break;
             } else if (node instanceof NodeVariable &&
-                       (node.realNodeTag === 'PlannerInfo' ||
-                        node.realNodeTag === 'Query' ||
-                        node.realNodeTag === 'PlannedStmt')) {
+                (node.realNodeTag === 'PlannerInfo' ||
+                    node.realNodeTag === 'Query' ||
+                    node.realNodeTag === 'PlannedStmt')) {
                 break;
             }
 
@@ -2959,7 +3038,7 @@ class ExprNodeVariable extends NodeVariable {
 
         /* Add representation field first in a row */
         const exprVariable = new ScalarVariable('$expr$', expr, '', this.context,
-                                                this.logger, this, expr)
+            this.logger, this, expr)
         const children = await super.doGetChildren() ?? [];
         children.unshift(exprVariable);
         return children;
@@ -3041,7 +3120,7 @@ class ListElementsMember extends RealVariable {
     listParent: ListNodeVariable;
 
     constructor(listParent: ListNodeVariable, cellValue: string, listCellType: string,
-                args: RealVariableArgs) {
+        args: RealVariableArgs) {
         super(args);
         this.listParent = listParent;
         this.cellValue = cellValue;
@@ -3052,8 +3131,8 @@ class ListElementsMember extends RealVariable {
         return {
             label: '$elements$',
             collapsibleState: this.listParent.isEmpty()
-                                    ? vscode.TreeItemCollapsibleState.None
-                                    : vscode.TreeItemCollapsibleState.Collapsed,
+                ? vscode.TreeItemCollapsibleState.None
+                : vscode.TreeItemCollapsibleState.Collapsed,
         };
     }
 
@@ -3143,7 +3222,7 @@ class LinkedListElementsMember extends Variable {
     listParent: ListNodeVariable;
 
     constructor(listParent: ListNodeVariable, cellValue: string,
-                realType: string, context: ExecContext) {
+        realType: string, context: ExecContext) {
         super('$elements$', '', '', context, listParent.frameId, listParent, listParent.logger);
         this.listParent = listParent;
         this.cellValue = cellValue;
@@ -3178,7 +3257,7 @@ class LinkedListElementsMember extends Variable {
         } while (!utils.isNull(cell.result));
 
         return await Variable.mapVariables(elements, this.frameId, this.context,
-                                        this.logger, this.listParent);
+            this.logger, this.listParent);
     }
 
     async doGetChildren() {
@@ -3286,7 +3365,7 @@ export class ListNodeVariable extends NodeVariable {
                 break;
             default:
                 this.logger.warn('failed to determine List tag for %s->elements. using int value',
-                                 this.name);
+                    this.name);
                 break;
         }
 
@@ -3321,12 +3400,12 @@ export class ListNodeVariable extends NodeVariable {
                 break;
             default:
                 this.logger.warn('failed to determine List tag for %s->elements. using int value',
-                                 this.name);
+                    this.name);
                 break;
         }
 
         return new LinkedListElementsMember(this, cellValue, realType,
-                                            this.context);
+            this.context);
     }
 
     override computeRealType(): string {
@@ -3343,7 +3422,7 @@ export class ListNodeVariable extends NodeVariable {
         const response = await this.debug.evaluate(castExpression, this.frameId);
         if (!Number.isInteger(response.variablesReference)) {
             this.logger.warn('failed to cast %s to List*: %s',
-                             this.evaluateName, response.result);
+                this.evaluateName, response.result);
             return;
         }
 
@@ -3431,7 +3510,7 @@ export class ArraySpecialMember extends RealVariable {
     parent: RealVariable;
 
     constructor(parent: RealVariable, info: ArraySpecialMemberInfo,
-                args: RealVariableArgs) {
+        args: RealVariableArgs) {
         super(args);
         this.info = info;
         this.parent = parent;
@@ -3443,7 +3522,7 @@ export class ArraySpecialMember extends RealVariable {
         const length = Number(evalResult.result);
         if (Number.isNaN(length)) {
             this.logger.warn('failed to obtain array size using expr "%s" for (%s)->%s',
-                                            lengthExpr, this.type, this.name);
+                lengthExpr, this.type, this.name);
             return await super.doGetRealMembers();
         }
 
@@ -3453,9 +3532,9 @@ export class ArraySpecialMember extends RealVariable {
 
         const memberExpr = `(${this.parent.evaluateName})->${this.info.memberName}`;
         const debugVariables = await this.debug.getArrayVariables(memberExpr,
-                                                                  length, this.frameId);
+            length, this.frameId);
         return await Variable.mapVariables(debugVariables, this.frameId, this.context,
-                                           this.logger, this);
+            this.logger, this);
     }
 }
 
@@ -3559,7 +3638,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                  */
                 if (BitmapSetSpecialMember.evaluationUsedFunctions.indexOf(bp.functionName) !== -1) {
                     this.logger.info('found breakpoint at %s - bms elements not shown',
-                                      bp.functionName);
+                        bp.functionName);
                     return false;
                 }
             }
@@ -3673,7 +3752,7 @@ class BitmapSetSpecialMember extends NodeVariable {
             number = Number(response.result);
             if (Number.isNaN(number)) {
                 this.logger.warn('failed to get set elements for "%s": %s',
-                                                            this.name, response.result);
+                    this.name, response.result);
                 return;
             }
 
@@ -3706,7 +3785,7 @@ class BitmapSetSpecialMember extends NodeVariable {
             type = this.parent.type;
         }
         if (!(utils.getStructNameFromType(type) === ref.type &&
-              utils.getPointersCount(type) === 1)) {
+            utils.getPointersCount(type) === 1)) {
             return;
         }
 
@@ -3716,8 +3795,8 @@ class BitmapSetSpecialMember extends NodeVariable {
     async doGetChildren() {
         /* All existing members */
         const members = await Variable.getVariables(this.variablesReference,
-                                                    this.frameId, this.context,
-                                                    this.logger, this);
+            this.frameId, this.context,
+            this.logger, this);
         if (!members) {
             return members;
         }
@@ -3731,7 +3810,7 @@ class BitmapSetSpecialMember extends NodeVariable {
         const ref = await this.getBmsRef();
 
         members.push(new ScalarVariable('$length$', setMembers.length.toString(),
-                                        'int', this.context, this.logger, this));
+            'int', this.context, this.logger, this));
         members.push(new BitmapSetSpecialMember.BmsArrayVariable(this, setMembers, ref));
 
         return members.filter(v => v.name !== 'words');
@@ -3751,11 +3830,11 @@ class BitmapSetSpecialMember extends NodeVariable {
         ref?: constants.BitmapsetReference;
 
         constructor(index: number,
-                    parent: Variable,
-                    bmsParent: BitmapSetSpecialMember,
-                    value: number,
-                    context: ExecContext,
-                    ref: constants.BitmapsetReference | undefined) {
+            parent: Variable,
+            bmsParent: BitmapSetSpecialMember,
+            value: number,
+            context: ExecContext,
+            ref: constants.BitmapsetReference | undefined) {
             super(`[${index}]`, value.toString(), 'int', context, parent.frameId, parent, parent.logger);
             this.relid = value;
             this.bmsParent = bmsParent;
@@ -3916,8 +3995,8 @@ class BitmapSetSpecialMember extends NodeVariable {
         setElements: number[];
         bmsParent: BitmapSetSpecialMember;
         constructor(parent: BitmapSetSpecialMember,
-                    setElements: number[],
-                    private ref?: constants.BitmapsetReference) {
+            setElements: number[],
+            private ref?: constants.BitmapsetReference) {
             super('$elements$', '', '', parent.context, parent.frameId, parent, parent.logger);
             this.setElements = setElements;
             this.bmsParent = parent;
@@ -3986,7 +4065,7 @@ class ValueVariable extends NodeVariable {
             }
 
             this.logger.debug('failed to cast type "%s" to tag "%s": %s',
-                              this.type, this.realNodeTag, result.result);
+                this.type, this.realNodeTag, result.result);
         }
 
         const result = await this.castToTag('Value');
@@ -3998,7 +4077,7 @@ class ValueVariable extends NodeVariable {
         }
 
         this.logger.debug('failed to cast type "%s" to tag "Value": %s',
-                          this.type, result.result);
+            this.type, result.result);
     }
 
     async doGetChildren() {
@@ -4049,8 +4128,8 @@ class ValueVariable extends NodeVariable {
 
         return [
             new ScalarVariable('$value$', value,
-                               '' /* no type for this */,
-                               this.context, this.logger, this),
+                '' /* no type for this */,
+                this.context, this.logger, this),
             ...children.filter(v => v.name !== 'val'),
         ]
     }
@@ -4104,7 +4183,7 @@ class ValueVariable extends NodeVariable {
 /**
  * Represents Hash Table (HTAB) variable.
  */
-class HashTableSpecialMember extends RealVariable {
+class HTABSpecialMember extends RealVariable {
     private static evaluationUsedFunctions = [
         'hash_seq_init',
         'hash_seq_search',
@@ -4112,7 +4191,7 @@ class HashTableSpecialMember extends RealVariable {
     ];
 
     async findEntryType(): Promise<string | undefined> {
-        const map = this.context.hashTableTypes.members.get(this.name);
+        const map = this.context.hashTableTypes.htabMembers.get(this.name);
         if (!map) {
             return;
         }
@@ -4154,9 +4233,9 @@ class HashTableSpecialMember extends RealVariable {
                 /*
                  * Need to check functions that are called to get set elements
                  */
-                if (HashTableSpecialMember.evaluationUsedFunctions.indexOf(bp.functionName) !== -1) {
+                if (HTABSpecialMember.evaluationUsedFunctions.indexOf(bp.functionName) !== -1) {
                     this.logger.info('found breakpoint at %s - bms elements not shown',
-                                      bp.functionName);
+                        bp.functionName);
                     return false;
                 }
             }
@@ -4181,7 +4260,7 @@ class HashTableSpecialMember extends RealVariable {
             return members;
         }
 
-        members.push(new HashTableEntriesMember(this, entryType));
+        members.push(new HTABEntriesMember(this, entryType));
         return members;
     }
 }
@@ -4190,18 +4269,18 @@ class HashTableSpecialMember extends RealVariable {
  * Represents array of stored entries of Hash Table.
  * Loaded lazily when member is expanded.
  */
-class HashTableEntriesMember extends Variable {
+class HTABEntriesMember extends Variable {
     /*
      * Parent HTAB
      */
-    htab: HashTableSpecialMember;
+    htab: HTABSpecialMember;
 
     /**
      * Type of entry of HTAB
      */
     entryType: string;
 
-    constructor(htab: HashTableSpecialMember, entryType: string) {
+    constructor(htab: HTABSpecialMember, entryType: string) {
         super('$elements$', '', '', htab.context, htab.frameId, htab, htab.logger);
         this.htab = htab;
         this.entryType = entryType;
@@ -4287,7 +4366,205 @@ class HashTableEntriesMember extends Variable {
 
         return variables;
     }
+}
 
+class SimpleHashTableMember extends RealVariable {
+    /* 
+     * Stores information about simple hash table: prefix for identifier names,
+     * type of entry and flag, indicating if it has facility to iterate over it.
+     */
+    entry: SimpleHashTableEntryInfo;
+
+    get prefix(): string {
+        return this.entry.prefix;
+    }
+
+    get elementType(): string {
+        return this.entry.elementType;
+    }
+  
+    constructor(entry: SimpleHashTableEntryInfo, args: RealVariableArgs) {
+        super(args);
+        this.entry = entry;
+    }
+    
+    async doGetChildren(): Promise<Variable[] | undefined> {
+        const members = await super.doGetChildren();
+        if (!members) {
+            return members;
+        }
+
+        members.push(new SimpleHashTableElementsMember(this));
+        return members;
+    }
+
+    static looksLikeSimpleHashTable(type: string) {
+        const index = type.indexOf('_hash');
+
+        /* 
+         * If there is no '_hash' in typename then 
+         * this is definitely not simple hash table
+         */
+        if (index === -1) {
+            return false;
+        }
+
+        /* 
+         * Check this is last part of typename, i.e. not part of whole typename
+         */
+        if (type.length < index + '_hash'.length) {
+            /*
+             * I assume, every hash table object is a pointer type,
+             * not allocated on stack.
+             */
+            return false;
+        }
+
+        /* 
+         * Next character after '_hash' must be non alphanumerical,
+         * so typename actually ends with '_hash'.
+         * In real life only available continuation is space or star.
+         */
+        const nextChar = type[index + '_hash'.length];
+        return nextChar === ' ' || nextChar === '*';
+    }
+
+    static getPrefix(struct: string) {
+        if (!struct.endsWith('_hash')) {
+            return undefined;
+        }
+
+        return struct.substring(0, struct.length - '_hash'.length);
+    }
+}
+
+class SimpleHashTableElementsMember extends Variable {
+    /* 
+     * Parent simple hash table
+     */
+    hashTable: SimpleHashTableMember;
+
+    constructor(hashTable: SimpleHashTableMember) {
+        super('$elements$', '', '', hashTable.context, hashTable.frameId, hashTable, hashTable.logger);
+        this.hashTable = hashTable;
+    }
+
+    async getTreeItem(): Promise<vscode.TreeItem> {
+        /* Show only '$elements$' */
+        return {
+            label: '$elements$',
+            collapsibleState: vscode.TreeItemCollapsibleState.Collapsed,
+        }
+    }
+
+    /* 
+     * Cached identifier names for function and types
+     */
+    hashTableType?: string = undefined;
+    iteratorType?: string = undefined;
+    iteratorFunction?: string = undefined;
+
+    private getHashTableType() {
+        return this.hashTableType ??= `${this.hashTable.prefix}_hash`;
+    }
+
+    private getIteratorFunction() {
+        return this.iteratorFunction ??= `${this.hashTable.prefix}_iterate`;
+    }
+
+    private getIteratorType() {
+        return this.iteratorType ??= `${this.hashTable.prefix}_iterator`;
+    }
+
+    /* 
+     * Allocate memory for iterator struct and invoke initialization function on it.
+     */
+    async createIterator() {
+        const iteratorType = this.getIteratorType();
+        const hashTableType = this.getHashTableType();
+
+        let value;
+        try {
+            value = await this.palloc(`sizeof(${iteratorType})`);
+        } catch (error) {
+            if (error instanceof EvaluationError) {
+                this.hashTable.entry.canIterate = false;
+                return undefined;
+            }
+            throw error;
+        }
+
+        const result = await this.evaluate(`${this.hashTable.prefix}_start_iterate((${hashTableType} *) ${this.hashTable.value}, (${iteratorType} *)${value})`)
+        if (utils.isFailedVar(result)) {
+            await this.pfree(value);
+            this.hashTable.entry.canIterate = false;
+            return undefined;
+        }
+
+        return value;
+    }
+
+    async iterate(iterator: string, current: number) {
+        const iterFunction = this.getIteratorFunction();
+        const hashTableType = this.getHashTableType();
+        const iteratorType = this.getIteratorType();
+        const result = await this.evaluate(`(${this.hashTable.elementType}) ${iterFunction}((${hashTableType} *) ${this.hashTable.value}, (${iteratorType} *)${iterator})`);
+        if (utils.isNull(result.result)) {
+            return undefined;
+        }
+
+        if (utils.isFailedVar(result)) {
+            this.hashTable.entry.canIterate = false;
+            return undefined;
+        }
+
+        try {
+            return await Variable.create({
+                ...result,
+                name: `${current}`,
+                value: result.result,
+                evaluateName: `((${this.hashTable.elementType} *)${result.result})`,
+            }, this.frameId, this.context, this.logger, this);
+        } catch (error) {
+            await this.pfree(iterator);
+            throw error;
+        }
+    }
+
+    async doGetChildren(): Promise<Variable[] | undefined> {
+        /* 
+         * Iteration pattern:
+         * 
+         * SH_ITERATOR iterator;
+         * SH_ELEMENT_TYPE element;
+         * SH_START_ITERATE(table, &iterator);
+         * 
+         * while ((element = SH_ITERATE(table, &iterator)) != NULL)
+         * {
+         *     // Processing
+         * }
+         * 
+         * 
+         * NOTE: in contrast to HTAB there is no need to call to terminate
+         *       iteration before end of iteration.
+         */
+
+        const iterator = await this.createIterator();
+        if (!iterator) {
+            return;
+        }
+
+        const variables = [];
+        let id = 0;
+        let variable;
+        while ((variable = await this.iterate(iterator, id))) {
+            ++id;
+            variables.push(variable);
+        }
+
+        await this.pfree(iterator);
+        return variables;
+    }
 }
 
 /**
@@ -4297,6 +4574,6 @@ class HashTableEntriesMember extends Variable {
  */
 export function getWatchExpressionCommandHandler(variable: any) {
     return variable instanceof Variable
-                ? variable.getWatchExpression()
-                : null;
+        ? variable.getWatchExpression()
+        : null;
 }

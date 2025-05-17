@@ -888,7 +888,7 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
             if (parseResult.hashTableTypes) {
                 logger.debug('adding %i hash table types', parseResult.hashTableTypes.length);
                 try {
-                    hashTableTypes.addHashTypeTypes(parseResult.hashTableTypes);
+                    hashTableTypes.addHTABTypes(parseResult.hashTableTypes);
                 } catch (e) {
                     vscode.window.showErrorMessage('failed to add custom hash table types');
                     logger.error('error occurred during adding custom hash table types', e);
