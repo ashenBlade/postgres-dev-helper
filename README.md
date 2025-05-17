@@ -36,7 +36,7 @@ Extension support showing contents of containers: `List` (including Oid, Transac
 
 Also, there is support for C-arrays (like `PlannerInfo->simple_rel_array`) - array is displayed using it's length.
 
-![Planner expansion](resources/planner.gif)
+![Array special member](resources/array-special-member.gif)
 
 Currently, there are 36 registered array members, but you can add your own using [pgsql_hacker_helper.json](#pgsql_hacker_helperjson) configuration file.
 
