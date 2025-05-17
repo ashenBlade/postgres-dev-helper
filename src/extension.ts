@@ -1024,7 +1024,8 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
                             },
                             aliases: [],
                             customListTypes: [],
-                            hashTableTypes: [],
+                            htab: [],
+                            simplehash: []
                         },
                         undefined, '    '));
                 } catch (err: any) {

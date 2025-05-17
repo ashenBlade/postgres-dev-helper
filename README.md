@@ -40,6 +40,13 @@ Also, there is support for C-arrays (like `PlannerInfo->simple_rel_array`) - arr
 
 Currently, there are 36 registered array members, but you can add your own using [pgsql_hacker_helper.json](#pgsql_hacker_helperjson) configuration file.
 
+Another containers - Hash Tables. There is support for both `HTAB *` and `simplehash` (from `lib/simplehash.h`) - you can see their elements in separate `$elements$` member.
+
+![TIDBitmap simplehash elements](resources/simplehash.gif)
+
+> NOTE: most `HTAB *` stored in `static` variables, so they are not shown in variables UI
+> NOTE2: simplehashes have limitation due to compiler unused symbol pruning optimization (more in [configuration file documentation](./docs/config_file.md))
+
 ### Show where Bitmapset references
 
 `Bitmapset` and `Relids` often store indexes of other elements in other places.
@@ -123,15 +130,13 @@ directory.
 ### pgsql_hacker_helper.json
 
 This is a configuration file for extension.
-It stored inside `.vscode` directory in your repository -
-`.vscode/pgsql_hacker_helper.json`. You can use config file to extend built-in
-capabilities if there is no support for something yet.
+It stored inside `.vscode` directory in your repository - `.vscode/pgsql_hacker_helper.json`. You can use config file to extend built-in capabilities if there is no support for something yet.
 
 Example json:
 
 ```json
 {
-    "version": 4,
+    "version": 5,
     "specialMembers": {
         "array": [
             {
@@ -167,6 +172,18 @@ Example json:
             "type": "struct FileChunks *",
             "variable": ["ProcessFileChunks", "chunks"]
         }
+    ],
+    "htab": [
+        {
+            "type": "HashTableEntry *",
+            "member": ["ParentStruct", "hashtable"]
+        }
+    ],
+    "simplehash": [
+        {
+            "prefix": "userdata",
+            "type": "UserDataHashEntry *"
+        }
     ]
 }
 ```
@@ -181,6 +198,12 @@ Features:
 Variable `chunks` in function `ProcessFileChunks` is a `List` that contains pointer elements not `Node *`, but `struct FileChunks *`.
 
 - User provided custom `typedefs` list (used by formatter).
+
+- `List *UserData->knownNames` contains pointers to `char *` (not Node), and variable `List *chunks` in function `ProcessFileChunks()` contains pointers to `struct FileChunks` (not Node)
+
+- Hash Table member `HTAB *hashtable` of struct `ParentStruct` contains entries of type `HashTableEntry *`
+
+- Simplehash struct `hashtable_hash` contains entries of type `UserDataHashEntry *`.
 
 For more info check [configuration file documentation](./docs/config_file.md).
 
@@ -262,6 +285,16 @@ Known issues:
   can be modified during extension work.
 
 ## Release Notes
+
+### 1.9.0
+
+Show elements of Hash Tables, according to stored types: `HTAB` and simplehash (from `simplehash.c`)
+
+Support for custom types of elements Hash Tables in configuration file.
+
+Add basic snippets: `IsA`, `foreach`, `PG_TRY()`/`PG_CATCH()`/`PG_FINALLY()`.
+
+Add `join_rel_level` to builtin array special members.
 
 ### 1.8.2
 

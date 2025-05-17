@@ -5,6 +5,20 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0]
+
+### Added
+
+Show elements of Hash Tables: `HTAB` and `simplehash` (code gen from `lib/simplehash.c`).
+
+User can specify types of elements of custom `HTAB`/`simplehash` in configuration files.
+
+Add basic snippets: `IsA`, `foreach`, `PG_TRY`/`PG_CATCH`/`PG_FINALLY`.
+
+Add node tags from PG18beta1.
+
+Add `join_rel_level` to builtin array special members.
+
 ## [1.8.2]
 
 ### Fix
