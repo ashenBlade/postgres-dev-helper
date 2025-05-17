@@ -672,8 +672,7 @@ export abstract class Variable {
 
         const realType = Variable.getRealType(debugVariable, context);
         if (utils.isRawStruct(realType, debugVariable.value) ||      /* Raw struct, i.e. allocated on stack */
-            utils.getPointersCount(realType) > 1 ||                  /* Pointer to pointer */
-            !utils.isValidPointer(debugVariable.value)) {            /* NULL */
+            !utils.isValidPointer(debugVariable.value)) {             /* NULL */
             if (utils.isNull(debugVariable.value) && 
                 debugVariable.type.endsWith('List *')) {
                 /* 
