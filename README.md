@@ -45,6 +45,7 @@ Another containers - Hash Tables. There is support for both `HTAB *` and `simple
 ![TIDBitmap simplehash elements](resources/simplehash.gif)
 
 > NOTE: most `HTAB *` stored in `static` variables, so they are not shown in variables UI
+>
 > NOTE2: simplehashes have limitation due to compiler unused symbol pruning optimization (more in [configuration file documentation](./docs/config_file.md))
 
 ### Show where Bitmapset references
