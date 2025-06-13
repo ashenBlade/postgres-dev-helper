@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as utils from './utils';
 import * as vars from './variables';
+import * as dbg from './debugger';
 import path from 'path';
 
 export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars.Variable>, vscode.Disposable {
@@ -16,7 +17,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
         private log: utils.ILogger,
         private nodeVars: vars.NodeVarRegistry,
         private specialMembers: vars.SpecialMemberRegistry,
-        private debug: utils.VsCodeDebuggerFacade,
+        private debug: dbg.CppDbgDebuggerFacade,
         private hashTableTypes: vars.HashTableTypes) { 
         this.subscriptions = [
             vscode.debug.onDidStartDebugSession(s => {
@@ -116,7 +117,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
 }
 
 export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
-    debug: utils.IDebuggerFacade) {
+    debug: dbg.IDebuggerFacade) {
     const session = vscode.debug.activeDebugSession;
     if (!session) {
         vscode.window.showWarningMessage('Can not dump variable - no active debug session!');
@@ -842,7 +843,7 @@ function addElogErrorBreakpoint() {
 
 export function setupExtension(context: vscode.ExtensionContext, specialMembers: vars.SpecialMemberRegistry,
                                nodeVars: vars.NodeVarRegistry, hashTableTypes: vars.HashTableTypes,
-                               debug: utils.IDebuggerFacade, logger: utils.ILogger,
+                               debug: dbg.IDebuggerFacade, logger: utils.ILogger,
                                nodesView: NodePreviewTreeViewProvider) {
 
     function registerCommand(name: string, command: (...args: any[]) => void) {

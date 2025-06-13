@@ -2,8 +2,7 @@ import * as vscode from 'vscode';
 import * as utils from "./utils";
 import * as dap from "./dap";
 import * as constants from './constants';
-import { getActiveResourcesInfo } from 'process';
-import { stringify } from 'querystring';
+import * as dbg from './debugger';
 
 export interface AliasInfo {
     alias: string;
@@ -374,7 +373,7 @@ export class ExecContext {
     /**
      * Facade for debugger interface (TAP)
      */
-    debug: utils.IDebuggerFacade;
+    debug: dbg.IDebuggerFacade;
 
     /**
      * Flag, indicating that this version of PostgreSQL
@@ -439,7 +438,7 @@ export class ExecContext {
     hasGetAttname = true;
 
     constructor(nodeVarRegistry: NodeVarRegistry, specialMemberRegistry: SpecialMemberRegistry,
-                debug: utils.IDebuggerFacade, hashTableTypes: HashTableTypes) {
+                debug: dbg.IDebuggerFacade, hashTableTypes: HashTableTypes) {
         this.nodeVarRegistry = nodeVarRegistry;
         this.specialMemberRegistry = specialMemberRegistry;
         this.hashTableTypes = hashTableTypes;
@@ -669,6 +668,7 @@ export abstract class Variable {
             context,
             logger,
         };
+        const result = await context.debug.evaluate(`/nat (Node *)${debugVariable.memoryReference}`, frameId);
 
         const realType = Variable.getRealType(debugVariable, context);
         if (utils.isRawStruct(realType, debugVariable.value) ||      /* Raw struct, i.e. allocated on stack */
@@ -1386,7 +1386,7 @@ export class NodeVariable extends RealVariable {
     protected async castToType(type: string) {
         const newVarExpression = `((${type})${this.evaluateName})`;
         const response = await this.debug.evaluate(newVarExpression, this.frameId);
-        if (utils.isFailedVar(response)) {
+        if (dbg.isFailedVar(response)) {
             /* Error - do not apply cast */
             this.logger.debug('failed to cast type "%s" to tag "%s": %s',
                 this.type, type, response.result);
@@ -1605,7 +1605,7 @@ class ExprNodeVariable extends NodeVariable {
         }
 
         const result = await this.evaluate(`get_func_name((Oid) ${oid})`);
-        if (utils.isFailedVar(result)) {
+        if (dbg.isFailedVar(result)) {
             return null;
         }
 
@@ -1630,7 +1630,7 @@ class ExprNodeVariable extends NodeVariable {
             return null;
         }
         const result = await this.evaluate(`get_opname((Oid)${oid})`);
-        if (utils.isFailedVar(result)) {
+        if (dbg.isFailedVar(result)) {
             return null;
         }
 
@@ -1846,7 +1846,7 @@ class ExprNodeVariable extends NodeVariable {
                         return attname;
                     }
 
-                    if (utils.isFailedVar(r)) {
+                    if (dbg.isFailedVar(r)) {
                         this.context.hasGetAttname = false;
                     }
                 }
@@ -3604,7 +3604,7 @@ class BitmapSetSpecialMember extends NodeVariable {
         if (this.context.hasBmsIsValidSet) {
             const expression = `bms_is_valid_set((Bitmapset *)${this.value})`;
             const response = await this.evaluate(expression);
-            if (utils.isFailedVar(response)) {
+            if (dbg.isFailedVar(response)) {
                 /*
                  * `bms_is_valid_set' introduced in 17.
                  * On other versions `type` member will be not set (undefined).
@@ -4067,7 +4067,7 @@ class ValueVariable extends NodeVariable {
         if (!this.context.hasValueStruct) {
             /* Try cast struct to corresponding tag */
             const result = await this.castToTag(this.realNodeTag);
-            if (!utils.isFailedVar(result)) {
+            if (!dbg.isFailedVar(result)) {
                 /* Success */
                 return;
             }
@@ -4078,7 +4078,7 @@ class ValueVariable extends NodeVariable {
 
         const result = await this.castToTag('Value');
         /* Try cast to 'Value' structure */
-        if (!utils.isFailedVar(result)) {
+        if (!dbg.isFailedVar(result)) {
             /* On success update flag indicating we have 'Value' */
             this.context.hasValueStruct = true;
             return;
@@ -4346,7 +4346,7 @@ class HTABElementsMember extends Variable {
             const result = await this.evaluate(`(${this.entryType})${entry}`);
 
             /* user can specify non-existent type */
-            if (utils.isFailedVar(result)) {
+            if (dbg.isFailedVar(result)) {
                 this.logger.warn('Failed to create variable with type %s: %s', this.entryType, result.result);
                 await this.finalizeHashSeqStatus(hashSeqStatus);
                 return undefined;
@@ -4513,7 +4513,7 @@ class SimplehashElementsMember extends Variable {
 
         /* 'start_iterate' seems not important to cache for optimization */
         const result = await this.evaluate(`${this.hashTable.prefix}_start_iterate((${hashTableType} *) ${this.hashTable.value}, (${iteratorType} *)${value})`)
-        if (utils.isFailedVar(result)) {
+        if (dbg.isFailedVar(result)) {
             await this.pfree(value);
             this.hashTable.entry.canIterate = false;
             return undefined;
@@ -4531,7 +4531,7 @@ class SimplehashElementsMember extends Variable {
             return undefined;
         }
 
-        if (utils.isFailedVar(result)) {
+        if (dbg.isFailedVar(result)) {
             this.hashTable.entry.canIterate = false;
             return undefined;
         }

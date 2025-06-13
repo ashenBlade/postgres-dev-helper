@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as vars from './variables';
 import * as utils from './utils';
+import * as dbg from './debugger';
 import * as formatter from './formatter';
 import {
     NodePreviewTreeViewProvider as PgVariablesView,
@@ -10,7 +11,7 @@ import {
 } from './extension';
 
 function createDebugFacade(context: vscode.ExtensionContext) {
-    const debug = new utils.VsCodeDebuggerFacade();
+    const debug = new dbg.CppDbgDebuggerFacade();
     if (!utils.Features.hasEvaluateArrayLength()) {
         debug.switchToManualArrayExpansion();
     }
@@ -53,7 +54,7 @@ function createPostgresVariablesView(context: vscode.ExtensionContext,
                                      logger: utils.ILogger,
                                      nodeVars: vars.NodeVarRegistry,
                                      specialMembers: vars.SpecialMemberRegistry,
-                                     debug: utils.VsCodeDebuggerFacade,
+                                     debug: dbg.CppDbgDebuggerFacade,
                                      hashTableTypes: vars.HashTableTypes) {
     const nodesView = new PgVariablesView(logger, nodeVars, 
                                           specialMembers, debug, hashTableTypes);
@@ -67,7 +68,7 @@ function createPostgresVariablesView(context: vscode.ExtensionContext,
 function setupDebugger(
     dataProvider: PgVariablesView,
     logger: utils.ILogger,
-    debug: utils.VsCodeDebuggerFacade,
+    debug: dbg.CppDbgDebuggerFacade,
     context: vscode.ExtensionContext) {
 
     if (utils.Features.debugFocusEnabled()) {
