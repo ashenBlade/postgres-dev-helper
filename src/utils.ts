@@ -5,24 +5,6 @@ import * as fs from 'fs';
 import * as child_process from 'child_process';
 import { Configuration } from './extension';
 
-const nullPointer = '0x0';
-const pointerRegex = /^0x[0-9abcdef]+$/i;
-
-export function isNull(value: string) {
-    return value === nullPointer;
-}
-
-/**
- * Check provided pointer value represents valid value.
- * That is, it can be dereferenced
- * 
- * @param value Pointer value in hex format
- * @returns Pointer value is valid and not NULL
- */
-export function isValidPointer(value: string) {
-    return pointerRegex.test(value) && !isNull(value);
-}
-
 const identifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 /**
@@ -95,74 +77,6 @@ export function substituteStructName(type: string, target: string) {
 }
 
 /**
- * Check that variable is not a pointer, but raw struct.
- * 
- * @param variable Variable to test
- * @returns true if variable is raw struct
- */
-export function isRawStruct(type: string, value: string) {
-    /* 
-     * Check that variable is plain struct - not pointer.
-     * Figured out - top level variables has {...} in value, but
-     * struct members are empty strings. (For raw structs).
-     */
-    return value === '{...}' || (value === '' && !type.endsWith('[]'));
-}
-
-export function isFixedSizeArray(variable: {parent?: {}, type: string, value: string}): boolean {
-    /*
-     * Find pattern: type[size]
-     * But not: type[] - vla is not expanded
-     */
-    if (variable.type.length < 2) {
-        return false;
-    }
-
-    if (variable.type[variable.type.length - 1] !== ']') {
-        return false;
-    }
-    
-    if (variable.type[variable.type.length - 2] === '[') {
-        return false;
-    }
-
-    return true;
-}
-
-/**
- * When evaluating 'char*' member, 'result' field will be in form: `0xFFFFF "STR"`.
- * This function extracts stored 'STR', otherwise null returned
- * 
- * @param result 'result' field after evaluate
- */
-export function extractStringFromResult(result: string) {
-    const left = result.indexOf('"');
-    const right = result.lastIndexOf('"');
-    if (left === -1 || left === right) {
-        /* No STR can be found */
-        return null;
-    }
-
-    return result.substring(left + 1, right);
-}
-
-export function extractBoolFromValue(value: string) {
-    /* 
-     * On older pg versions bool stored as 'char' and have format: "X '\00X'"
-     */
-    switch (value.trim().toLowerCase()) {
-        case 'true':
-        case "1 '\\001'":
-            return true;
-        case 'false':
-        case "0 '\\000'":
-            return false;
-    }
-
-    return null;
-}
-
-/**
  * Check that output from evaluation is correct enum value.
  * That is it is not error message, pointer or something else.
  * So, 'result' looks like real enum value.
@@ -171,25 +85,6 @@ export function extractBoolFromValue(value: string) {
  */
 export function isEnumResult(result: string) {
     return isValidIdentifier(result);
-}
-
-/**
- * When evaluating 'char*' member, 'result' field will be in form: `0x00000 "STR"`.
- * This function extracts stored pointer (0x00000), otherwise null returned
- * 
- * @param result 'result' field after evaluate
- */
-export function extractPtrFromStringResult(result: string) {
-    const space = result.indexOf(' ');
-    if (space === -1) {
-        return null;
-    }
-
-    const ptr = result.substring(0, space);
-    if (!pointerRegex.test(ptr)) {
-        return null;
-    }
-    return ptr;
 }
 
 export interface ILogger {

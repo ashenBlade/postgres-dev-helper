@@ -117,7 +117,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
 }
 
 export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
-    debug: dbg.IDebuggerFacade) {
+                                               debug: dbg.IDebuggerFacade) {
     const session = vscode.debug.activeDebugSession;
     if (!session) {
         vscode.window.showWarningMessage('Can not dump variable - no active debug session!');
@@ -132,7 +132,7 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
 
     console.assert(typeof variable.value === 'string');
 
-    if (!(utils.isValidPointer(variable.value))) {
+    if (!(debug.isValidPointer(variable.value))) {
         vscode.window.showWarningMessage(`Variable ${variable.name} is not valid pointer`);
         return;
     }

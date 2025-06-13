@@ -2,8 +2,17 @@ import * as vscode from 'vscode';
 import * as dap from "./dap";
 import { NodePreviewTreeViewProvider } from './extension';
 
+export interface IDebugVariable {
+    value: string;
+    type: string;
+    memoryReference?: string;
+}
+
+const pointerRegex = /^0x[0-9abcdef]+$/i;
+
 export interface IDebuggerFacade {
     readonly isInDebug: boolean;
+
     /* Common debugger functionality */
     evaluate: (expression: string, frameId: number | undefined,
                context?: string) => Promise<dap.EvaluateResponse>;
@@ -15,28 +24,78 @@ export interface IDebuggerFacade {
     getArrayVariables: (expression: string, length: number,
                         frameId: number | undefined) => Promise<dap.DebugVariable[]>;
     getFunctionName: (frameId: number) => Promise<string | undefined>;
-}
 
-/**
- * Return `true` if evaluation operation failed.
- */
-export function isFailedVar(response: dap.EvaluateResponse) {
-    /* 
-     * gdb/mi has many error types for different operations.
-     * In common - when error occurs 'result' has message in form
-     * 'OPNAME: MSG':
+    /* Utility functions with per debugger specifics */
+    isFailedVar: (response: dap.EvaluateResponse) => boolean;
+
+    /**
      * 
-     *  - OPNAME - name of the failed operation
-     *  - MSG - human-readable error message
-     * 
-     * When we send 'evaluate' command this VS Code converts it to
-     * required command and when it fails, then 'result' member
-     * contains error message. But if we work with variables (our logic),
-     * OPNAME will be '-var-create', not that command, that VS Code sent.
-     * 
-     * More about: https://www.sourceware.org/gdb/current/onlinedocs/gdb.html/GDB_002fMI-Variable-Objects.html
+     * @param variable Variable to test pointer for
+     * @returns true if variable's pointer is NULL, otherwise false
      */
-    return response.result.startsWith('-var-create');
+    isNull: (variable: IDebugVariable) => boolean;
+
+    /**
+     * Check provided pointer value represents valid value.
+     * That is, it can be dereferenced.
+     * 
+     * @param variable Variable to test
+     * @returns Pointer value is valid and not NULL
+     */
+    isValidPointer: (variable: IDebugVariable) => boolean;
+
+    /**
+     * Check that variable represents value struct - structure stored in place,
+     * not pointer to struct, i.e. allocated on stack or embedded into another
+     * structure.
+     * 
+     * NOTE: naming is taken from .NET, where we have value/pointer structures
+     * (struct/class accordingly).
+     * 
+     * @param variable Variable to test
+     * @param type Type of variable if real type may differ from declared
+     * @returns true if variable is value struct
+     */
+    isValueStruct: (variable: IDebugVariable, type?: string) => boolean;
+
+    /**
+     * Check that variable's type is fixed size array, not VLA
+     * 
+     * @param variable Variable to test
+     * @returns true if variable's type is array of fixed size
+     */
+    isFixedSizeArray: (variable: IDebugVariable) => boolean;
+
+    /**
+     * For given variable with string type extract string it represents.
+     * 'null' is returned if failed to extract it.
+     * For 'NULL' variable it returns empty string.
+     * 
+     * @param variable Variable with string type
+     * @returns String it contains, without quotes, or null if failed.
+     */
+    extractString: (variable: IDebugVariable) => string | null;
+
+    /**
+     * For given variable with 'bool' type extract it's value with converting
+     * to 'boolean' TS type.
+     * 'null' is returned if failed to extract it.
+     * 
+     * @param variable Variable of boolean type
+     * @returns 'boolean' - stored value, or 'null' if failed to obtain result
+     */
+    extractBool: (variable: IDebugVariable) => boolean | null;
+
+    /**
+     * For given string variable extract it's pointer. This primarily used
+     * for CppDbg extension, where string and pointer stored in 'value' member
+     * together.
+     * 'null' is returned if failed to obtain pointer.
+     * 
+     * @param variable Variable of string type
+     * @returns String representing pointer value
+     */
+    extractPtrFromString: (variable: IDebugVariable) => string | null;
 }
 
 export class CppDbgDebuggerFacade implements IDebuggerFacade, vscode.Disposable {
@@ -235,7 +294,7 @@ export class CppDbgDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
          * use 'presentationHint' - it might be undefined
          * in old versions of VS Code.
          */
-        for (const scope of scopes.filter(s => s.name === 'Locals')) {
+        for (const scope of scopes.filter(s => s.name === 'Locals' || s.name === 'Local')) {
             const members = await this.getMembers(scope.variablesReference);
             variables.push(...members);
         }
@@ -261,6 +320,113 @@ export class CppDbgDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
         return response.stackFrames?.[0]?.id;
     }
 
+    isFailedVar(response: dap.EvaluateResponse): boolean {
+        /* TODO: throw exception in such cases */
+
+        /* 
+        * gdb/mi has many error types for different operations.
+        * In common - when error occurs 'result' has message in form
+        * 'OPNAME: MSG':
+        * 
+        *  - OPNAME - name of the failed operation
+        *  - MSG - human-readable error message
+        * 
+        * When we send 'evaluate' command this VS Code converts it to
+        * required command and when it fails, then 'result' member
+        * contains error message. But if we work with variables (our logic),
+        * OPNAME will be '-var-create', not that command, that VS Code sent.
+        * 
+        * More about: https://www.sourceware.org/gdb/current/onlinedocs/gdb.html/GDB_002fMI-Variable-Objects.html
+        */
+        return response.result.startsWith('-var-create');
+    }
+
+    isNull(variable: IDebugVariable) {
+        return variable.value === '0x0';
+    }
+
+    isValidPointer(variable: IDebugVariable) {
+        return pointerRegex.test(variable.value) && !this.isNull(variable);
+    }
+
+    isValueStruct(variable: IDebugVariable, type?: string) {
+        /* Top level variable */
+        if (variable.value === '{...}') {
+            return true;
+        }
+
+        /* Embedded structure (also check for flexible array member) */
+        if (variable.value === '' && !(type ?? variable.type).endsWith('[]')) {
+            return true;
+        }
+
+        return false;
+    }
+
+    isFixedSizeArray(variable: IDebugVariable) {
+        /*
+        * Find pattern: type[size]
+        * But not: type[] - VLA is not expanded
+        */
+        if (variable.type.length < 2) {
+            return false;
+        }
+
+        if (variable.type[variable.type.length - 1] !== ']') {
+            return false;
+        }
+        
+        if (variable.type[variable.type.length - 2] === '[') {
+            return false;
+        }
+
+        return true;
+    }
+
+    extractString(variable: IDebugVariable) {
+        const left = variable.value.indexOf('"');
+        const right = variable.value.lastIndexOf('"');
+        if (left === -1 || left === right) {
+            /* No STR can be found */
+            return null;
+        }
+
+        return variable.value.substring(left + 1, right);
+    }
+
+    extractBool(variable: IDebugVariable) {
+        /* 
+        * On older pg versions bool stored as 'char' and have format: "X '\00X'"
+        */
+        switch (variable.value.trim().toLowerCase()) {
+            case 'true':
+            case "1 '\\001'":
+                return true;
+            case 'false':
+            case "0 '\\000'":
+                return false;
+        }
+
+        return null;
+    }
+
+    extractPtrFromString(variable: IDebugVariable) {
+        /*
+         * When evaluating 'char*' member, 'result' field will be in form: `0x00000 "STR"`.
+         * This function extracts stored pointer (0x00000), otherwise null returned
+         */
+        const space = variable.value.indexOf(' ');
+        if (space === -1) {
+            return null;
+        }
+
+        const ptr = variable.value.substring(0, space);
+        if (!pointerRegex.test(ptr)) {
+            return null;
+        }
+        return ptr;
+    }
+
     dispose() {
         this.registrations.forEach(r => r.dispose());
         this.registrations.length = 0;
@@ -284,7 +450,7 @@ export class CppDbgDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
          */
 
         let savedThreadId: undefined | number = undefined;
-        const disposable = vscode.debug.registerDebugAdapterTrackerFactory('*', {
+        const disposable = vscode.debug.registerDebugAdapterTrackerFactory('cppdbg', {
             createDebugAdapterTracker(_: vscode.DebugSession) {
                 return {
                     onDidSendMessage(message: dap.ProtocolMessage) {
@@ -329,4 +495,15 @@ export class CppDbgDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
             return await this.getTopStackFrameId(savedThreadId);
         }
     }
+}
+
+/**
+ * Shortcut function to test that pointer is NULL.
+ * Used for situations, where only pointer value is present, without variable.....
+ * 
+ * @param pointer Pointer value in HEX form
+ * @returns true if pointer value is NULL
+ */
+export function pointerIsNull(pointer: string) {
+    return pointer === '0x0' || /0x0+/.test(pointer);
 }
