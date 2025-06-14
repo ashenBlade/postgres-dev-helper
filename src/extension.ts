@@ -1114,12 +1114,23 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
         });
     }
 
+    /* Used for testing only */
+    const getVariablesCmd = async () => {
+        return await nodesView.getChildren(undefined);
+    }
+
+    const getNodeTreeProviderCmd = async () => {
+        return nodesView;
+    }
+
     registerCommand(Configuration.Commands.RefreshConfigFile, refreshConfigCmd);
     registerCommand(Configuration.Commands.OpenConfigFile, openConfigFileCmd);
     registerCommand(Configuration.Commands.DumpNodeToLog, pprintVarToLogCmd);
     registerCommand(Configuration.Commands.RefreshPostgresVariables, refreshVariablesCmd);
     registerCommand(Configuration.Commands.BootstrapExtension, bootstrapExtensionCmd);
     registerCommand(Configuration.Commands.AddToWatchView, addVariableToWatchCmd);
+    registerCommand(Configuration.Commands.GetVariables, getVariablesCmd);
+    registerCommand(Configuration.Commands.GetTreeViewProvider, getNodeTreeProviderCmd);
 
     /* Process config files immediately */
     if (vscode.workspace.workspaceFolders) {
@@ -1248,6 +1259,8 @@ export class Configuration {
         FormatterDiffView: `${this.ExtensionName}.formatterShowDiff`,
         BootstrapExtension: `${this.ExtensionName}.bootstrapExtension`,
         AddToWatchView: `${this.ExtensionName}.addVariableToWatch`,
+        GetVariables: `${this.ExtensionName}.getVariables`,
+        GetTreeViewProvider: `${this.ExtensionName}.getTreeViewProvider`,
     };
     static Views = {
         NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`,

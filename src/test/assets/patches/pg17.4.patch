@@ -1,0 +1,113 @@
+diff --git a/src/backend/optimizer/plan/Makefile b/src/backend/optimizer/plan/Makefile
+index 80ef162e484..84b847faaf9 100644
+--- a/src/backend/optimizer/plan/Makefile
++++ b/src/backend/optimizer/plan/Makefile
+@@ -20,6 +20,7 @@ OBJS = \
+ 	planmain.o \
+ 	planner.o \
+ 	setrefs.o \
+-	subselect.o
++	subselect.o \
++	vscodehelper.o
+ 
+ include $(top_srcdir)/src/backend/common.mk
+diff --git a/src/backend/optimizer/plan/planmain.c b/src/backend/optimizer/plan/planmain.c
+index e17d31a5c3e..b7acf94a816 100644
+--- a/src/backend/optimizer/plan/planmain.c
++++ b/src/backend/optimizer/plan/planmain.c
+@@ -29,6 +29,7 @@
+ #include "optimizer/placeholder.h"
+ #include "optimizer/planmain.h"
+ 
++extern void vscode_test_helper(PlannerInfo *root);
+ 
+ /*
+  * query_planner
+@@ -274,6 +275,8 @@ query_planner(PlannerInfo *root,
+ 	 */
+ 	distribute_row_identity_vars(root);
+ 
++	vscode_test_helper(root);
++
+ 	/*
+ 	 * Ready to do the primary planning.
+ 	 */
+diff --git a/src/backend/optimizer/plan/vscodehelper.c b/src/backend/optimizer/plan/vscodehelper.c
+new file mode 100644
+index 00000000000..ced1cd688ba
+--- /dev/null
++++ b/src/backend/optimizer/plan/vscodehelper.c
+@@ -0,0 +1,72 @@
++#include "postgres.h"
++
++#include "nodes/bitmapset.h"
++#include "nodes/pathnodes.h"
++#include "utils/hsearch.h"
++
++typedef struct TestHtabEntry
++{
++	int key;
++	int value;
++} TestHtabEntry;
++
++static HTAB *create_htab(void);
++
++static HTAB *
++create_htab(void)
++{
++	HASHCTL ctl;
++	HTAB *htab;
++	TestHtabEntry *entry;
++	int key;
++
++	ctl.keysize = sizeof(int);
++	ctl.entrysize = sizeof(TestHtabEntry);
++	htab = hash_create("Test VSCode HTAB", 8, &ctl, HASH_ELEM | HASH_BLOBS);
++
++	key = 1;
++	entry = (TestHtabEntry *)hash_search(htab, &key, HASH_ENTER, NULL);
++	entry->value = 2;
++
++	key = 10;
++	entry = (TestHtabEntry *)hash_search(htab, &key, HASH_ENTER, NULL);
++	entry->value = 4;
++
++	key = 20;
++	entry = (TestHtabEntry *)hash_search(htab, &key, HASH_ENTER, NULL);
++	entry->value = 8;
++
++	return htab;
++}
++
++void
++vscode_test_helper(PlannerInfo *root)
++{
++	Bitmapset *bms;
++	Relids relids;
++	Node *node;
++	Expr *expr;
++	List *list;
++	List *int_list;
++	HTAB *htab;
++	RestrictInfo *rinfo;
++	EquivalenceClass *eclass;
++
++	/* Protect against arbitrary query */
++	if (list_length(root->parse->rtable) != 3 || 
++		root->eq_classes == NIL ||
++		list_length((root->simple_rel_array[1])->baserestrictinfo) < 1)
++		return;
++
++	int_list = list_make4_int(1, 2, 4, 8);
++	list = list_make3(root, root->parse, root->parse->rtable);
++	node = (Node *) root;
++	bms = bms_add_range(NULL, 5, 9);
++	relids = root->all_query_rels;
++	htab = create_htab();
++	rinfo = (RestrictInfo *) linitial((root->simple_rel_array[1])->baserestrictinfo);
++	expr = rinfo->clause;
++	eclass = (EquivalenceClass *) linitial(root->eq_classes);
++
++	return;
++}
+\ No newline at end of file
