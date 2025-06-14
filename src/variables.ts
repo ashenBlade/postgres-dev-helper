@@ -938,6 +938,12 @@ class ScalarVariable extends Variable {
 
     async getTreeItem() {
         const item = await super.getTreeItem();
+
+        /* Some scalar variables are pseudo members without any type */
+        if (this.type === '') {
+            item.label = this.name;
+        }
+
         item.tooltip = this.tooltip;
         return item;
     }
@@ -1134,7 +1140,7 @@ export class RealVariable extends Variable {
      * Get elements of member `this->member`.
      * You should use this function, because NIL is valid
      * List representation, but this extension treats it as
-     * RealVariable, not ListNodeTagVariable.
+     * RealVariable, not ListNodeVariable.
      *
      * @param member member name of this var
      * @returns Elements of list array
@@ -3817,7 +3823,7 @@ class BitmapSetSpecialMember extends NodeVariable {
         const ref = await this.getBmsRef();
 
         members.push(new ScalarVariable('$length$', setMembers.length.toString(),
-            'int', this.context, this.logger, this));
+            '', this.context, this.logger, this));
         members.push(new BitmapSetSpecialMember.BmsArrayVariable(this, setMembers, ref));
 
         return members.filter(v => v.name !== 'words');
