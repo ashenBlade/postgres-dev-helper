@@ -597,6 +597,11 @@ export abstract class Variable {
             return false;
         }
 
+        /* Builtin scalar types, like 'int' */
+        if (this.debug.isScalarType(this)) {
+            return false;
+        }
+
         /* Embedded or top level structs */
         if (this.debug.isValueStruct(this)) {
             return true;

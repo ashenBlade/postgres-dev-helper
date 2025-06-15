@@ -438,14 +438,6 @@ export function writeFile(path: vscode.Uri, data: string): Thenable<void> {
     }
 }
 
-const builtInTypes = new Set<string>([
-    'char', 'short', 'int', 'long', 'double', 'float', '_Bool', 'void',
-])
-
-export function isBuiltInType(type: string) {
-    return builtInTypes.has(getStructNameFromType(type));
-}
-
 export function getWorkspacePgSrcFile(workspace: vscode.Uri, ...paths: string[]) {
     const customDir = Configuration.getSrcPath();
     if (customDir) {

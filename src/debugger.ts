@@ -10,6 +10,9 @@ export interface IDebugVariable {
 
 const pointerRegex = /^0x[0-9abcdef]+$/i;
 const nullRegex = /^0x0+$/i;
+const builtInTypes = new Set([
+    'char', 'short', 'int', 'long', 'double', 'float', '_Bool', 'void',
+])
 
 export interface IDebuggerFacade {
     /* Common debugger functionality */
@@ -67,6 +70,15 @@ export interface IDebuggerFacade {
      * @returns true if variable is value struct
      */
     isValueStruct: (variable: IDebugVariable, type?: string) => boolean;
+
+    /**
+     * Check that variable represents scalar type, i.e. 'int' of 'char'.
+     * 
+     * @param variable Variable to test
+     * @param type Additional type for cases when it can differ
+     * @returns true if variable represents builtin scalar type
+     */
+    isScalarType: (variable: IDebugVariable, type?: string) => boolean;
 
     /**
      * Check that variable's type is fixed size array, not VLA
@@ -391,6 +403,10 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
         }
 
         return true;
+    }
+
+    isScalarType(variable: IDebugVariable, type?: string) {
+        return builtInTypes.has(type ?? variable.type);
     }
 
     getPointer(variable: IDebugVariable) {

@@ -34,15 +34,43 @@ index e17d31a5c3e..b7acf94a816 100644
  	 */
 diff --git a/src/backend/optimizer/plan/vscodehelper.c b/src/backend/optimizer/plan/vscodehelper.c
 new file mode 100644
-index 00000000000..ced1cd688ba
+index 00000000000..d9f2890f2f3
 --- /dev/null
 +++ b/src/backend/optimizer/plan/vscodehelper.c
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,130 @@
 +#include "postgres.h"
 +
 +#include "nodes/bitmapset.h"
 +#include "nodes/pathnodes.h"
 +#include "utils/hsearch.h"
++
++#define ARRAY_SIZE 16
++
++typedef struct TestStructure
++{
++	int value;
++} TestStructure;
++
++typedef struct TestEmbeddedStructure
++{
++	TestStructure value;
++} TestEmbeddedStructure;
++
++typedef struct TestPointerMember
++{
++	TestStructure *value;
++} TestPointerMember;
++
++typedef struct TestFixedArray
++{
++	int array[ARRAY_SIZE];
++} TestFixedArray;
++
++typedef struct TestFlexibleArrayMember
++{
++	int value;
++	int array[];
++} TestFlexibleArrayMember;
 +
 +typedef struct TestHtabEntry
 +{
@@ -82,6 +110,19 @@ index 00000000000..ced1cd688ba
 +void
 +vscode_test_helper(PlannerInfo *root)
 +{
++	/* Correct variable handling */
++	int i;
++	int int_array[ARRAY_SIZE];
++	TestStructure structure_array[ARRAY_SIZE];
++	TestStructure *structure_pointer_array[ARRAY_SIZE];
++	TestStructure value_struct;
++	TestStructure *pointer_struct;
++	TestPointerMember pointer_member;
++	TestEmbeddedStructure embedded_member;
++	TestFixedArray fixed_size_array_member;
++	TestFlexibleArrayMember flexible_array_member;
++
++	/* Node variables */
 +	Bitmapset *bms;
 +	Relids relids;
 +	Node *node;
@@ -91,11 +132,12 @@ index 00000000000..ced1cd688ba
 +	HTAB *htab;
 +	RestrictInfo *rinfo;
 +	EquivalenceClass *eclass;
++	HASH_SEQ_STATUS seq_status;
 +
 +	/* Protect against arbitrary query */
-+	if (list_length(root->parse->rtable) != 3 || 
-+		root->eq_classes == NIL ||
-+		list_length((root->simple_rel_array[1])->baserestrictinfo) < 1)
++	if (!(   list_length(root->parse->rtable) == 3
++		  && list_length(root->eq_classes) > 0
++		  && list_length((root->simple_rel_array[1])->baserestrictinfo) > 0))
 +		return;
 +
 +	int_list = list_make4_int(1, 2, 4, 8);
@@ -107,6 +149,22 @@ index 00000000000..ced1cd688ba
 +	rinfo = (RestrictInfo *) linitial((root->simple_rel_array[1])->baserestrictinfo);
 +	expr = rinfo->clause;
 +	eclass = (EquivalenceClass *) linitial(root->eq_classes);
++
++	i = 123;
++	value_struct.value = 123;
++	pointer_struct = palloc(sizeof(TestStructure));
++	pointer_struct->value = 123;
++	embedded_member.value = value_struct;
++	pointer_member.value = pointer_struct;
++	embedded_member.value = value_struct;
++	for (int j = 0; j < ARRAY_SIZE; j++)
++	{
++		fixed_size_array_member.array[j] = j + 1;
++		int_array[j] = j + 1;
++		structure_array[j].value = j + 1;
++		structure_pointer_array[j] = palloc(sizeof(TestStructure));
++		structure_pointer_array[j]->value = j + 1;
++	}
 +
 +	return;
 +}
