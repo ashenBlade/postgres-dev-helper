@@ -48,13 +48,29 @@ interface VarTreeItemPair {
     item: TreeItemWrapper;
 };
 
-interface TestEnv {
+type DebuggerType = 'cppdbg' | 'lldb';
+
+class TestEnv {
     /* Version of Postgresql being tested */
     pgVersion: string;
     /* Version of VS Code we are running on */
     vscodeVersion: string;
     /* Debugger extension is used */
-    debugger: 'cppdbg' | 'lldb';
+    debugger: DebuggerType;
+
+    constructor(pgVersion: string, vscodeVersion: string, debuggerType: DebuggerType) {
+        this.pgVersion = pgVersion;
+        this.vscodeVersion = vscodeVersion;
+        this.debugger = debuggerType;
+    }
+
+    isCodeLLDB() {
+        return this.debugger === 'lldb';
+    }
+
+    isCppDbg() {
+        return this.debugger === 'cppdbg';
+    }
 }
 
 function getTestEnv(): TestEnv {
@@ -65,16 +81,13 @@ function getTestEnv(): TestEnv {
         throw new Error(`Unknown type of debugger: ${dbg}`);
     }
 
-    return {
-        pgVersion,
-        vscodeVersion,
-        debugger: dbg
-    }
+    return new TestEnv(pgVersion, vscodeVersion, dbg);
 }
 
-function getDebugConfiguration(env: TestEnv, pid: number): vscode.DebugConfiguration {
+function getDebugConfiguration(env: TestEnv, pid: number) {
+    let config: vscode.DebugConfiguration;
     if (env.debugger === 'cppdbg') {
-        return {
+        config = {
             name: 'Backend',
             request: 'attach',
             type: 'cppdbg',
@@ -82,7 +95,7 @@ function getDebugConfiguration(env: TestEnv, pid: number): vscode.DebugConfigura
             program: '${workspaceFolder}/src/backend/postgres',
         };
     } else {
-        return {
+        config = {
                 name: 'Backend',
                 request: 'attach',
                 type: 'lldb',
@@ -90,6 +103,8 @@ function getDebugConfiguration(env: TestEnv, pid: number): vscode.DebugConfigura
                 program: '${workspaceFolder}/src/backend/postgres',
         };
     }
+
+    return config;
 }
 
 async function searchBreakpointLocation() {
@@ -116,7 +131,8 @@ async function searchBreakpointLocation() {
         }
     }
     if (lineNumber < 0) {
-        throw new Error('failed to find position in vscodehelper.c for breakpoint - no return statement found');
+        throw new Error('failed to find position in vscodehelper.c for ' + 
+                        'breakpoint: no return statement found');
     }
 
     return new vscode.Location(sourceFile, new vscode.Position(lineNumber, 0));
@@ -128,6 +144,7 @@ const execGetTreeViewProvider = async () => {
     return await execCommand<NodePreviewTreeViewProvider>(
                                 Configuration.Commands.GetTreeViewProvider);
 }
+const intRegexp = (value: number) => new RegExp(`\\s*${value}\\s*`);
 const execGetVariables = async () => {
     return await execCommand<vars.Variable[] | undefined>(
                                 Configuration.Commands.GetVariables);
@@ -243,22 +260,16 @@ suite('Variables', async () => {
         return v;
     }
 
-    const getVarItem = async (name: string, vars?: vars.Variable[]): Promise<VarTreeItemPair> => {
+    const getVarItem = async (name: string, vars?: vars.Variable[]) => {
         const v = getVar(name, vars);
         return {
             var: v,
             item: new TreeItemWrapper(await v.getTreeItem())
-        }
+        } as VarTreeItemPair;
     }
 
     const expand = async (x: vars.Variable | VarTreeItemPair) => {
-        let v;
-        if (x instanceof vars.Variable) {
-            v = x;
-        } else {
-            v = x.var;
-        }
-
+        const v = x instanceof vars.Variable ? x : x.var;
         const children = await v.getChildren();
         assert.ok(children && 0 < children.length,
                   `Failed to get children of variable ${v.name}`);
@@ -279,30 +290,42 @@ suite('Variables', async () => {
         return items;
     }
 
+    
     const getMember = (pairs: VarTreeItemPair[], name: string) => {
         const pair = pairs.find(pair => pair.item.getName() === name);
         assert.ok(pair, `Failed to find ${name} member`);
         return pair;
     }
+    
+    const getMemberOf = async (x: vars.Variable | VarTreeItemPair, name: string) => {
+        const children = await expand(x);
+        return getMember(children, name);
+    }
 
     /* Tests for handling types of variables */
-    suite('Variable handling', async () => {
-        const intRegexp = (value: number) => new RegExp(`\\s*${value}\\s*`);
+    suite('Variable handling', async () => {    
+        const assertExpandable = (x: TreeItemWrapper, who: string) => {
+            assert.equal(x.collapsibleState, CollapsibleState.Collapsed, 
+                         `${who} must be expandable`);
+        }
+
+        const assertNotExpandable = (x: TreeItemWrapper, who: string) => {
+            assert.equal(x.collapsibleState, CollapsibleState.None,
+                         `${who} must not be expandable`);
+        }
         
         /* Scalar variable is not expandable */
         test('Scalar', async () => {
             const {item} = await getVarItem('i');
-            assert.equal(item.item.collapsibleState, CollapsibleState.None,
-                         'Scalar variables must not be expandable');
-            assert.match(item.description, /\s*1\s*/i, 'Value is not shown');
+            assertNotExpandable(item, 'Scalar variable');
+            assert.match(item.description, intRegexp(1), 'Value is not shown');
         });
 
         /* Array of integers (scalars) */
         test('Array[int]', async () => {
             const {var: v, item} = await getVarItem('int_array');
-            assert.equal(item.collapsibleState, CollapsibleState.Collapsed,
-                         'Array must be expandable');
-
+            assertExpandable(item, 'Array');
+    
             const arrayMembers = await expand(v);
             assert.equal(arrayMembers.length, 16, 'Array contains 16 elements');
 
@@ -318,148 +341,96 @@ suite('Variables', async () => {
         /* Array of structures */
         test('Array[structure]', async () => {
             const {var: v, item} = await getVarItem('structure_array');
-            assert.equal(item.collapsibleState, CollapsibleState.Collapsed,
-                         'Array must be expandable');
+            assertExpandable(item, 'Array');
 
             const children = await expand(v);
             assert.equal(children.length, 16, 'Array contains 16 elements');
             assert.ok(children.every(c => c.item.isExpandable()),
                       'Structure array members must be expandable');
 
-            const members: TreeItemWrapper[] = [];
             for (const [i, child] of children.entries()) {
-                const mems = await child.var.getChildren();
-                assert.ok(mems, `Failed to get children of ${i} member`);
-                assert.ok(mems.length > 0, `Array member ${i} does not have children`);
-
-                let valueItem;
-                for (const child of mems) {
-                    const item = new TreeItemWrapper(await child.getTreeItem());
-                    if (item.getName() === 'value') {
-                        valueItem = item;
-                        break;
-                    }
-                }
-
-                assert.ok(valueItem, `Failed to get 'value' member for ${i} member`);
-                members.push(valueItem);
-            }
-
-            for (const [i, member] of members.entries()) {
-                assert.match(member.description, intRegexp(i + 1), 
-                            `Member ${i} does not displays actual value`);
+                const {item} = await getMemberOf(child, 'value');
+                assert.match(item.description, intRegexp(i + 1), 
+                            `Member at ${i} does not displays actual value`);
             }
         });
 
         /* Array of pointers to structures */
         test('Array[pointers]', async () => {
             const {var: v, item} = await getVarItem('structure_array');
-            assert.equal(item.collapsibleState, CollapsibleState.Collapsed,
-                         'Array must be expandable');
+            assertExpandable(item, 'Array');
 
             const children = await expand(v);
             assert.equal(children.length, 16, 'Array contains 16 elements');
             assert.ok(children.every(c => c.item.isExpandable()),
                       'Structure array members must be expandable');
 
-            const members: TreeItemWrapper[] = [];
             for (const [i, child] of children.entries()) {
-                const mems = await child.var.getChildren();
-                assert.ok(mems, `Failed to get children of ${i} member`);
-                assert.ok(mems.length > 0, `Array member ${i} does not have children`);
+                assertExpandable(child.item, 'Pointer array element');
 
-                let valueItem;
-                for (const child of mems) {
-                    const item = new TreeItemWrapper(await child.getTreeItem());
-                    if (item.getName() === 'value') {
-                        valueItem = item;
-                        break;
-                    }
-                }
-
-                assert.ok(valueItem, `Failed to get 'value' member for ${i} member`);
-                assert.equal(valueItem.collapsibleState, CollapsibleState.None,
-                             'Scalar member must not be expandable');
-                members.push(valueItem);
-            }
-
-            for (const [i, member] of members.entries()) {
-                assert.match(member.description, intRegexp(i + 1), 
-                            `Member ${i} does not displays actual value`);
+                const valueItem = await getMemberOf(child, 'value');
+                assertNotExpandable(valueItem.item, 'Scalar member');
+                assert.match(valueItem.item.description, intRegexp(i + 1),
+                             `Member at ${i} does not displays actual value`);
             }
         });
 
         /* Structure allocated on stack */
         test('Structure[value]', async () => {
             const structureVar = await getVarItem('value_struct');
-            assert.equal(structureVar.item.collapsibleState, CollapsibleState.Collapsed,
-                         'Value structure must be expandable');
-            const members = await expand(structureVar.var);
-            const valueVar = getMember(members, 'value')
+            assertExpandable(structureVar.item, 'Value structure');
+
+            const valueVar = await getMemberOf(structureVar, 'value')
             assert.match(valueVar.item.description, intRegexp(1),
                          'Displayed value of "value" member is not valid');
-            assert.notEqual(valueVar.item.collapsibleState, CollapsibleState.Collapsed,
-                            'Scalar members must not be expandable');
+            assertNotExpandable(valueVar.item, 'Scalar members');
         });
 
         /* Pointer variable to structure */
         test('Structure[pointer]', async () => {
             const structureVar = await getVarItem('pointer_struct');
-            assert.equal(structureVar.item.collapsibleState, CollapsibleState.Collapsed,
-                         'Value structure must be expandable');
-            const members = await expand(structureVar.var);
-            const valueVar = getMember(members, 'value');
+            assertExpandable(structureVar.item, 'Value structure');
+            const valueVar = await getMemberOf(structureVar, 'value');
             assert.match(valueVar.item.description, intRegexp(1),
                          'Displayed value of "value" member is not valid');
-            assert.notEqual(valueVar.item.collapsibleState, CollapsibleState.Collapsed,
-                            'Scalar members must not be expandable');
+            assertNotExpandable(valueVar.item, 'Scalar members');
         });
 
         /* Member is pointer to structure */
         test('Member[pointer]', async () => {
-            const pointerMemberVar = await getVarItem('pointer_member');
-            assert.equal(pointerMemberVar.item.collapsibleState, CollapsibleState.Collapsed);
+            const variable = await getVarItem('pointer_member');
+            assertExpandable(variable.item, 'Pointer member');
 
-            const pointerMemberItems = await expand(pointerMemberVar.var);
-            const valueMember = getMember(pointerMemberItems, 'value');
-            assert.equal(valueMember.item.collapsibleState, CollapsibleState.Collapsed,
-                         'Structure pointer member must be expandable');
-            
-            /* Looks ugly, but I can not image better names (it's just value->value->value) */
-            const valueVar = await expand(valueMember.var);
-            const valueVarMember = getMember(valueVar, 'value');
-            assert.match(valueVarMember.item.description, intRegexp(1),
+            const valueMember = await getMemberOf(variable, 'value');
+            assertExpandable(valueMember.item, 'Structure pointer');
+
+            const valuePointerMember = await getMemberOf(valueMember, 'value');
+            assert.match(valuePointerMember.item.description, intRegexp(1),
                          'Value of member of pointer member is not valid');
         });
 
         /* Member is embedded/value structure */
         test('Member[embedded]', async () => {
             const embeddedVar = await getVarItem('embedded_member');
-            assert.equal(embeddedVar.item.collapsibleState, CollapsibleState.Collapsed,
-                         'Structure must be expandable');
+            assertExpandable(embeddedVar.item, 'Structure');
             
-            const members = await expand(embeddedVar);
-            const valueMember = getMember(members, 'value');
-            assert.equal(valueMember.item.collapsibleState, CollapsibleState.Collapsed,
-                         'Embedded value structure must be expandable');
-            
-            const embeddedMemberMembers = await expand(valueMember);
-            const embeddedValueMember = getMember(embeddedMemberMembers, "value");
-            assert.equal(embeddedValueMember.item.collapsibleState, CollapsibleState.None,
-                         'Scalar member of embedded structure must not be expandable');
+            const valueMember = await getMemberOf(embeddedVar, 'value');
+            assertExpandable(valueMember.item, 'Embedded value structure');
+    
+            const embeddedValueMember = await getMemberOf(valueMember, "value");
+            assertNotExpandable(embeddedValueMember.item, 'Scalar member');
             assert.match(embeddedValueMember.item.description, intRegexp(1),
-                         'Value of "value" embedded structure member is not valid');
+                         'Value of "value" member is not valid');
         });
 
         /* Member is array */
         test('Member[array]', async () => {
             const structureVar = await getVarItem('fixed_size_array_member');
-            assert.equal(structureVar.item.collapsibleState, CollapsibleState.Collapsed,
-                         'Structure must be expandable');
-            const arrayMember = getMember(await expand(structureVar), 'array');
-            assert.equal(arrayMember.item.collapsibleState, CollapsibleState.Collapsed,
-                          'Fixed size array member must be expandable');
-            
+            assertExpandable(structureVar.item, 'Structure');
+    
+            const arrayMember = await getMemberOf(structureVar, 'array');
+            assertExpandable(arrayMember.item, 'Fixed size array');
+
             const arrayElements = await expand(arrayMember);
             assert.equal(arrayElements.length, 16, 'Array must contain 16 elements');
 
@@ -472,11 +443,10 @@ suite('Variables', async () => {
         /* Member is flexible array */
         test('Member[flexible array]', async () => {
             const structureVar = await getVarItem('flexible_array_member');
-            assert.equal(structureVar.item.collapsibleState, CollapsibleState.Collapsed,
-                         'Structure must be expandable');
-            const arrayMember = getMember(await expand(structureVar), 'array');
-            assert.equal(arrayMember.item.collapsibleState, CollapsibleState.None,
-                          'Flexible array member must not be expandable');
+            assertExpandable(structureVar.item, 'Structure');
+
+            const {item} = await getMemberOf(structureVar, 'array');
+            assertNotExpandable(item, 'Flexible array member');
         });
     });
 
@@ -484,15 +454,14 @@ suite('Variables', async () => {
     suite('Node variables', async () => {
         /* Reveal basic Node* type according to NodeTag */
         test('NodeTag observed', async () => {
-            /* 
-             * node: Node *[PlannerInfo]
-             */
-            const nodeVar = getVar('node');
-            const item = new TreeItemWrapper(await nodeVar.getTreeItem());
-            assert.notEqual(item.getType().indexOf('PlannerInfo'), -1, 'Real NodeTag is not shown');
-            const children = await nodeVar.getChildren();
-            assert.ok(children !== undefined, 'Failed to get children of "node" variable')
-            assert.ok(children.length > 1, 'Children of "node" variable must be same as for real type');
+            /* node: Node *[PlannerInfo] */
+            const {var: nodeVar, item} = await getVarItem('node');
+            assert.match(item.getType(), /PlannerInfo/, 'Real NodeTag is not shown');
+            const children = await expand(nodeVar);
+
+            /* struct Node has single member, but PlannerInfo more than 1 */
+            assert.ok(children.length > 1,
+                      'Children of "node" variable must be same as for real type');
         });
 
         /* Show elements of array and additionally reveal Node types */
@@ -501,14 +470,14 @@ suite('Variables', async () => {
             const childrenItems = await expand(getVar('list'));
             const elementsMember = getMember(childrenItems, '$elements$');
 
-            const listElements = await elementsMember.var.getChildren();
-            assert.ok(listElements !== undefined, '$elements$ member does not exist');
-            assert.equal(listElements.length, 3, '$elements$ does not contains all list members');
+            const listElements = await expand(elementsMember);
+            assert.equal(listElements.length, 3,
+                         '$elements$ does not contains all list members');
 
             const isOfNodeType = async (index: number, type: string) => {
-                const item = new TreeItemWrapper(await listElements[index].getTreeItem());
+                const item = listElements[index].item;
                 assert.match(item.getType(), new RegExp(type), 
-                            `List element in index ${index} must be of type ${type}, but have ${item.getType()}`);
+                            `List element at ${index} is not of actual type`);
             }
 
             await isOfNodeType(0, 'PlannerInfo');
@@ -521,8 +490,9 @@ suite('Variables', async () => {
             /* int_list = [1, 2, 4, 8] */
             const childrenItems = await expand(getVar("int_list"));
             const elementsMember = getMember(childrenItems, '$elements$');
-            const listElements = await expand(elementsMember.var);
-            assert.equal(listElements.length, 4, '$elements$ does not contains all list members');
+            const listElements = await expand(elementsMember);
+            assert.equal(listElements.length, 4,
+                         '$elements$ does not contains all list members');
 
             const elementsValues = listElements.map(x => x.item.description);
             assert.deepEqual(elementsValues, ['1', '2', '4', '8'],
@@ -542,13 +512,12 @@ suite('Variables', async () => {
             *   - 9
             */
             const childrenItems = await expand(getVar('bms'));
-            const elementsMember = getMember(childrenItems, '$elements$');
             const lengthMember = getMember(childrenItems, '$length$');
-
-            assert.equal(lengthMember.item.description, '5',
-                        '$length$ member contains not valid value');
-
-            const elements = await expand(elementsMember.var);
+            assert.match(lengthMember.item.description, intRegexp(5),
+                         '$length$ member contains not valid value');
+            
+            const elementsMember = getMember(childrenItems, '$elements$');
+            const elements = await expand(elementsMember);
             const values = elements.map(v => v.item.description);
             assert.deepEqual(values, ['5', '6', '7', '8', '9'],
                             'Bitmapset does not contains valid numbers');
@@ -567,51 +536,52 @@ suite('Variables', async () => {
             *     - RelOptInfo
             *     - RangeTblEntry
             */
-            const allQueryRels = getVar('all_query_rels', await getVar('root').getChildren());
+            const rootVar = getVar('root');
+            const allQueryRels = await getMemberOf(rootVar, 'all_query_rels');
             const allQueryRelsChildren = await expand(allQueryRels);
-            const allQueryRelsElementsVar = getMember(allQueryRelsChildren, '$elements$');
-            const allQueryRelsLengthVar = getMember(allQueryRelsChildren, '$length$');
-            assert.equal(allQueryRelsLengthVar.item.description, '2', 'Number of elements must be 2')
-
-            const allQueryRelsElements = await expand(allQueryRelsElementsVar.var);
-            const relids = allQueryRelsElements.map(i => i.item.description);
-            assert.deepEqual(relids, ['1', '2'], 
-                            'root->all_query_rels does not contain all Bitmapset elements');
+    
+            const lengthMember = getMember(allQueryRelsChildren, '$length$');
+            assert.match(lengthMember.item.description, intRegexp(2),
+                         'Number of elements must be 2')
             
-            const relidsChildren = [];
-            for (const pair of allQueryRelsElements) {
-                const children = await expand(pair.var);
-                relidsChildren.push(children);
-            }
+            const elementsMember = getMember(allQueryRelsChildren, '$elements$');
+            const allQueryRelsElements = await expand(elementsMember.var);
+            const relids = allQueryRelsElements.map(i => i.item.description);
+            assert.deepEqual(relids, ['1', '2'], 'Bitmapset elements not shown');
 
-            for (const [i, arr] of relidsChildren.entries()) {
-                const rel = arr.find(x => x.item.getType().indexOf('RelOptInfo') !== -1);
-                const rte = arr.find(x => x.item.getType().indexOf('RangeTblEntry') !== -1);
-                assert.ok(rel !== undefined, `No RelOptInfo link for relid ${relids[i]}`);
-                assert.ok(rte !== undefined, `No RangeTblEntry link for relid ${relids[i]}`);
+            /* Check each has link to 'RelOptInfo' and 'RangeTblEntry' */
+            for (const [i, pair] of allQueryRelsElements.entries()) {
+                const children = await expand(pair);
+                assert.ok(children.find(x => x.item.getType()
+                                                   .indexOf('RelOptInfo') !== -1),
+                          `No RelOptInfo link for relid ${relids[i]}`);
+                assert.ok(children.find(x => x.item.getType()
+                                                   .indexOf('RangeTblEntry') !== -1),
+                          `No RangeTblEntry link for relid ${relids[i]}`);
             }
         });
 
         /* Hash table elements are shown */
         test('HTAB', async function() {
-            if (env.debugger === 'lldb') {
+            if (env.isCodeLLDB()) {
                 /* CodeLLDB has troubles with 'HASH_SEQ_STATUS' structure */
                 this.skip();
             }
 
-            const elementsVar = getMember(await expand(getVar('htab')), '$elements$');
-            const elementsChildren = await expand(elementsVar.var);
+            const elementsVar = await getMemberOf(getVar('htab'), '$elements$');
+            const elementsChildren = await expand(elementsVar);
             assert.equal(elementsChildren.length, 3, 'HTAB must contain 3 elements');
 
             const htabElements = [];
             for (const pair of elementsChildren) {
-                const x = await expand(pair.var);
+                const x = await expand(pair);
                 htabElements.push({
                     key: getMember(x, 'key').item.description,
                     value: getMember(x, 'value').item.description
                 });
             }
-            assert.deepEqual(new Set(htabElements), 
+            assert.deepEqual(
+                new Set(htabElements), 
                 new Set([
                     {key: '1', value: '2'}, 
                     {key: '10', value: '4'}, 
@@ -623,28 +593,30 @@ suite('Variables', async () => {
         /* Array members are rendered as actual array */
         test('Array members', async () => {
             const rootVar = getVar('root');
-            const simpleRteArrayVar = getMember(await expand(rootVar), 'simple_rte_array');
-        
-            const simpleRteArrayElements = await expand(simpleRteArrayVar.var);
-            assert.equal(simpleRteArrayElements.length, 4, 'simple_rte_array must contain 4 entries');
+            const arrayVar = await getMemberOf(rootVar, 'simple_rte_array');
+            const arrayElements = await expand(arrayVar);
+            assert.equal(arrayElements.length, 4,
+                         'simple_rte_array must contain 4 entries');
         });
 
         /* RestrictInfo and Expr is rendered instead of pointer value */
         test('RestrictInfo', async () => {
-            let expr;
-            if (env.debugger === 'cppdbg') {
-                expr = /t1\.y > 10/i;
-            } else {
+            let exprRegexp;
+            if (env.isCodeLLDB()) {
                 /* CodeLLDB has troubles with 'getTypeOutputInfo' invocation */
-                expr = /t1\.y > \?\?\?/i;
+                exprRegexp = /t1\.y > \?\?\?/i;
+            } else {
+                exprRegexp = /t1\.y > 10/i;
             }
-            const rinfoVar = getVar('rinfo');
-            const item = new TreeItemWrapper(await rinfoVar.getTreeItem());
-            assert.match(item.description, expr, 'RestrictInfo expression is not rendered in description');
 
-            const clauseVar = getMember(await expand(rinfoVar), 'clause');
-            const pseudoExprMember = getMember(await expand(clauseVar.var), '$expr$');
-            assert.match(pseudoExprMember.item.description, expr, '$expr$ member does not contain valid expression');
+            const {var: rinfoVar, item: rinfoItem} = await getVarItem('rinfo');
+            assert.match(rinfoItem.description, exprRegexp,
+                         'RestrictInfo expression is not rendered in description');
+
+            const clauseVar = await getMemberOf(rinfoVar, 'clause');
+            const {item: exprItem} = await getMemberOf(clauseVar, '$expr$');
+            assert.match(exprItem.description, exprRegexp,
+                         '$expr$ member does not contain valid expression');
         });
-    })
+    });
 });
