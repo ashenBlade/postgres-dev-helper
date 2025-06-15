@@ -9,10 +9,9 @@ export interface IDebugVariable {
 }
 
 const pointerRegex = /^0x[0-9abcdef]+$/i;
+const nullRegex = /^0x0+$/i;
 
 export interface IDebuggerFacade {
-    readonly isInDebug: boolean;
-
     /* Common debugger functionality */
     evaluate: (expression: string, frameId: number | undefined,
                context?: string) => Promise<dap.EvaluateResponse>;
@@ -26,6 +25,17 @@ export interface IDebuggerFacade {
     getFunctionName: (frameId: number) => Promise<string | undefined>;
 
     /* Utility functions with per debugger specifics */
+    /**
+     * Get pointer for location of this variable
+     */
+    getPointer: (variable: IDebugVariable) => string | undefined;
+
+    /**
+     * Check that `evaluate` function/DAP request failed.
+     * 
+     * @param response Result of `evaluate` function call
+     * @returns true if evaluation failed
+     */
     isFailedVar: (response: dap.EvaluateResponse) => boolean;
 
     /**
@@ -42,7 +52,7 @@ export interface IDebuggerFacade {
      * @param variable Variable to test
      * @returns Pointer value is valid and not NULL
      */
-    isValidPointer: (variable: IDebugVariable) => boolean;
+    isValidPointerType: (variable: IDebugVariable) => boolean;
 
     /**
      * Check that variable represents value struct - structure stored in place,
@@ -97,9 +107,8 @@ export interface IDebuggerFacade {
      */
     extractPtrFromString: (variable: IDebugVariable) => string | null;
 }
-
-export class CppDbgDebuggerFacade implements IDebuggerFacade, vscode.Disposable {
-    private registrations: vscode.Disposable[];
+export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.Disposable {
+    registrations: vscode.Disposable[];
 
     isInDebug: boolean;
     session: vscode.DebugSession | undefined;
@@ -178,6 +187,64 @@ export class CppDbgDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
         return (vscode.debug.activeStackItem as vscode.DebugStackFrame | undefined)?.frameId;
     }
 
+    switchToEventBasedRefresh(provider: NodePreviewTreeViewProvider) {
+        /* 
+         * Prior to VS Code version 1.90 there is no debugFocus API - 
+         * we can not track current stack frame. It is very convenient,
+         * because single event refreshes state and also we keep track
+         * of stack frame selected in debugger view.
+         * 
+         * For older versions we use event based implementation -
+         * subscribe to debugger events and filter out needed:
+         * continue execution, stopped (breakpoint), terminated etc...
+         * 
+         * NOTE: We can not track current stack frame, so this feature is
+         *       not available for users.
+         */
+
+        let savedThreadId: undefined | number = undefined;
+        const disposable = vscode.debug.registerDebugAdapterTrackerFactory('*', {
+            createDebugAdapterTracker(_: vscode.DebugSession) {
+                return {
+                    onDidSendMessage(message: dap.ProtocolMessage) {
+                        if (message.type === 'response') {
+                            if (message.command === 'continue') {
+                                /* `Continue' command - clear */
+                                provider.refresh();
+                            }
+
+                            return;
+                        }
+
+                        if (message.type === 'event') {
+                            if (message.event === 'stopped' || message.event === 'terminated') {
+                                /* Hit breakpoint - show variables */
+                                provider.refresh();
+                                savedThreadId = message.body?.threadId as number | undefined;
+                            }
+                        }
+                    },
+
+                    onWillStopSession() {
+                        /* Debug session terminates - clear */
+                        provider.refresh();
+                    },
+                }
+            },
+        });
+        this.registrations.push(disposable);
+        this.getCurrentFrameId = async () => {
+            /* 
+             * We can not track selected stack frame - return last (top)
+             */
+            if (!(this.isInDebug && savedThreadId)) {
+                return;
+            }
+
+            return await this.getTopStackFrameId(savedThreadId);
+        }
+    }
+
     switchToManualArrayExpansion() {
         this.getArrayVariables = async function (array: string, length: number,
                                                  frameId: number | undefined) {
@@ -228,16 +295,8 @@ export class CppDbgDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
         }
 
         const threadId = await this.getThreadId();
-        
-        /* 
-        * DAP returns new frameId each 'stackTrace' invocation, so we can
-        * not just iterate through all StackFrames and find equal frame id.
-        * 
-        * I found such hack - all frames returned by 'evaluate' are in form
-         * 'frameId = 1000 + frameIndex' (at least I rely on it very much).
-         * We just need to get this single frame.
-         */
-        const frameIndex = frameId - 1000;
+
+        const frameIndex = this.calcFrameIndex(frameId);
 
         const st = await this.getStackTrace(threadId, 1, frameIndex);
         if (!(st && st.stackFrames)) {
@@ -264,13 +323,18 @@ export class CppDbgDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
         return name;
     }
 
-    async evaluate(expression: string, frameId: number | undefined, context?: string) {
-        context ??= 'watch';
-        return await this.getSession().customRequest('evaluate', {
-            expression,
-            context,
-            frameId
-        } as dap.EvaluateArguments);
+    async getScopes(frameId: number): Promise<dap.Scope[]> {
+        const response: dap.ScopesResponse = await this.getSession()
+            .customRequest('scopes', { frameId } as dap.ScopesArguments);
+        return response.scopes;
+    }
+
+    private async getStackTrace(threadId: number, levels?: number, startFrame?: number) {
+        return await this.getSession().customRequest('stackTrace', {
+            threadId,
+            levels,
+            startFrame
+        } as dap.StackTraceArguments) as dap.StackTraceResponse;
     }
 
     async getMembers(variablesReference: number): Promise<dap.DebugVariable[]> {
@@ -294,30 +358,86 @@ export class CppDbgDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
          * use 'presentationHint' - it might be undefined
          * in old versions of VS Code.
          */
-        for (const scope of scopes.filter(s => s.name === 'Locals' || s.name === 'Local')) {
+        for (const scope of scopes.filter(this.shouldShowScope)) {
             const members = await this.getMembers(scope.variablesReference);
             variables.push(...members);
         }
         return variables;
     }
 
-    async getScopes(frameId: number): Promise<dap.Scope[]> {
-        const response: dap.ScopesResponse = await this.getSession()
-            .customRequest('scopes', { frameId } as dap.ScopesArguments);
-        return response.scopes;
-    }
-
-    private async getStackTrace(threadId: number, levels?: number, startFrame?: number) {
-        return await this.getSession().customRequest('stackTrace', {
-            threadId,
-            levels,
-            startFrame
-        } as dap.StackTraceArguments) as dap.StackTraceResponse;
-    }
-
     async getTopStackFrameId(threadId: number): Promise<number | undefined> {
         const response: dap.StackTraceResponse = await this.getStackTrace(threadId, 1);
         return response.stackFrames?.[0]?.id;
+    }
+
+    isFixedSizeArray(variable: IDebugVariable) {
+        /*
+        * Find pattern: type[size]
+        * But not: type[] - VLA is not expanded.
+        * Here we use fact, that 'type[size]' differs from 'type[]' by
+        * penultimate character - for VLA this must be '['.
+        * 
+        */
+        if (variable.type.length < 2) {
+            return false;
+        }
+
+        if (variable.type[variable.type.length - 1] !== ']') {
+            return false;
+        }
+        
+        if (variable.type[variable.type.length - 2] === '[') {
+            return false;
+        }
+
+        return true;
+    }
+
+    getPointer(variable: IDebugVariable) {
+        return variable.memoryReference ?? variable.value;
+    }
+
+    dispose() {
+        this.registrations.forEach(r => r.dispose());
+        this.registrations.length = 0;
+    }
+
+    /**
+     * Utility function used in getFunctionName, that computes index
+     * of frame basing of it's frameId.
+     */
+    abstract calcFrameIndex(frameId: number): number;
+    abstract shouldShowScope(scope: dap.Scope): boolean;
+    abstract evaluate(expression: string, frameId: number | undefined, context?: string): Promise<dap.EvaluateResponse>;
+    abstract isFailedVar(response: dap.EvaluateResponse): boolean;
+    abstract isNull(variable: IDebugVariable): boolean;
+    abstract isValidPointerType(variable: IDebugVariable): boolean;
+    abstract isValueStruct(variable: IDebugVariable, type?: string): boolean;
+    abstract extractString(variable: IDebugVariable): string | null;
+    abstract extractBool(variable: IDebugVariable): boolean | null;
+    abstract extractPtrFromString(variable: IDebugVariable): string | null;
+}
+
+export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
+    shouldShowScope(scope: dap.Scope): boolean {
+        return scope.name === 'Locals';
+    }
+    
+    async evaluate(expression: string, frameId: number | undefined, context?: string) {
+        context ??= 'watch';
+        return await this.getSession().customRequest('evaluate', {
+            expression,
+            context,
+            frameId
+        } as dap.EvaluateArguments);
+    }
+
+    async getMembers(variablesReference: number): Promise<dap.DebugVariable[]> {
+        const response: dap.VariablesResponse = await this.getSession()
+            .customRequest('variables', {
+                variablesReference
+            } as dap.VariablesArguments);
+        return response.variables;
     }
 
     isFailedVar(response: dap.EvaluateResponse): boolean {
@@ -345,7 +465,7 @@ export class CppDbgDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
         return variable.value === '0x0';
     }
 
-    isValidPointer(variable: IDebugVariable) {
+    isValidPointerType(variable: IDebugVariable) {
         return pointerRegex.test(variable.value) && !this.isNull(variable);
     }
 
@@ -363,26 +483,6 @@ export class CppDbgDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
         return false;
     }
 
-    isFixedSizeArray(variable: IDebugVariable) {
-        /*
-        * Find pattern: type[size]
-        * But not: type[] - VLA is not expanded
-        */
-        if (variable.type.length < 2) {
-            return false;
-        }
-
-        if (variable.type[variable.type.length - 1] !== ']') {
-            return false;
-        }
-        
-        if (variable.type[variable.type.length - 2] === '[') {
-            return false;
-        }
-
-        return true;
-    }
-
     extractString(variable: IDebugVariable) {
         const left = variable.value.indexOf('"');
         const right = variable.value.lastIndexOf('"');
@@ -396,8 +496,8 @@ export class CppDbgDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
 
     extractBool(variable: IDebugVariable) {
         /* 
-        * On older pg versions bool stored as 'char' and have format: "X '\00X'"
-        */
+         * On older pg versions bool stored as 'char' and have format: "X '\00X'"
+         */
         switch (variable.value.trim().toLowerCase()) {
             case 'true':
             case "1 '\\001'":
@@ -427,73 +527,136 @@ export class CppDbgDebuggerFacade implements IDebuggerFacade, vscode.Disposable 
         return ptr;
     }
 
-    dispose() {
-        this.registrations.forEach(r => r.dispose());
-        this.registrations.length = 0;
+    calcFrameIndex(frameId: number) {
+        /* 
+         * DAP returns new frameId each 'stackTrace' invocation, so we can
+         * not just iterate through all StackFrames and find equal frame id.
+         * 
+         * I found such hack - all frames returned by 'evaluate' are in form
+         * 'frameId = 1000 + frameIndex' (at least I rely on it very much).
+         * We just need to get this single frame.
+         */
+        return frameId - 1000;
+    }
+}
+
+export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
+    shouldShowScope(scope: dap.Scope): boolean {
+        return scope.name === 'Local';
     }
 
-    switchToEventBasedRefresh(context: vscode.ExtensionContext, provider: NodePreviewTreeViewProvider) {
-        /* 
-         * Prior to VS Code version 1.90 there is no debugFocus API - 
-         * we can not track current stack frame. It is very convenient,
-         * because single event refreshes state and also we keep track
-         * of stack frame selected in debugger view.
-         * 
-         * For older versions we use event based implementation -
-         * subscribe to debugger events and filter out needed:
-         * continue execution, stopped (breakpoint), terminated etc...
-         * 
-         * NOTES:
-         *  - We can not track current stack frame, so this feature is
-         *    not available for users.
-         *  - Support only 'cppdbg' configuration - tested only for it
-         */
-
-        let savedThreadId: undefined | number = undefined;
-        const disposable = vscode.debug.registerDebugAdapterTrackerFactory('cppdbg', {
-            createDebugAdapterTracker(_: vscode.DebugSession) {
+    async evaluate(expression: string, frameId: number | undefined, context?: string): Promise<dap.EvaluateResponse> {
+        try {
+            context ??= 'watch';
+            return await this.getSession().customRequest('evaluate', {
+                expression: `/nat ${expression}`,
+                context,
+                frameId
+            } as dap.EvaluateArguments);
+        } catch (err) {
+            if (err instanceof Error && err.name === 'CodeExpectedError') {
                 return {
-                    onDidSendMessage(message: dap.ProtocolMessage) {
-                        if (message.type === 'response') {
-                            if (message.command === 'continue') {
-                                /* 
-                                    * `Continue' command - clear
-                                    */
-                                provider.refresh();
-                            }
-
-                            return;
-                        }
-
-                        if (message.type === 'event') {
-                            if (message.event === 'stopped' || message.event === 'terminated') {
-                                /* 
-                                    * Hit breakpoint - show variables
-                                    */
-                                provider.refresh();
-                                savedThreadId = message.body?.threadId as number | undefined;
-                            }
-                        }
-                    },
-
-                    onWillStopSession() {
-                        /* Debug session terminates - clear */
-                        provider.refresh();
-                    },
+                    memoryReference: '0x0',
+                    result: `-var-create: ${err.message}`,
+                    type: '',
+                    variablesReference: -1
                 }
-            },
-        });
-        context.subscriptions.push(disposable);
-        this.getCurrentFrameId = async () => {
-            /* 
-             * We can not track selected stack frame - return last (top)
-             */
-            if (!(this.isInDebug && savedThreadId)) {
-                return;
             }
 
-            return await this.getTopStackFrameId(savedThreadId);
+            throw err;
         }
+    }
+
+    isFailedVar(response: dap.EvaluateResponse): boolean {
+        return response.result.startsWith('-var-create')
+    }
+
+    isNull(variable: IDebugVariable): boolean {
+        return variable.value === '<null>' || nullRegex.test(variable.value);
+    }
+
+    isValidPointerType(variable: IDebugVariable): boolean {
+        /* CodeLLDB examine pointers itself, so this is handy for us */
+        if (variable.value === '<invalid address>' || variable.value === '<null>') {
+            return false;
+        }
+        
+        /* 
+         * For structures we have 2 renderings (in description field):
+         *  1. Raw pointer, i.e. 0x00006295b176f6b0
+         *  2. Structure fields around curly brackets, i.e. {type:T_PlannerInfo}
+         */
+        if (variable.value.startsWith('{') && variable.value.endsWith('}') &&
+            variable.type.indexOf('*') !== -1) {
+            return true;
+        }
+
+        if (pointerRegex.test(variable.value)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    isValueStruct(variable: IDebugVariable, type?: string): boolean {
+        /* 
+         * CodeLLDB does not expose such info in description,
+         * so everything we can do - check type. This will fail if
+         * type is typedef of pointer.
+         */
+        type ??= variable.type;
+
+        if (type.indexOf('*') !== -1) {
+            return false;
+        }
+
+        if (type.indexOf("]") !== -1) {
+            return false;
+        }
+
+        return true;
+    }
+
+    extractString(variable: IDebugVariable): string | null {
+        /* 
+         * char* is rendered as string wrapped into double quotes,
+         * without any pointer - just trim them.
+         */
+        return variable.value.substring(1, variable.value.length - 1);
+    }
+    extractBool(variable: IDebugVariable): boolean | null {
+        /* 
+         * On older pg versions bool stored as 'char' and have format: "X '\00X'"
+         */
+        switch (variable.value.trim().toLowerCase()) {
+            case 'true':
+            case "'\\x01'":
+                return true;
+            case 'false':
+            case "'\\0'":
+                return false;
+        }
+
+        return null;
+    }
+
+    extractPtrFromString(variable: IDebugVariable): string | null {
+        /* 
+         * String pointer is not stored in 'value', the only we can do is
+         * to take 'memoryReference'
+         */
+        if (variable.memoryReference === undefined) {
+            return null;
+        }
+        return variable.memoryReference;
+    }
+
+    calcFrameIndex(frameId: number) {
+        /* 
+         * Idea is the same as for CppDbg, but frame indexing starts with 0,
+         * so use 1001 instead of 1000.
+         */
+        return frameId - 1001;
     }
 }
 

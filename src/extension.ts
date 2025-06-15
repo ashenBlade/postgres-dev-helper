@@ -1,8 +1,40 @@
 import * as vscode from 'vscode';
 import * as utils from './utils';
+import { Features } from './utils';
 import * as vars from './variables';
 import * as dbg from './debugger';
 import path from 'path';
+
+
+
+function createDebuggerFacade(type: string, provider: NodePreviewTreeViewProvider): dbg.GenericDebuggerFacade | undefined {
+    let debug;
+    switch (type) {
+        case 'cppdbg':
+            debug = new dbg.CppDbgDebuggerFacade();
+            if (!Features.hasEvaluateArrayLength()) {
+                debug.switchToManualArrayExpansion();
+            }
+            break;
+        case 'lldb':
+            debug = new dbg.CodeLLLDBDebuggerFacade();
+
+            /* CodeLLDB does not support 'expr, size' syntax */
+            debug.switchToManualArrayExpansion();
+            break;
+        default:
+            return;
+    }
+
+    if (Features.debugFocusEnabled()) {
+        vscode.debug.onDidChangeActiveStackItem(() => provider.refresh(),
+                                                 undefined, debug.registrations);
+    } else {
+        debug.switchToEventBasedRefresh(provider);
+    }
+
+    return debug;
+}
 
 export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars.Variable>, vscode.Disposable {
     subscriptions: vscode.Disposable[] = [];
@@ -17,31 +49,27 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
         private log: utils.ILogger,
         private nodeVars: vars.NodeVarRegistry,
         private specialMembers: vars.SpecialMemberRegistry,
-        private debug: dbg.CppDbgDebuggerFacade,
         private hashTableTypes: vars.HashTableTypes) { 
         this.subscriptions = [
             vscode.debug.onDidStartDebugSession(s => {
                 if (!this.execContext) {
+                    const debug = createDebuggerFacade(s.type, this);
+                    if (!debug) {
+                        return;
+                    }
                     this.execContext = new vars.ExecContext(this.nodeVars, this.specialMembers,
-                                                            this.debug, this.hashTableTypes);
+                                                            debug, this.hashTableTypes);
                 }
             }),
             vscode.debug.onDidTerminateDebugSession(s => {
                 if (this.execContext) {
+                    /* I know the hierarchy for sure - no surprises */
+                    const debug = <dbg.GenericDebuggerFacade>this.execContext.debug;
+                    debug.dispose();
                     this.execContext = undefined;
                 }
             }),
         ];
-    }
-
-    private getExecContext() {
-        if (this.execContext) {
-            return this.execContext;
-        }
-
-        this.execContext = new vars.ExecContext(this.nodeVars, this.specialMembers,
-                                                this.debug, this.hashTableTypes);
-        return this.execContext;
     }
 
     /* https://code.visualstudio.com/api/extension-guides/tree-view#updating-tree-view-content */
@@ -64,7 +92,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
     }
 
     async getChildren(element?: vars.Variable | undefined) {
-        if (!this.debug.isInDebug) {
+        if (!this.execContext) {
             return;
         }
 
@@ -72,12 +100,12 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
             if (element) {
                 return await element.getChildren();
             } else {
-                const frameId = await this.debug.getCurrentFrameId();
+                const frameId = await this.execContext.debug.getCurrentFrameId();
                 if (!frameId) {
                     return;
                 }
 
-                const exec = this.getExecContext();
+                const exec = this.execContext;
                 const topLevel = await this.getTopLevelVariables(exec, frameId);
                 if (!topLevel) {
                     return;
@@ -132,7 +160,7 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
 
     console.assert(typeof variable.value === 'string');
 
-    if (!(debug.isValidPointer(variable.value))) {
+    if (!(debug.isValidPointerType(variable.value))) {
         vscode.window.showWarningMessage(`Variable ${variable.name} is not valid pointer`);
         return;
     }
@@ -143,6 +171,7 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
         return;
     }
     
+    /* TODO: tested only for CppDbg */
     /* Simple `pprint(Node*)' function call */
     const expression = `-exec call pprint((const void *) ${variable.value})`;
 
@@ -843,8 +872,7 @@ function addElogErrorBreakpoint() {
 
 export function setupExtension(context: vscode.ExtensionContext, specialMembers: vars.SpecialMemberRegistry,
                                nodeVars: vars.NodeVarRegistry, hashTableTypes: vars.HashTableTypes,
-                               debug: dbg.IDebuggerFacade, logger: utils.ILogger,
-                               nodesView: NodePreviewTreeViewProvider) {
+                               logger: utils.ILogger, nodesView: NodePreviewTreeViewProvider) {
 
     function registerCommand(name: string, command: (...args: any[]) => void) {
         const disposable = vscode.commands.registerCommand(name, command);
@@ -979,7 +1007,11 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
     /* Register command to dump variable to log */
     const pprintVarToLogCmd = async (args: any) => {
         try {
-            await dumpVariableToLogCommand(args, logger, debug);
+            if (!nodesView.execContext) {
+                return;
+            }
+
+            await dumpVariableToLogCommand(args, logger, nodesView.execContext.debug);
         } catch (err: any) {
             logger.error('error while dumping node to log', err);
         }

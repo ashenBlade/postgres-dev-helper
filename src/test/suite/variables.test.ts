@@ -3,7 +3,85 @@ import * as vscode from 'vscode';
 import * as pg from 'pg';
 import { Configuration, NodePreviewTreeViewProvider } from '../../extension';
 import * as vars from '../../variables';
-import { execShell } from '../../utils';
+
+class TreeItemWrapper {
+    label: string;
+    description: string;
+    constructor(treeItem: vscode.TreeItem) {
+        this.label = treeItem.label?.toString().trim() ?? '';
+        this.description = treeItem.description?.toString().trim() ?? '';
+    }
+
+    getType() {
+        /* name: [type] */
+        const semicolonIdx = this.label.indexOf(':');
+        if (semicolonIdx === -1) {
+            /* If no : then the whole label is name */
+            return '';
+        }
+        return this.label.substring(semicolonIdx + 1);
+    }
+
+    getName() {
+        /* [name]: type */
+        const semicolonIdx = this.label.indexOf(':');
+        if (semicolonIdx === -1) {
+            /* If no : then the whole label is name */
+            return this.label;
+        }
+
+        return this.label.substring(0, semicolonIdx);
+    }
+}
+
+interface VarTreeItemPair {
+    var: vars.Variable;
+    item: TreeItemWrapper;
+};
+
+interface TestEnv {
+    /* Version of Postgresql being tested */
+    pgVersion: string;
+    /* Version of VS Code we are running on */
+    vscodeVersion: string;
+    /* Debugger extension is used */
+    debugger: 'cppdbg' | 'lldb';
+}
+
+function getTestEnv(): TestEnv {
+    const pgVersion = process.env.PGHH_PG_VERSION ?? '17.4';
+    const vscodeVersion = process.env.PGHH_VSCODE_VERSION ?? 'stable';
+    const dbg = process.env.PGHH_DEBUGGER ?? 'cppdbg';
+    if (!(dbg === 'cppdbg' || dbg === 'lldb')) {
+        throw new Error(`Unknown type of debugger: ${dbg}`);
+    }
+
+    return {
+        pgVersion,
+        vscodeVersion,
+        debugger: dbg
+    }
+}
+
+function getDebugConfiguration(env: TestEnv, pid: number): vscode.DebugConfiguration {
+    if (env.debugger === 'cppdbg') {
+        return {
+            name: 'Backend',
+            request: 'attach',
+            type: 'cppdbg',
+            processId: pid,
+            program: '${workspaceFolder}/src/backend/postgres',
+        };
+    } else {
+        return {
+                name: 'Backend',
+                request: 'attach',
+                type: 'lldb',
+                pid: pid,
+                program: '${workspaceFolder}/src/backend/postgres',
+        };
+    }
+}
 
 async function searchBreakpointLocation() {
     /* 
@@ -57,17 +135,9 @@ suite('Node variables', async () => {
     });
     /* There must be only 1 workspace */
     const workspace = vscode.workspace.workspaceFolders![0];
+    const env = getTestEnv();
 
     suiteSetup(async () => {
-        /* Install CppDbg extension */
-        await execCommand('workbench.extensions.installExtension',
-                          'ms-vscode.cpptools');
-
-        /* Start database */
-        await execShell('/bin/bash', ['./run.sh', '--run'], {
-            cwd: workspace.uri.fsPath,
-        });
-
         /* Connect to backend */
         await client.connect();
 
@@ -79,22 +149,7 @@ suite('Node variables', async () => {
         }
 
         /* Run debug session */
-        if (!await vscode.debug.startDebugging(
-            workspace,
-            {
-                name: 'Backend',
-                request: 'attach',
-                type: 'cppdbg',
-                processId: pid,
-                program: '${workspaceFolder}/src/backend/postgres',
-                MIMode: 'gdb',
-                setupCommands: [{
-                    description: "Enable pretty-printing for gdb",
-                    text: "-enable-pretty-printing",
-                    ignoreFailures: true
-                }]
-            },
-        )) {
+        if (!await vscode.debug.startDebugging(workspace, getDebugConfiguration(env, pid))) {
             throw new Error('Failed to start debug session');
         }
 
@@ -116,7 +171,6 @@ suite('Node variables', async () => {
         if (!treeViewProvider.execContext) {
             throw new Error('ExecContext of NodeTreeViewProvider does not exist');
         }
-
         treeViewProvider.execContext.hashTableTypes.addHTABTypes([
             {
                 parent: 'vscode_test_helper',
@@ -125,22 +179,22 @@ suite('Node variables', async () => {
             }
         ]);
 
-        /* Wait before breakpoint enables */
+        /* Wait before breakpoint enables and run query */
         await sleep(1000);
 
-        /*
-         * Run query, wait for breakpoint and collect variables.
-         *
-         * 'onDidReceiveDebugSessionCustomEvent' does not raise any events and
-         * I don't know why, so just use polling with retries.
-         */
         client.query(`SELECT *
                       FROM t1 JOIN t2 ON t1.x = t2.x 
                       WHERE t1.y > 10 AND t2.x = t1.y`);
 
+        /*
+         * Wait for breakpoint and collect variables.
+         *
+         * 'onDidReceiveDebugSessionCustomEvent' does not raise any events and
+         * I don't know why, so just use polling with retries.
+         */
         let attempt = 0;
         const maxAttempt = 5;
-        const timeout = 3000;
+        const timeout = 3 * 1000;
         while (attempt < maxAttempt) {
             await sleep(timeout);
             try {
@@ -170,44 +224,7 @@ suite('Node variables', async () => {
         }
 
         await client.end();
-
-        /* Stop database */
-        await execShell('/bin/bash', ['./dev/run.sh', '--run-db'], {
-            cwd: workspace.uri.fsPath,
-            /* If error occurred during 'suiteSetup', then DB can be down */
-            throwOnError: false,
-        });
     });
-
-    class TreeItemWrapper {
-        label: string;
-        description: string;
-        constructor(treeItem: vscode.TreeItem) {
-            this.label = treeItem.label?.toString().trim() ?? '';
-            this.description = treeItem.description?.toString().trim() ?? '';
-        }
-
-        getType() {
-            const semicolonIdx = this.label.indexOf(':');
-            if (semicolonIdx === -1) {
-                return '';
-            }
-            return this.label.substring(semicolonIdx + 1);
-        }
-        getName() {
-            const semicolonIdx = this.label.indexOf(':');
-            if (semicolonIdx === -1) {
-                return this.label;
-            }
-
-            return this.label.substring(0, semicolonIdx);
-        }
-    }
-
-    interface VarTreeItemPair {
-        var: vars.Variable;
-        item: TreeItemWrapper;
-    };
 
     const getVar = (name: string, vars?: vars.Variable[]) => {
         const v = (vars ?? variables)?.find(v => v.name === name);
@@ -243,7 +260,6 @@ suite('Node variables', async () => {
         assert.ok(pair !== undefined, `Failed to find ${name} member`);
         return pair;
     }
-
     /* Reveal basic Node* type according to NodeTag */
     test('NodeTag observed', async () => {
         /* 
@@ -355,7 +371,12 @@ suite('Node variables', async () => {
     });
 
     /* Hash table elements are shown */
-    test('HTAB', async () => {
+    test('HTAB', async function() {
+        if (env.debugger === 'lldb') {
+            /* CodeLLDB has troubles with 'HASH_SEQ_STATUS' structure (ambiguity) */
+            this.skip();
+        }
+
         const elementsVar = getMember(await mapTreeItems(getVar('htab')), '$elements$');
         const elementsChildren = await mapTreeItems(elementsVar.var);
         assert.equal(elementsChildren.length, 3, 'HTAB must contain 3 elements');
@@ -388,7 +409,13 @@ suite('Node variables', async () => {
 
     /* RestrictInfo and Expr is rendered instead of pointer value */
     test('RestrictInfo', async () => {
-        const expr = /t1\.y > 10/i;
+        let expr;
+        if (env.debugger === 'cppdbg') {
+            expr = /t1\.y > 10/i;
+        } else {
+            /* CodeLLDB has troubles with 'getTypeOutputInfo' invocation */
+            expr = /t1\.y > \?\?\?/i;
+        }
         const rinfoVar = getVar('rinfo');
         const item = new TreeItemWrapper(await rinfoVar.getTreeItem());
         assert.match(item.description, expr, 'RestrictInfo expression is not rendered in description');

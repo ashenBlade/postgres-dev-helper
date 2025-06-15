@@ -17,15 +17,11 @@ Example:
 EOM
 }
 
-SRC_PATH=""
 PG_VERSION=""
 THREADS="1"
 while [ "$1" ]; do
     ARG="$1"
     case "$ARG" in
-    --src-path=*)
-        SRC_PATH="${ARG#*=}"
-        ;;
     --pg-version=*)
         PG_VERSION="${ARG#*=}"
         ;;
@@ -56,27 +52,23 @@ if [[ "$PG_VERSION" -ne '17.4' ]]; then
     exit 1
 fi
 
-if [[ -z "$SRC_PATH" ]]; then
-    SRC_PATH="/tmp/pgsrc"
-fi
+# Normalize path - switch to extension root
+cd "$(dirname ${BASH_SOURCE[0]:-$0})/../../.."
+EXT_ROOT_DIR="$PWD"
 
 CFLAGS="-O0 -g $CFLAGS"
 CPPFLAGS="-O0 -g $CPPFLAGS"
-INSTALL_PATH="$SRC_PATH/build"
 PG_SRC_DOWNLOAD_URL="https://ftp.postgresql.org/pub/source/v${PG_VERSION}/postgresql-${PG_VERSION}.tar.gz"
-PG_SRC_PATCH_FILE="$PWD/patches/pg${PG_VERSION}.patch"
+PATCH_FILE="$EXT_ROOT_DIR/src/test/assets/patches/pg${PG_VERSION}.patch"
+SRC_PATH="$EXT_ROOT_DIR/pgsrc"
+INSTALL_PATH="$EXT_ROOT_DIR/pgsrc/build"
 
-# Normalize path - switch to ./src/test/assets (where this script is located)
-cd "$(dirname ${BASH_SOURCE[0]:-$0})"
-
-# Download PostgreSQL source code into specified directory
+# Download PostgreSQL source code into it's directory and apply patch
+rm -rf "$SRC_PATH"
 mkdir -p "$SRC_PATH"
 wget -O- "$PG_SRC_DOWNLOAD_URL" | tar xvz -C "$SRC_PATH" --strip-components=1
-cp ./run.sh  "$SRC_PATH"
-
-# Apply patch with test helper function
 cd "$SRC_PATH"
-patch -p1 -i "$PG_SRC_PATCH_FILE"
+patch -p1 -i "$PATCH_FILE"
 
 # Run configure, build and install binaries
 # Keep installation slim
@@ -114,3 +106,6 @@ pg_ctl start
 psql -c "CREATE TABLE t1(x int, y int);"
 psql -c "CREATE TABLE t2(x int, y int);"
 pg_ctl stop
+
+# Copy test function
+cp "$EXT_ROOT_DIR/src/test/assets/run.sh" "$SRC_PATH"

@@ -14,3 +14,5 @@ tsconfig.json
 
 docs/**
 workflows/**
+
+pgsrc/**
