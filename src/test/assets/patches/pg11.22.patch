@@ -2,13 +2,12 @@ diff --git a/src/backend/optimizer/plan/Makefile b/src/backend/optimizer/plan/Ma
 index 80ef162e484..84b847faaf9 100644
 --- a/src/backend/optimizer/plan/Makefile
 +++ b/src/backend/optimizer/plan/Makefile
-@@ -20,6 +20,7 @@ OBJS = \
- 	planmain.o \
- 	planner.o \
- 	setrefs.o \
--	subselect.o
-+	subselect.o \
-+	vscodehelper.o
+@@ -13,6 +13,6 @@
+ include $(top_builddir)/src/Makefile.global
+ 
+ OBJS = analyzejoins.o createplan.o initsplan.o planagg.o planmain.o planner.o \
+-	setrefs.o subselect.o
++	setrefs.o subselect.o vscodehelper.o
  
  include $(top_srcdir)/src/backend/common.mk
 diff --git a/src/backend/optimizer/plan/planmain.c b/src/backend/optimizer/plan/planmain.c
@@ -39,8 +38,8 @@ index 00000000000..76f2903e179
 @@ -0,0 +1,128 @@
 +#include "postgres.h"
 +
++#include "nodes/relation.h"
 +#include "nodes/bitmapset.h"
-+#include "nodes/pathnodes.h"
 +#include "utils/hsearch.h"
 +
 +#define ARRAY_SIZE 16

@@ -144,7 +144,8 @@ const execGetTreeViewProvider = async () => {
     return await execCommand<NodePreviewTreeViewProvider>(
                                 Configuration.Commands.GetTreeViewProvider);
 }
-const intRegexp = (value: number) => new RegExp(`\\s*${value}\\s*`);
+
+const intRegexp = (value: number) => new RegExp(`^\\s*${value}\\s*$`);
 const execGetVariables = async () => {
     return await execCommand<vars.Variable[] | undefined>(
                                 Configuration.Commands.GetVariables);
@@ -159,6 +160,7 @@ suite('Variables', async () => {
         database: 'postgres',
         user: 'postgres'
     });
+
     /* There must be only 1 workspace */
     const workspace = vscode.workspace.workspaceFolders![0];
     const env = getTestEnv();
@@ -457,11 +459,8 @@ suite('Variables', async () => {
             /* node: Node *[PlannerInfo] */
             const {var: nodeVar, item} = await getVarItem('node');
             assert.match(item.getType(), /PlannerInfo/, 'Real NodeTag is not shown');
-            const children = await expand(nodeVar);
-
-            /* struct Node has single member, but PlannerInfo more than 1 */
-            assert.ok(children.length > 1,
-                      'Children of "node" variable must be same as for real type');
+            const children = await getMemberOf(nodeVar, 'parse');
+            assert.ok(children, 'Members of Node variables must be same as real type');
         });
 
         /* Show elements of array and additionally reveal Node types */
@@ -526,31 +525,31 @@ suite('Variables', async () => {
         /* Relids shows numbers and point to RelOptInfo/RangeTblEntry */
         test('Relids', async () => {
             /* 
-            * relids: Relids [Bitmapset *]
-            * $length$       2
-            * - $elements$
-            *   - 1
-            *     - RelOptInfo
-            *     - RangeTblEntry
-            *   - 2
-            *     - RelOptInfo
-            *     - RangeTblEntry
-            */
+             * root->allbaserels: Relids [Bitmapset *]
+             * $length$       2
+             * - $elements$
+             *   - 1
+             *     - RelOptInfo
+             *     - RangeTblEntry
+             *   - 2
+             *     - RelOptInfo
+             *     - RangeTblEntry
+             */
             const rootVar = getVar('root');
-            const allQueryRels = await getMemberOf(rootVar, 'all_query_rels');
-            const allQueryRelsChildren = await expand(allQueryRels);
-    
-            const lengthMember = getMember(allQueryRelsChildren, '$length$');
+            const allBaseRels = await getMemberOf(rootVar, 'all_baserels');
+            const allBaseRelsChildren = await expand(allBaseRels);
+
+            const lengthMember = getMember(allBaseRelsChildren, '$length$');
             assert.match(lengthMember.item.description, intRegexp(2),
                          'Number of elements must be 2')
-            
-            const elementsMember = getMember(allQueryRelsChildren, '$elements$');
-            const allQueryRelsElements = await expand(elementsMember.var);
-            const relids = allQueryRelsElements.map(i => i.item.description);
-            assert.deepEqual(relids, ['1', '2'], 'Bitmapset elements not shown');
+
+            const elementsMember = getMember(allBaseRelsChildren, '$elements$');
+            const allBaseRelsElements = await expand(elementsMember);
+            const relids = allBaseRelsElements.map(i => i.item.description);
+            assert.deepEqual(relids, ['1', '2'], 'Invalid values for relids');
 
             /* Check each has link to 'RelOptInfo' and 'RangeTblEntry' */
-            for (const [i, pair] of allQueryRelsElements.entries()) {
+            for (const [i, pair] of allBaseRelsElements.entries()) {
                 const children = await expand(pair);
                 assert.ok(children.find(x => x.item.getType()
                                                    .indexOf('RelOptInfo') !== -1),

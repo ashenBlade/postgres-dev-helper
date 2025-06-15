@@ -4,26 +4,30 @@ function print_help {
     cat <<EOM 
 Setup environment for PostgreSQL Hacker Helper extension testing.
 This script downloads specified PostgreSQL version (source code), applies patch, runs build and setups database (initdb + initial schema).
-Usage: $0 --pg-version=17.4 [--src-path=/custom/src/path]
+Source code is installed to EXT_SRC/pgsrc, where EXT_SRC - root directory of extension.
+
+Usage: $0 --pg-version=17
 
 Options:
     -h, --help              Print this help message
-    --pg-version            Version of PostgreSQL to install. Only 17.4 is supported now.
-    --src-path              Path to directory where source code will be installed
+    --pg-version            Major version of PostgreSQL to install.
     --threads               Number of threads to use during build
 
+Supported PG versions from 17 to 9.6 inclusive.
+
 Example:
-    $0 --pg-version=17.4 --src-path=/home/user/projects/postgresql
+    $0 --pg-version=17
+    $0 --pg-version=15
 EOM
 }
 
-PG_VERSION=""
+ARG_PG_VERSION=""
 THREADS="1"
 while [ "$1" ]; do
     ARG="$1"
     case "$ARG" in
     --pg-version=*)
-        PG_VERSION="${ARG#*=}"
+        ARG_PG_VERSION="${ARG#*=}"
         ;;
     --threads=*)
         THREADS="${ARG#*=}"
@@ -40,17 +44,49 @@ while [ "$1" ]; do
     shift
 done
 
+# Exit on error
 set -e
 
-if [[ -z "$PG_VERSION" ]]; then
+if [[ -z "$ARG_PG_VERSION" ]]; then
     echo "--pg-version is not set - specify PostgreSQL version"
     exit 1
 fi
 
-if [[ "$PG_VERSION" -ne '17.4' ]]; then
-    echo "only 17.4 PostgreSQL version supported"
-    exit 1
-fi
+PG_VERSION=""
+case "$ARG_PG_VERSION" in
+    '17')
+        PG_VERSION='17.4'
+        ;;
+    '16')
+        PG_VERSION='16.8'
+        ;;
+    '15')
+        PG_VERSION='15.12'
+        ;;
+    '14')
+        PG_VERSION='14.18'
+        ;;
+    '13')
+        PG_VERSION='13.20'
+        ;;
+    '12')
+        PG_VERSION='12.22'
+        ;;
+    '11')
+        PG_VERSION='11.22'
+        ;;
+    '10')
+        PG_VERSION='10.22'
+        ;;
+    '9.6')
+        PG_VERSION='9.6.24'
+        ;;
+    *)
+        echo "Version $ARG_PG_VERSION is not supported"
+        echo "Supported version from 17 to 9.6 inclusive"
+        exit 1
+        ;;
+esac
 
 # Normalize path - switch to extension root
 cd "$(dirname ${BASH_SOURCE[0]:-$0})/../../.."
@@ -102,10 +138,10 @@ make install-world-bin
 
 # Create database and setup schema
 initdb -U "$PGUSER"
-pg_ctl start
+pg_ctl start -l ./postgresql.log -o '-k ""' -w
 psql -c "CREATE TABLE t1(x int, y int);"
 psql -c "CREATE TABLE t2(x int, y int);"
-pg_ctl stop
+pg_ctl stop -w
 
 # Copy test function
 cp "$EXT_ROOT_DIR/src/test/assets/run.sh" "$SRC_PATH"

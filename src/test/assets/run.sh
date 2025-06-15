@@ -5,12 +5,13 @@ function print_help {
 Run database and/or PSQL with settings for current installation.
 Log file is written to ./postgresql.log
 
-Usage: $0[--run-db] [--stop-db]
+Usage: $0 [--run-db] [--stop-db]
 
     --run               Run database
     --stop              Stop running database
+    --help, -h          Print this help message
 
-Example: $0 --run-db --psql --stop-db
+Example: $0 --run
 EOM
 }
 
@@ -53,7 +54,7 @@ source "$ENV_FILE"
 if [ "$RUN_DB" ]; then
     # Not 0 exit code can mean DB already running.
     # For tests this is valid
-    pg_ctl start -o '-k ""' -l ./postgresql.log || true
+    pg_ctl start -o '-k ""' -l ./postgresql.log -w || true
 fi
 
 if [ "$STOP_DB" ]; then

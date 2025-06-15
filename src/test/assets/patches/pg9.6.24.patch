@@ -1,21 +1,20 @@
 diff --git a/src/backend/optimizer/plan/Makefile b/src/backend/optimizer/plan/Makefile
-index 80ef162e484..84b847faaf9 100644
+index 88a9f7ff8c0..d4678a02ad0 100644
 --- a/src/backend/optimizer/plan/Makefile
 +++ b/src/backend/optimizer/plan/Makefile
-@@ -20,6 +20,7 @@ OBJS = \
- 	planmain.o \
- 	planner.o \
- 	setrefs.o \
--	subselect.o
-+	subselect.o \
-+	vscodehelper.o
+@@ -13,6 +13,6 @@ top_builddir = ../../../..
+ include $(top_builddir)/src/Makefile.global
+ 
+ OBJS = analyzejoins.o createplan.o initsplan.o planagg.o planmain.o planner.o \
+-	setrefs.o subselect.o
++	setrefs.o subselect.o vscodehelper.o
  
  include $(top_srcdir)/src/backend/common.mk
 diff --git a/src/backend/optimizer/plan/planmain.c b/src/backend/optimizer/plan/planmain.c
-index e17d31a5c3e..0bc057825d3 100644
+index f4e0a6ea3df..9922e07b3bd 100644
 --- a/src/backend/optimizer/plan/planmain.c
 +++ b/src/backend/optimizer/plan/planmain.c
-@@ -29,6 +29,7 @@
+@@ -27,6 +27,7 @@
  #include "optimizer/placeholder.h"
  #include "optimizer/planmain.h"
  
@@ -23,7 +22,7 @@ index e17d31a5c3e..0bc057825d3 100644
  
  /*
   * query_planner
-@@ -284,5 +285,7 @@ query_planner(PlannerInfo *root,
+@@ -263,5 +264,7 @@ query_planner(PlannerInfo *root, List *tlist,
  		final_rel->cheapest_total_path->param_info != NULL)
  		elog(ERROR, "failed to construct the join relation");
  
@@ -33,14 +32,14 @@ index e17d31a5c3e..0bc057825d3 100644
  }
 diff --git a/src/backend/optimizer/plan/vscodehelper.c b/src/backend/optimizer/plan/vscodehelper.c
 new file mode 100644
-index 00000000000..76f2903e179
+index 00000000000..358d8795a48
 --- /dev/null
 +++ b/src/backend/optimizer/plan/vscodehelper.c
-@@ -0,0 +1,128 @@
+@@ -0,0 +1,138 @@
 +#include "postgres.h"
 +
++#include "nodes/relation.h"
 +#include "nodes/bitmapset.h"
-+#include "nodes/pathnodes.h"
 +#include "utils/hsearch.h"
 +
 +#define ARRAY_SIZE 16
@@ -78,6 +77,7 @@ index 00000000000..76f2903e179
 +} TestHtabEntry;
 +
 +static HTAB *create_htab(void);
++static Bitmapset *create_bms(void);
 +
 +static HTAB *
 +create_htab(void)
@@ -104,6 +104,15 @@ index 00000000000..76f2903e179
 +	entry->value = 8;
 +
 +	return htab;
++}
++
++static Bitmapset *
++create_bms(void)
++{
++	Bitmapset *bms = NULL;
++	for (int i = 5; i <= 9; i++)
++		bms = bms_add_member(bms, i);
++	return bms;
 +}
 +
 +void
@@ -141,7 +150,7 @@ index 00000000000..76f2903e179
 +	int_list = list_make4_int(1, 2, 4, 8);
 +	list = list_make3(root, root->parse, root->parse->rtable);
 +	node = (Node *) root;
-+	bms = bms_add_range(NULL, 5, 9);
++	bms = create_bms();
 +	htab = create_htab();
 +	rinfo = (RestrictInfo *) linitial((root->simple_rel_array[1])->baserestrictinfo);
 +	expr = rinfo->clause;
