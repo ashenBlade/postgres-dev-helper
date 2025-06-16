@@ -11,26 +11,22 @@ function createDebuggerFacade(type: string, provider: NodePreviewTreeViewProvide
     let debug;
     switch (type) {
         case 'cppdbg':
-            debug = new dbg.CppDbgDebuggerFacade();
+            debug = new dbg.CppDbgDebuggerFacade(provider.log);
             if (!Features.hasEvaluateArrayLength()) {
                 debug.switchToManualArrayExpansion();
             }
             break;
         case 'lldb':
-            debug = new dbg.CodeLLLDBDebuggerFacade();
-
-            /* CodeLLDB does not support 'expr, size' syntax */
-            debug.switchToManualArrayExpansion();
+            debug = new dbg.CodeLLLDBDebuggerFacade(provider.log);
             break;
         default:
             return;
     }
-
     if (Features.debugFocusEnabled()) {
         vscode.debug.onDidChangeActiveStackItem(() => provider.refresh(),
                                                  undefined, debug.registrations);
     } else {
-        debug.switchToEventBasedRefresh(provider);
+        debug.switchToEventBasedRefresh();
     }
 
     return debug;
@@ -46,7 +42,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
     execContext?: vars.ExecContext;
 
     constructor(
-        private log: utils.ILogger,
+        public log: utils.ILogger,
         private nodeVars: vars.NodeVarRegistry,
         private specialMembers: vars.SpecialMemberRegistry,
         private hashTableTypes: vars.HashTableTypes) { 
@@ -93,6 +89,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
 
     async getChildren(element?: vars.Variable | undefined) {
         if (!this.execContext) {
+            this.log.error('No execContext');
             return;
         }
 
@@ -108,9 +105,11 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
                 const exec = this.execContext;
                 const topLevel = await this.getTopLevelVariables(exec, frameId);
                 if (!topLevel) {
+                    this.log.error('no top level variables');
                     return;
                 }
 
+                this.log.error('there are %d top level variables %d', topLevel.length);
                 const topLevelVariable = new vars.VariablesRoot(topLevel, exec, this.log);
                 topLevel.forEach(v => v.parent = topLevelVariable);
                 return topLevel;
@@ -849,27 +848,6 @@ async function bootstrapExtensionCommand() {
     await vscode.window.showTextDocument(td);
 }
 
-function addElogErrorBreakpoint() {
-    /* 
-     * Check that such breakpoint already exists, otherwise
-     * it will be added again on new extension activation
-     */
-    if (vscode.debug.breakpoints
-                    .find(bp => bp instanceof vscode.FunctionBreakpoint &&
-                                bp.functionName === 'errstart')) {
-        return;
-    }
-
-    /* Breakpoint on `elog' or `ereport' with ERROR or greater */
-    vscode.debug.addBreakpoints([
-        new vscode.FunctionBreakpoint(
-            'errstart',
-            false,
-            'ERROR <= elevel',
-        )
-    ]);
-}
-
 export function setupExtension(context: vscode.ExtensionContext, specialMembers: vars.SpecialMemberRegistry,
                                nodeVars: vars.NodeVarRegistry, hashTableTypes: vars.HashTableTypes,
                                logger: utils.ILogger, nodesView: NodePreviewTreeViewProvider) {
@@ -1148,7 +1126,11 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
 
     /* Used for testing only */
     const getVariablesCmd = async () => {
-        return await nodesView.getChildren(undefined);
+        try {
+            return await nodesView.getChildren(undefined);
+        } catch (err) {
+            logger.error('failed to get variables', err);
+        }
     }
 
     const getNodeTreeProviderCmd = async () => {
@@ -1183,7 +1165,6 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
 
     /* Read files with NodeTags */
     setupNodeTagFiles(logger, nodeVars, context);
-    addElogErrorBreakpoint();
 }
 
 async function setupNodeTagFiles(log: utils.ILogger, nodeVars: vars.NodeVarRegistry,

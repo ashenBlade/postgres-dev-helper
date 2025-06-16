@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/bin/bash
 
 function print_help {
     cat <<EOM 
@@ -31,6 +31,10 @@ while [ "$1" ]; do
         ;;
     --threads=*)
         THREADS="${ARG#*=}"
+        ;;
+    -j)
+        shift
+        THREADS="$1"
         ;;
     --help|-h)
         print_help
@@ -89,20 +93,30 @@ case "$ARG_PG_VERSION" in
 esac
 
 # Normalize path - switch to extension root
-cd "$(dirname ${BASH_SOURCE[0]:-$0})/../../.."
+cd "$(dirname ${BASH_SOURCE[0]:-$0})/../.."
 EXT_ROOT_DIR="$PWD"
 
 CFLAGS="-O0 -g $CFLAGS"
 CPPFLAGS="-O0 -g $CPPFLAGS"
-PG_SRC_DOWNLOAD_URL="https://ftp.postgresql.org/pub/source/v${PG_VERSION}/postgresql-${PG_VERSION}.tar.gz"
 PATCH_FILE="$EXT_ROOT_DIR/src/test/assets/patches/pg${PG_VERSION}.patch"
+PG_SRC_DOWNLOAD_URL="https://ftp.postgresql.org/pub/source/v${PG_VERSION}/postgresql-${PG_VERSION}.tar.gz"
+CACHEDIR="$PWD/src/test/cache"
+TARFILE="$CACHEDIR/postgresql-${PG_VERSION}.tar.gz"
 SRC_PATH="$EXT_ROOT_DIR/pgsrc"
 INSTALL_PATH="$EXT_ROOT_DIR/pgsrc/build"
+LOGDIR="$PWD/src/test/log"
+LOGFILE="$LOGDIR/setup_$(date +%Y%m%d%H%M).log"
+mkdir -p "$LOGDIR"
 
 # Download PostgreSQL source code into it's directory and apply patch
+{
 rm -rf "$SRC_PATH"
 mkdir -p "$SRC_PATH"
-wget -O- "$PG_SRC_DOWNLOAD_URL" | tar xvz -C "$SRC_PATH" --strip-components=1
+mkdir -p "$CACHEDIR"
+if [[ ! -f "$TARFILE" ]]; then
+    wget "$PG_SRC_DOWNLOAD_URL" -O "$TARFILE"
+fi
+tar -xvzf "$TARFILE" -C "$SRC_PATH" --strip-components=1
 cd "$SRC_PATH"
 patch -p1 -i "$PATCH_FILE"
 
@@ -145,3 +159,4 @@ pg_ctl stop -w
 
 # Copy test function
 cp "$EXT_ROOT_DIR/src/test/assets/run.sh" "$SRC_PATH"
+} 2>&1 | tee "$LOGFILE"

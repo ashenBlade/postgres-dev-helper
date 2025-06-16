@@ -437,6 +437,21 @@ export class ExecContext {
      */
     hasGetAttname = true;
 
+    /**
+     * `getTypeOutputInfo` function accepts 3 arguments instead of 4 (old-style).
+     * 
+     * This is used when CodeLLDB is used as debugger, because CppDbg do not
+     * check passed amount of arguments.
+     */
+    hasGetTypeOutputInfo3Args = true;
+
+    /**
+     * 'bool' type represented as 'char'
+     * 
+     * Until PostgreSQL 10 'bool' was typedef to 'char'. Required for CodeLLDB.
+     */
+    hasBoolAsChar = false;
+
     constructor(nodeVarRegistry: NodeVarRegistry, specialMemberRegistry: SpecialMemberRegistry,
                 debug: dbg.IDebuggerFacade, hashTableTypes: HashTableTypes) {
         this.nodeVarRegistry = nodeVarRegistry;
@@ -796,7 +811,7 @@ export abstract class Variable {
 
         if (this.context.hasPalloc) {
             const result = await this.evaluate(`palloc(${size})`);
-            
+
             /*
              * I will not allocate huge amounts of memory - only small *state* structures,
              * and expect, that there is always enough memory to allocate it.
@@ -857,10 +872,10 @@ export abstract class Variable {
 
         if (this.context.hasAllowInCritSection) {
             const checkExpr = `(CurrentMemoryContext == ((void *)0))
-            ? ((NodeTag) 0)
+            ? ((NodeTag) ${this.debug.formatEnumValue('NodeTag', 'T_Invalid')})
             : (CritSectionCount == 0 || CurrentMemoryContext->allowInCritSection)
                 ? ((NodeTag) ((Node *)CurrentMemoryContext)->type)
-                : ((NodeTag) 0)`;
+                : ((NodeTag) ${this.debug.formatEnumValue('NodeTag', 'T_Invalid')})`;
             const tag = await this.evaluate(checkExpr);
 
             if (isValidMemoryContextTag(tag.result)) {
@@ -904,11 +919,17 @@ export abstract class Variable {
      */
     async pfree(pointer: string) {
         if (!dbg.pointerIsNull(pointer))
-            await this.evaluate(`pfree((void *)${pointer})`);
+            await this.evaluateVoid(`pfree((void *)${pointer})`);
     }
 
     protected async evaluate(expr: string) {
         return await this.debug.evaluate(expr, this.frameId);
+    }
+
+    protected async evaluateVoid(expr: string) {
+        return await this.debug.evaluate(expr, this.frameId, 
+                                         undefined  /* context */, 
+                                         true       /* no return */);
     }
 
     getPointer() {
@@ -1094,7 +1115,7 @@ export class RealVariable extends Variable {
         const variables = await this.debug.getArrayVariables(expression,
                                                              length, this.frameId);
         return await Variable.mapVariables(variables, this.frameId, this.context,
-            this.logger, this);
+                                           this.logger, this);
     }
 
     /**
@@ -1305,6 +1326,8 @@ export class RealVariable extends Variable {
  * in near future).
  */
 const InvalidOid = 0;
+const oidIsValid = (oid: number) => Number.isInteger(oid) && oid !== InvalidOid;
+
 const InvalidAttrNumber = 0;
 
 /**
@@ -1490,8 +1513,8 @@ export class NodeVariable extends RealVariable {
     }
 
     static async create(variable: dap.DebugVariable, frameId: number,
-        context: ExecContext, logger: utils.ILogger,
-        parent?: Variable): Promise<NodeVariable | undefined> {
+                        context: ExecContext, logger: utils.ILogger,
+                        parent?: Variable): Promise<NodeVariable | undefined> {
         const getRealNodeTag = async () => {
             const nodeTagExpression = `((Node*)(${context.debug.getPointer(variable)}))->type`;
             const response = await context.debug.evaluate(nodeTagExpression, frameId);
@@ -1616,7 +1639,7 @@ class ExprNodeVariable extends NodeVariable {
     private async getFuncName(oidMember: string) {
         /* First check oid is valid, otherwise ERROR is thrown */
         const oid = await this.getMemberValueNumber(oidMember);
-        if (oid === InvalidOid) {
+        if (!oidIsValid(oid)) {
             return null;
         }
 
@@ -1631,7 +1654,7 @@ class ExprNodeVariable extends NodeVariable {
             return null;
         }
 
-        const ptr = this.debug.extractString(pseudoVar);
+        const ptr = this.debug.extractPtrFromString(pseudoVar);
         if (ptr) {
             await this.pfree(ptr);
         }
@@ -1643,9 +1666,10 @@ class ExprNodeVariable extends NodeVariable {
      */
     private async getOpName(oidMember: string) {
         const oid = await this.getMemberValueNumber(oidMember);
-        if (oid === InvalidOid) {
+        if (!oidIsValid(oid)) {
             return null;
         }
+
         const result = await this.evaluate(`get_opname((Oid)${oid})`);
         if (this.debug.isFailedVar(result)) {
             return null;
@@ -1854,7 +1878,8 @@ class ExprNodeVariable extends NodeVariable {
             const rtePtr = `((RangeTblEntry *)${this.getPointer()})`;
 
             if (this.context.hasGetAttname) {
-                const getAttnameExpr = `${rtePtr}->rtekind == RTE_RELATION && ${rtePtr}->relid != ${InvalidOid}`;
+                const getAttnameExpr = `${rtePtr}->rtekind == ${this.debug.formatEnumValue('RTEKind', 'RTE_RELATION')} 
+                                       && ${rtePtr}->relid != ${InvalidOid}`;
                 const evalResult = await this.evaluate(getAttnameExpr);
                 const useGetAttname = this.debug.extractBool({...evalResult, value: evalResult.result});
                 if (useGetAttname) {
@@ -1885,6 +1910,7 @@ class ExprNodeVariable extends NodeVariable {
             return '???';
         }
 
+        /* TODO: change to Variable interface to prevent (possible) SEGFAULT */
         const relname = await this.evalStringResult(`((RangeTblEntry *)${rte.getPointer()})->eref->aliasname`) ?? '???';
         const attname = await get_rte_attribute_name();
 
@@ -1914,7 +1940,7 @@ class ExprNodeVariable extends NodeVariable {
                 throw new EvaluationError(`failed to get string from expr: ${expr}`, result.result);
             }
 
-            const ptr = this.debug.extractString({...result, value: result.result});
+            const ptr = this.debug.extractPtrFromString({...result, value: result.result});
             if (ptr === null) {
                 throw new EvaluationError(`failed to get pointer from expr: ${expr}`, result.result);
             }
@@ -1929,7 +1955,11 @@ class ExprNodeVariable extends NodeVariable {
 
             const fmgrInfo = await this.palloc('sizeof(FmgrInfo)');
             /* Init FmgrInfo */
-            await this.evaluate(`fmgr_info(${funcOid}, (void *)${fmgrInfo})`);
+            const expr = `fmgr_info(${funcOid}, (void *)${fmgrInfo})`;
+            const result = await this.evaluate(expr);
+            if (this.debug.isFailedVar(result)) {
+                throw new EvaluationError(`Failed to evaluate ${expr}`, result.result);
+            }
 
             /* Call function */
             const [str, ptr] = await evalStrWithPtr(`(char *)((Pointer) FunctionCall1(((void *)${fmgrInfo}), ((Const *)${this.getPointer()})->constvalue))`);
@@ -1941,40 +1971,77 @@ class ExprNodeVariable extends NodeVariable {
             return 'NULL';
         }
 
-        const tupoutput = await this.palloc('sizeof(Oid)');
+        const tupOutput = await this.palloc('sizeof(Oid)');
         const tupIsVarlena = await this.palloc('sizeof(Oid)');
 
-        /*
-         * Older system have 4 param - tupOIParam.
-         * We pass it also even on modern systems - anyway only thingwe want
-         * is 'tupoutput'.
-         * Hope, debugger will not invalidate the stack after that...
-         */
-        const tupIOParam = await this.palloc('sizeof(Oid)');
+        /* Older system have 4 params (3rd is tupIOParam) */
+        let tupIOParam = this.context.hasGetTypeOutputInfo3Args 
+                                    ? undefined
+                                    : await this.palloc('sizeof(Oid)');
 
         /*
-         * WARN: I do not why, but you MUST cast pointers as 'void *',
-         *       not 'Oid *' or '_Bool *'.
-         *       Otherwise, passed pointers will have some offset
-         *       (*orig_value* + offset), so written values will
-         *       be stored in random place.
+         * This place is ****. In a nutshell, for CppDbg we have to pass arguments 
+         * as 'void *', otherwise passed pointers will have some offset, so written
+         * values will be stored in random place.
+         * But, CodeLLDB complains, because argument type does not match passed
+         * types ('Oid *' does not match passed 'void *').
+         * Also, there is trouble for CodeLLDB when working with old PostgreSQL,
+         * because back days 'bool' was typedef for 'char' and CodeLLDB
+         * complains "can not convert 'bool *' to 'bool *' (aka 'char *')".
+         * 
+         * I hate this place.
          */
-        const result = await this.evaluate(`getTypeOutputInfo(((Const *)${this.value})->consttype, ((void *)${tupoutput}), ((void *)${tupIOParam}), ((void *)${tupIsVarlena}))`);
+        let tupOutputType;
+        let tupIsVarLenaType;
+        let tupIOParamType;
+        if (this.debug.type === dbg.DebuggerType.CppDbg) {
+            tupOutputType = tupIsVarLenaType = tupIOParamType = 'void *';
+        } else {
+            console.assert(this.debug.type === dbg.DebuggerType.CodeLLDB,
+                           'The only other option for DebuggerType is CodeLLDB but passed %d', this.debug.type);
+            tupOutputType = 'Oid *';
+            if (this.context.hasBoolAsChar) {
+                tupIsVarLenaType = 'char *';
+            } else {
+                tupIsVarLenaType = 'bool *';
+            }
+            tupIOParamType = 'Oid *';
+        }
+        
+        let result;
+        if (this.context.hasGetTypeOutputInfo3Args) {
+            result = await this.evaluateVoid(`getTypeOutputInfo(((Const *)${this.getPointer()})->consttype, ((${tupOutputType})${tupOutput}), ((${tupIsVarLenaType})${tupIsVarlena}))`);
+            
+            if (result.result.indexOf('char *') !== -1) {
+                tupIsVarLenaType = 'char *';
+                result = await this.evaluateVoid(`getTypeOutputInfo(((Const *)${this.getPointer()})->consttype, ((${tupOutputType})${tupOutput}), ((${tupIsVarLenaType})${tupIsVarlena}))`);
+                this.context.hasBoolAsChar = true;
+            }
+
+            if (result.result.indexOf('requires 4') !== -1) {
+                tupIOParam = await this.palloc('sizeof(Oid)');
+                result = await this.evaluateVoid(`getTypeOutputInfo(((Const *)${this.getPointer()})->consttype, ((${tupOutputType})${tupOutput}), ((${tupIOParamType})${tupIOParam}), ((${tupIsVarLenaType})${tupIsVarlena}))`);
+                this.context.hasGetTypeOutputInfo3Args = false;
+            }
+        } else {
+            result = await this.evaluateVoid(`getTypeOutputInfo(((Const *)${this.getPointer()})->consttype, ((${tupOutputType})${tupOutput}), ((${tupIOParamType})${tupIOParam}), ((${tupIsVarLenaType})${tupIsVarlena}))`);
+        }
+
         if (this.debug.isFailedVar(result)) {
-            await this.pfree(tupoutput);
-            /* 
-             * CodeLLDB complains about passing 4 arguments instead of 3, but
-             * if we pass 3 arguments (event replacing `void *` to actual types)
-             * it just fails with 'unknown error' message.
-             */
+            await this.pfree(tupOutput);
             await this.pfree(tupIsVarlena);
-            await this.pfree(tupIOParam);
+            if (tupIOParam)
+                await this.pfree(tupIOParam);
             return '???';
         }
 
-        const funcOid = await evalOid(`*((Oid *)${tupoutput})`);
-        if (funcOid === InvalidOid) {
+        const funcOid = await evalOid(`*((Oid *)${tupOutput})`);
+        if (!oidIsValid(funcOid)) {
             /* Invalid function */
+            await this.pfree(tupOutput);
+            await this.pfree(tupIsVarlena);
+            if (tupIOParam)
+                await this.pfree(tupIOParam);
             return '???';
         }
 
@@ -1991,9 +2058,10 @@ class ExprNodeVariable extends NodeVariable {
             repr = await legacyOidOutputFunctionCall(funcOid);
         }
 
-        await this.pfree(tupoutput);
+        await this.pfree(tupOutput);
         await this.pfree(tupIsVarlena);
-        await this.pfree(tupIOParam);
+        if (tupIOParam)
+            await this.pfree(tupIOParam);
 
         return repr;
     }
@@ -2024,9 +2092,7 @@ class ExprNodeVariable extends NodeVariable {
 
     private async formatFuncExpr(rtable: RangeTableContainer) {
         const funcname = await this.getFuncName('funcid') ?? '(invalid func)';
-
         const args = await this.getListMemberElements('args');
-
         const coerceType = await this.getMemberValueEnum('funcformat');
 
         switch (coerceType) {
@@ -3366,7 +3432,7 @@ export class ListNodeVariable extends NodeVariable {
 
         /* Check only 1 case - they are mutually exclusive */
         if (this.parent instanceof VariablesRoot) {
-            const func = await this.debug.getFunctionName(this.frameId);
+            const func = await this.debug.getCurrentFunctionName();
             if (func) {
                 const info = map.get(func);
                 if (info) {
@@ -4243,7 +4309,7 @@ class HTABSpecialMember extends RealVariable {
 
         let parent;
         if (this.parent instanceof VariablesRoot) {
-            parent = await this.debug.getFunctionName(this.frameId);
+            parent = await this.debug.getCurrentFunctionName();
             if (!parent) {
                 return;
             }
@@ -4341,11 +4407,22 @@ class HTABElementsMember extends Variable {
          */
         const memory = await this.palloc('sizeof(HASH_SEQ_STATUS)');
         const pointer = this.htab.getPointer();
-        const result = await this.evaluate(`hash_seq_init((HASH_SEQ_STATUS *) ${memory}, (HTAB *)${pointer})`);
+        let result = await this.evaluateVoid(`hash_seq_init((HASH_SEQ_STATUS *)${memory}, (HTAB *)${pointer})`);
         if (this.debug.isFailedVar(result)) {
-            await this.pfree(memory);
-            this.logger.error('failed to invoke hash_seq_init: %s', result.result);
-            return undefined;
+            /* 
+             * In CodeLLDB first invocation of hash_seq_init always fails with
+             * error like 'reference to HASH_SEQ_STATUS is ambiguous'.
+             * But subsequent calls succeeds.
+             */
+            if (result.result.indexOf('ambiguous') !== -1) {
+                result = await this.evaluateVoid(`hash_seq_init((HASH_SEQ_STATUS *)${memory}, (HTAB *)${pointer})`);
+            }
+
+            if (this.debug.isFailedVar(result)) {
+                await this.pfree(memory);
+                this.logger.error('failed to invoke hash_seq_init: %s', result.result);
+                return undefined;
+            }
         }
 
         return memory;
@@ -4356,7 +4433,7 @@ class HTABElementsMember extends Variable {
          * hash_seq_term(status);
          * pfree(status);
          */
-        const result = await this.evaluate(`hash_seq_term((HASH_SEQ_STATUS *)${hashSeqStatus})`);
+        const result = await this.evaluateVoid(`hash_seq_term((HASH_SEQ_STATUS *)${hashSeqStatus})`);
         if (this.debug.isFailedVar(result)) {
             this.logger.error('Could not invoke hash_seq_term: %s', result.result);
         }
@@ -4560,7 +4637,10 @@ class SimplehashElementsMember extends Variable {
         }
 
         /* 'start_iterate' seems not important to cache for optimization */
-        const result = await this.evaluate(`${this.hashTable.prefix}_start_iterate((${hashTableType} *) ${this.hashTable.getPointer()}, (${iteratorType} *)${iteratorPtr})`)
+        const hashTablePointer = `(${hashTableType} *) ${this.hashTable.getPointer()}`;
+        const iteratorPointer = `(${iteratorType} *)${iteratorPtr}`;
+        const expr = `${this.hashTable.prefix}_start_iterate(${hashTablePointer}, ${iteratorPointer})`;
+        const result = await this.evaluateVoid(expr);
         if (this.debug.isFailedVar(result)) {
             await this.pfree(iteratorPtr);
             this.hashTable.entry.canIterate = false;

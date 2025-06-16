@@ -526,7 +526,14 @@ export class Features {
     static hasEvaluateArrayLength() {
         /* Evaluate array length in debugger like `arrayPtr, length' */
         if (hasArrayLengthFeature === undefined) {
-            hasArrayLengthFeature = this.versionAtLeast('1.68.0');
+            const cppDbgExtension = vscode.extensions.getExtension('ms-vscode.cpptools');
+            if (cppDbgExtension?.packageJSON.version) {
+                const cppDbgVersion = version(cppDbgExtension.packageJSON.version);
+                hasArrayLengthFeature = version('1.13.0') <= cppDbgVersion;
+            } else {
+                /* Safe default */
+                hasArrayLengthFeature = false;
+            }
         }
         return hasArrayLengthFeature;
     }

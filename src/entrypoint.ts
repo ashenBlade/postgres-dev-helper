@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
 import * as vars from './variables';
 import * as utils from './utils';
-import * as dbg from './debugger';
 import * as formatter from './formatter';
+import { setupDebugger } from './debugger';
+
 import {
+    NodePreviewTreeViewProvider,
     NodePreviewTreeViewProvider as PgVariablesView,
     Configuration as config,
     getCurrentLogLevel,
@@ -67,6 +69,7 @@ export function activate(context: vscode.ExtensionContext) {
                                                       specialMembers, hashTableTypes);
 
         setupExtension(context, specialMembers, nodeVars, hashTableTypes, logger, nodesView);
+        setupDebugger(nodesView, context);
 
         formatter.registerFormatting(logger);
 

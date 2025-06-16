@@ -96,11 +96,11 @@ function getDebugConfiguration(env: TestEnv, pid: number) {
         };
     } else {
         config = {
-                name: 'Backend',
-                request: 'attach',
-                type: 'lldb',
-                pid: pid,
-                program: '${workspaceFolder}/src/backend/postgres',
+            name: 'Backend',
+            request: 'attach',
+            type: 'lldb',
+            pid: pid,
+            program: '${workspaceFolder}/src/backend/postgres'
         };
     }
 
@@ -233,11 +233,8 @@ suite('Variables', async () => {
             } catch (err) {
                 /* nothing */
             }
-            attempt++;
 
-            if (maxAttempt <= attempt) {
-                throw new Error('failed to obtain postgres variables');
-            }
+            attempt++;
         }
 
         if (!variables) {
@@ -562,11 +559,6 @@ suite('Variables', async () => {
 
         /* Hash table elements are shown */
         test('HTAB', async function() {
-            if (env.isCodeLLDB()) {
-                /* CodeLLDB has troubles with 'HASH_SEQ_STATUS' structure */
-                this.skip();
-            }
-
             const elementsVar = await getMemberOf(getVar('htab'), '$elements$');
             const elementsChildren = await expand(elementsVar);
             assert.equal(elementsChildren.length, 3, 'HTAB must contain 3 elements');
@@ -600,13 +592,7 @@ suite('Variables', async () => {
 
         /* RestrictInfo and Expr is rendered instead of pointer value */
         test('RestrictInfo', async () => {
-            let exprRegexp;
-            if (env.isCodeLLDB()) {
-                /* CodeLLDB has troubles with 'getTypeOutputInfo' invocation */
-                exprRegexp = /t1\.y > \?\?\?/i;
-            } else {
-                exprRegexp = /t1\.y > 10/i;
-            }
+            const exprRegexp = /t1\.y > 10/i;
 
             const {var: rinfoVar, item: rinfoItem} = await getVarItem('rinfo');
             assert.match(rinfoItem.description, exprRegexp,

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as dap from "./dap";
+import { Features, ILogger } from './utils';
 import { NodePreviewTreeViewProvider } from './extension';
 
 export interface IDebugVariable {
@@ -12,12 +13,25 @@ const pointerRegex = /^0x[0-9abcdef]+$/i;
 const nullRegex = /^0x0+$/i;
 const builtInTypes = new Set([
     'char', 'short', 'int', 'long', 'double', 'float', '_Bool', 'void',
-])
+]);
+
+export enum DebuggerType {
+    CppDbg,
+    CodeLLDB
+}
 
 export interface IDebuggerFacade {
+    /**
+     * Type of the debugger in use.
+     *
+     * As they are fixed (not dynamically created or something) we can
+     * safely define enumeration and use across the codebase.
+     */
+    readonly type: DebuggerType;
+
     /* Common debugger functionality */
     evaluate: (expression: string, frameId: number | undefined,
-               context?: string) => Promise<dap.EvaluateResponse>;
+               context?: string, noReturn?: boolean) => Promise<dap.EvaluateResponse>;
     getVariables: (frameId: number) => Promise<dap.DebugVariable[]>;
     getMembers: (variablesReference: number) => Promise<dap.DebugVariable[]>;
     getTopStackFrameId: (threadId: number) => Promise<number | undefined>;
@@ -25,7 +39,7 @@ export interface IDebuggerFacade {
     getSession: () => vscode.DebugSession;
     getArrayVariables: (expression: string, length: number,
                         frameId: number | undefined) => Promise<dap.DebugVariable[]>;
-    getFunctionName: (frameId: number) => Promise<string | undefined>;
+    getCurrentFunctionName: () => Promise<string | undefined>;
 
     /* Utility functions with per debugger specifics */
     /**
@@ -118,6 +132,15 @@ export interface IDebuggerFacade {
      * @returns String representing pointer value
      */
     extractPtrFromString: (variable: IDebugVariable) => string | null;
+
+    /**
+     * Format passed enum value in form which is acceptable for specific. debugger.
+     * 
+     * @param name Name of enum
+     * @param value Value of enum as identifier
+     * @returns String representation of enum value to use in expressions
+     */
+    formatEnumValue: (name: string, value: string) => string;
 }
 export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.Disposable {
     registrations: vscode.Disposable[];
@@ -126,19 +149,13 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
     session: vscode.DebugSession | undefined;
 
     /**
-     * Cache of function names (value) in specified frame (key).
-     * Invalidated each time execution continues.
-     */
-    functionNames?: Map<number, string>;
-
-    /**
      * Cached id of postgres thread.
      * As pg have single-threaded/multi-process execution model
      * we do not bother tracking multiple threads.
      */
     threadId?: number;
 
-    constructor() {
+    constructor(public logger: ILogger) {
         this.registrations = [
             /* Update current debug session data */
             vscode.debug.onDidStartDebugSession(s => {
@@ -158,7 +175,6 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
                         this.threadId = undefined;
                         /* fallthrough */
                     case 'continued':
-                        this.functionNames = undefined;
                         break;
                 }
             })
@@ -183,15 +199,23 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
         return threadId;
     }
 
-    getArrayVariables = async (array: string, length: number,
-                               frameId: number | undefined) => {
-        const expression = `(${array}), ${length}`;
-        const evalResponse = await this.evaluate(expression, frameId);
-        if (!evalResponse?.variablesReference) {
-            return [];
+    async getArrayVariables(array: string, length: number,
+                            frameId: number | undefined) {
+        const variables: dap.DebugVariable[] = [];
+        for (let i = 0; i < length; i++) {
+            const expression = `(${array})[${i}]`;
+            const evalResponse = await this.evaluate(expression, frameId);
+            const variable = {
+                evaluateName: expression,
+                memoryReference: evalResponse.memoryReference,
+                name: `[${i}]`,
+                type: evalResponse.type,
+                value: evalResponse.result,
+                variablesReference: evalResponse.variablesReference
+            } as dap.DebugVariable;
+            variables.push(variable);
         }
-
-        return await this.getMembers(evalResponse.variablesReference);
+        return variables;
     }
 
     getCurrentFrameId = async () => {
@@ -199,87 +223,17 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
         return (vscode.debug.activeStackItem as vscode.DebugStackFrame | undefined)?.frameId;
     }
 
-    switchToEventBasedRefresh(provider: NodePreviewTreeViewProvider) {
-        /* 
-         * Prior to VS Code version 1.90 there is no debugFocus API - 
-         * we can not track current stack frame. It is very convenient,
-         * because single event refreshes state and also we keep track
-         * of stack frame selected in debugger view.
-         * 
-         * For older versions we use event based implementation -
-         * subscribe to debugger events and filter out needed:
-         * continue execution, stopped (breakpoint), terminated etc...
-         * 
-         * NOTE: We can not track current stack frame, so this feature is
-         *       not available for users.
-         */
-
-        let savedThreadId: undefined | number = undefined;
-        const disposable = vscode.debug.registerDebugAdapterTrackerFactory('*', {
-            createDebugAdapterTracker(_: vscode.DebugSession) {
-                return {
-                    onDidSendMessage(message: dap.ProtocolMessage) {
-                        if (message.type === 'response') {
-                            if (message.command === 'continue') {
-                                /* `Continue' command - clear */
-                                provider.refresh();
-                            }
-
-                            return;
-                        }
-
-                        if (message.type === 'event') {
-                            if (message.event === 'stopped' || message.event === 'terminated') {
-                                /* Hit breakpoint - show variables */
-                                provider.refresh();
-                                savedThreadId = message.body?.threadId as number | undefined;
-                            }
-                        }
-                    },
-
-                    onWillStopSession() {
-                        /* Debug session terminates - clear */
-                        provider.refresh();
-                    },
-                }
-            },
-        });
-        this.registrations.push(disposable);
+    switchToEventBasedRefresh() {
         this.getCurrentFrameId = async () => {
-            /* 
+            /*
              * We can not track selected stack frame - return last (top)
              */
-            if (!(this.isInDebug && savedThreadId)) {
+            if (!this.isInDebug) {
                 return;
             }
 
-            return await this.getTopStackFrameId(savedThreadId);
-        }
-    }
-
-    switchToManualArrayExpansion() {
-        this.getArrayVariables = async function (array: string, length: number,
-                                                 frameId: number | undefined) {
-            /* 
-             * In old VS Code there is no array length expansion feature.
-             * We can not just add ', length' to expression, so evaluate each
-             * element manually
-             */
-            const variables: dap.DebugVariable[] = [];
-            for (let i = 0; i < length; i++) {
-                const expression = `(${array})[${i}]`;
-                const evalResponse = await this.evaluate(expression, frameId);
-                const variable = {
-                    evaluateName: expression,
-                    memoryReference: evalResponse.memoryReference,
-                    name: `[${i}]`,
-                    type: evalResponse.type,
-                    value: evalResponse.result,
-                    variablesReference: evalResponse.variablesReference
-                } as dap.DebugVariable;
-                variables.push(variable);
-            }
-            return variables
+            const threadId = await this.getThreadId();
+            return await this.getTopStackFrameId(threadId);
         }
     }
 
@@ -297,21 +251,33 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
         return this.session;
     }
 
-    async getFunctionName(frameId: number) {
-        /* First, search in cache */
-        if (this.functionNames) {
-            const name = this.functionNames.get(frameId);
-            if (name !== undefined) {
-                return name;
-            }
-        }
-
+    async getCurrentFunctionName() {
         const threadId = await this.getThreadId();
 
-        const frameIndex = this.calcFrameIndex(frameId);
+        /* 
+         * In most cases we want to get current function (on top of call stack),
+         * but if we have DebugFocus feature, then user can choose other stack
+         * frame.
+         * 
+         * There is some trouble with it - returned frameId can be generated
+         * each time we make request. But there is observation, that frameId
+         * obtained from 'vscode.debug.activeStackItem' can be used to calculate
+         * index of frame in 'stackFrames' DAP request.
+         */
+        let frameIndex;
+        if (Features.debugFocusEnabled()) {
+            const index = await this.getCurrentFrameId();
+            if (index) {
+                frameIndex = this.maybeCalcFrameIndex(index) ?? 0;
+            } else {
+                frameIndex = 0;
+            }
+        } else {
+            frameIndex = 0;
+        }
 
         const st = await this.getStackTrace(threadId, 1, frameIndex);
-        if (!(st && st.stackFrames)) {
+        if (!(st && 0 < st.stackFrames?.length)) {
             return;
         }
 
@@ -323,16 +289,7 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
             return frame.name;
         }
 
-        const name = frame.name.substring(0, argsIdx);
-
-        /* Update cache */
-        if (this.functionNames === undefined) {
-            this.functionNames = new Map([[frameId, name]]);
-        } else {
-            this.functionNames.set(frameId, name);
-        }
-
-        return name;
+        return frame.name.substring(0, argsIdx);
     }
 
     async getScopes(frameId: number): Promise<dap.Scope[]> {
@@ -422,7 +379,8 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
      * Utility function used in getFunctionName, that computes index
      * of frame basing of it's frameId.
      */
-    abstract calcFrameIndex(frameId: number): number;
+    abstract readonly type: DebuggerType;
+    abstract maybeCalcFrameIndex(frameId: number): number | undefined;
     abstract shouldShowScope(scope: dap.Scope): boolean;
     abstract evaluate(expression: string, frameId: number | undefined, context?: string): Promise<dap.EvaluateResponse>;
     abstract isFailedVar(response: dap.EvaluateResponse): boolean;
@@ -432,11 +390,29 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
     abstract extractString(variable: IDebugVariable): string | null;
     abstract extractBool(variable: IDebugVariable): boolean | null;
     abstract extractPtrFromString(variable: IDebugVariable): string | null;
+    abstract formatEnumValue(name: string, value: string): string;
 }
 
 export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
+    type = DebuggerType.CppDbg;
+    
     shouldShowScope(scope: dap.Scope): boolean {
         return scope.name === 'Locals';
+    }
+
+    getArrayVariables = async (array: string, length: number,
+                               frameId: number | undefined) => {
+        const expression = `${array}, ${length}`;
+        const evalResponse = await this.evaluate(expression, frameId);
+        if (!evalResponse?.variablesReference) {
+            return [];
+        }
+
+        return await this.getMembers(evalResponse.variablesReference);
+    }
+
+    switchToManualArrayExpansion() {
+        this.getArrayVariables = super.getArrayVariables;
     }
     
     async evaluate(expression: string, frameId: number | undefined, context?: string) {
@@ -543,7 +519,7 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
         return ptr;
     }
 
-    calcFrameIndex(frameId: number) {
+    maybeCalcFrameIndex(frameId: number) {
         /* 
          * DAP returns new frameId each 'stackTrace' invocation, so we can
          * not just iterate through all StackFrames and find equal frame id.
@@ -554,14 +530,21 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
          */
         return frameId - 1000;
     }
+
+    formatEnumValue(name: string, value: string) {
+        /* CppDbg allows passing only identifier, without type qualification */
+        return value;
+    }
 }
 
 export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
+    type = DebuggerType.CodeLLDB;
+
     shouldShowScope(scope: dap.Scope): boolean {
         return scope.name === 'Local';
     }
 
-    async evaluate(expression: string, frameId: number | undefined, context?: string): Promise<dap.EvaluateResponse> {
+    async evaluate(expression: string, frameId: number | undefined, context?: string, noReturn?: boolean): Promise<dap.EvaluateResponse> {
         try {
             context ??= 'watch';
             return await this.getSession().customRequest('evaluate', {
@@ -570,7 +553,24 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
                 frameId
             } as dap.EvaluateArguments);
         } catch (err) {
-            if (err instanceof Error && err.name === 'CodeExpectedError') {
+            if (err instanceof Error) {
+                if (noReturn && err.message === 'unknown error') {
+                    /* 
+                     * CodeLLDB don't like 'void' returning expressions and
+                     * throws such strange errors, but call actually succeeds
+                     */
+                    return {
+                        memoryReference: '',
+                        result: '',
+                        type: '',
+                        variablesReference: -1
+                    }
+                }
+
+                /* 
+                 * Current interface assumes that 'failed variable' is
+                 * returned instead of exception throwing.
+                 */
                 return {
                     memoryReference: '0x0',
                     result: `-var-create: ${err.message}`,
@@ -640,6 +640,7 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
          */
         return variable.value.substring(1, variable.value.length - 1);
     }
+
     extractBool(variable: IDebugVariable): boolean | null {
         /* 
          * On older pg versions bool stored as 'char' and have format: "X '\00X'"
@@ -667,12 +668,18 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
         return variable.memoryReference;
     }
 
-    calcFrameIndex(frameId: number) {
+    maybeCalcFrameIndex(frameId: number) {
         /* 
-         * Idea is the same as for CppDbg, but frame indexing starts with 0,
-         * so use 1001 instead of 1000.
+         * Unlike CppDbg, CodeLLDB returns new 'frameId' always, it does not
+         * refresh values after steps, so we can not rely on frameId returned
+         * by 'vscode.debug.activeStackItem'
          */
-        return frameId - 1001;
+        return undefined;
+    }
+
+    formatEnumValue(name: string, value: string) {
+        /* CodeLLDB requires to qualify enum values just like in C++ */
+        return `${name}::${value}`;
     }
 }
 
@@ -685,4 +692,53 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
  */
 export function pointerIsNull(pointer: string) {
     return pointer === '0x0' || /0x0+/.test(pointer);
+}
+
+export function setupDebugger(variablesView: NodePreviewTreeViewProvider,
+                              context: vscode.ExtensionContext) {
+    if (!Features.debugFocusEnabled()) {
+        /* 
+         * Prior to VS Code version 1.90 there is no debugFocus API - 
+         * we can not track current stack frame. It is very convenient,
+         * because single event refreshes state and also we keep track
+         * of stack frame selected in debugger view.
+         * 
+         * For older versions we use event based implementation -
+         * subscribe to debugger events and filter out needed:
+         * continue execution, stopped (breakpoint), terminated etc...
+         * 
+         * NOTE: We can not track current stack frame, so this feature is
+         *       not available for users.
+         */
+
+        const disposable = vscode.debug.registerDebugAdapterTrackerFactory('*', {
+            createDebugAdapterTracker(_: vscode.DebugSession) {
+                return {
+                    onDidSendMessage(message: dap.ProtocolMessage) {
+                        if (message.type === 'response') {
+                            if (message.command === 'continue') {
+                                /* `Continue' command - clear */
+                                variablesView.refresh();
+                            }
+    
+                            return;
+                        }
+    
+                        if (message.type === 'event') {
+                            if (message.event === 'stopped' || message.event === 'terminated') {
+                                /* Hit breakpoint - show variables */
+                                variablesView.refresh();
+                            }
+                        }
+                    },
+    
+                    onWillStopSession() {
+                        /* Debug session terminates - clear */
+                        variablesView.refresh();
+                    },
+                }
+            },
+        });
+        context.subscriptions.push(disposable);
+    }
 }

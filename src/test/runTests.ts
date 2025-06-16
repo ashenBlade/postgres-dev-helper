@@ -5,6 +5,17 @@ import { downloadAndUnzipVSCode,
          resolveCliArgsFromVSCodeExecutablePath,
          runTests } from '@vscode/test-electron';
 
+function getDebuggerExtensionId() {
+    const debuggerType = process.env.PGHH_DEBUGGER;
+    if (!debuggerType || debuggerType === 'cppdbg') {
+        return 'ms-vscode.cpptools';
+    } else if (debuggerType == 'lldb') {
+        return 'vadimcn.vscode-lldb';
+    } else {
+        throw new Error(`Unknown debugger type: ${debuggerType}`);
+    }
+}
+
 async function main() {
     let error = false;
     /* 
@@ -23,19 +34,14 @@ async function main() {
     const pgsrcDir = path.resolve(extensionDevelopmentPath, './pgsrc');
 
     try {
-        const vscodeExecutablePath = await downloadAndUnzipVSCode('stable');
+        const vscodeVersion = process.env.PGHH_VSCODE_VERSION ?? 'stable';
+        const vscodeExecutablePath = await downloadAndUnzipVSCode(vscodeVersion);
         const [cliPath, ...args] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath);
 
-        /* Install required debugger extensions */
-        for (const ext of ['vadimch.vscode-lldb', 'ms-vscode.cpptools']) {
-            cp.spawnSync(cliPath,
-                [...args, '--install-extension', ext],
-                {
-                    encoding: 'utf-8',
-                    stdio: 'inherit'
-                }
-            );
-        }
+        /* Install required debugger extension */
+        const dbgExtId = getDebuggerExtensionId();
+        cp.spawnSync(cliPath, [...args, '--install-extension', dbgExtId],
+                     { encoding: 'utf-8', stdio: 'inherit'});
 
         /* Run PostgreSQL */
         cp.spawnSync('/bin/bash', ['./run.sh', '--run'], {
@@ -52,6 +58,8 @@ async function main() {
             launchArgs: [ 
                /* Launch at PostgreSQL src dir */
                pgsrcDir,
+               /* Disable warnings if any */
+               '--enable-proposed-api', dbgExtId,
             ],
         });
     } catch (err) {
