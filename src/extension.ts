@@ -89,7 +89,6 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
 
     async getChildren(element?: vars.Variable | undefined) {
         if (!this.execContext) {
-            this.log.error('No execContext');
             return;
         }
 
@@ -105,11 +104,9 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
                 const exec = this.execContext;
                 const topLevel = await this.getTopLevelVariables(exec, frameId);
                 if (!topLevel) {
-                    this.log.error('no top level variables');
                     return;
                 }
 
-                this.log.error('there are %d top level variables %d', topLevel.length);
                 const topLevelVariable = new vars.VariablesRoot(topLevel, exec, this.log);
                 topLevel.forEach(v => v.parent = topLevelVariable);
                 return topLevel;

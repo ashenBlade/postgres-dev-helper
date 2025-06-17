@@ -1931,7 +1931,6 @@ class ExprNodeVariable extends NodeVariable {
         const evalStrWithPtr = async (expr: string) => {
             const result = await this.debug.evaluate(expr, this.frameId);
             if (this.debug.isFailedVar(result)) {
-                this.logger.error('failed to evaluate expression "%s": %s', expr, result.result);
                 throw new EvaluationError(`failed to get string from expr: ${expr}`, result.result);
             }
 
