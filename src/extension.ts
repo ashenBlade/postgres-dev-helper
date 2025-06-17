@@ -1,7 +1,36 @@
 import * as vscode from 'vscode';
 import * as utils from './utils';
+import { Features } from './utils';
 import * as vars from './variables';
+import * as dbg from './debugger';
 import path from 'path';
+
+
+
+function createDebuggerFacade(type: string, provider: NodePreviewTreeViewProvider): dbg.GenericDebuggerFacade | undefined {
+    let debug;
+    switch (type) {
+        case 'cppdbg':
+            debug = new dbg.CppDbgDebuggerFacade(provider.log);
+            if (!Features.hasEvaluateArrayLength()) {
+                debug.switchToManualArrayExpansion();
+            }
+            break;
+        case 'lldb':
+            debug = new dbg.CodeLLLDBDebuggerFacade(provider.log);
+            break;
+        default:
+            return;
+    }
+    if (Features.debugFocusEnabled()) {
+        vscode.debug.onDidChangeActiveStackItem(() => provider.refresh(),
+                                                 undefined, debug.registrations);
+    } else {
+        debug.switchToEventBasedRefresh();
+    }
+
+    return debug;
+}
 
 export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars.Variable>, vscode.Disposable {
     subscriptions: vscode.Disposable[] = [];
@@ -13,34 +42,30 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
     execContext?: vars.ExecContext;
 
     constructor(
-        private log: utils.ILogger,
+        public log: utils.ILogger,
         private nodeVars: vars.NodeVarRegistry,
         private specialMembers: vars.SpecialMemberRegistry,
-        private debug: utils.VsCodeDebuggerFacade,
         private hashTableTypes: vars.HashTableTypes) { 
         this.subscriptions = [
             vscode.debug.onDidStartDebugSession(s => {
                 if (!this.execContext) {
+                    const debug = createDebuggerFacade(s.type, this);
+                    if (!debug) {
+                        return;
+                    }
                     this.execContext = new vars.ExecContext(this.nodeVars, this.specialMembers,
-                                                            this.debug, this.hashTableTypes);
+                                                            debug, this.hashTableTypes);
                 }
             }),
             vscode.debug.onDidTerminateDebugSession(s => {
                 if (this.execContext) {
+                    /* I know the hierarchy for sure - no surprises */
+                    const debug = <dbg.GenericDebuggerFacade>this.execContext.debug;
+                    debug.dispose();
                     this.execContext = undefined;
                 }
             }),
         ];
-    }
-
-    private getExecContext() {
-        if (this.execContext) {
-            return this.execContext;
-        }
-
-        this.execContext = new vars.ExecContext(this.nodeVars, this.specialMembers,
-                                                this.debug, this.hashTableTypes);
-        return this.execContext;
     }
 
     /* https://code.visualstudio.com/api/extension-guides/tree-view#updating-tree-view-content */
@@ -63,7 +88,8 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
     }
 
     async getChildren(element?: vars.Variable | undefined) {
-        if (!this.debug.isInDebug) {
+        if (!this.execContext) {
+            this.log.error('No execContext');
             return;
         }
 
@@ -71,17 +97,19 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
             if (element) {
                 return await element.getChildren();
             } else {
-                const frameId = await this.debug.getCurrentFrameId();
+                const frameId = await this.execContext.debug.getCurrentFrameId();
                 if (!frameId) {
                     return;
                 }
 
-                const exec = this.getExecContext();
+                const exec = this.execContext;
                 const topLevel = await this.getTopLevelVariables(exec, frameId);
                 if (!topLevel) {
+                    this.log.error('no top level variables');
                     return;
                 }
 
+                this.log.error('there are %d top level variables %d', topLevel.length);
                 const topLevelVariable = new vars.VariablesRoot(topLevel, exec, this.log);
                 topLevel.forEach(v => v.parent = topLevelVariable);
                 return topLevel;
@@ -116,7 +144,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
 }
 
 export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
-    debug: utils.IDebuggerFacade) {
+                                               debug: dbg.IDebuggerFacade) {
     const session = vscode.debug.activeDebugSession;
     if (!session) {
         vscode.window.showWarningMessage('Can not dump variable - no active debug session!');
@@ -131,7 +159,7 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
 
     console.assert(typeof variable.value === 'string');
 
-    if (!(utils.isValidPointer(variable.value))) {
+    if (!(debug.isValidPointerType(variable.value))) {
         vscode.window.showWarningMessage(`Variable ${variable.name} is not valid pointer`);
         return;
     }
@@ -142,6 +170,7 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
         return;
     }
     
+    /* TODO: tested only for CppDbg */
     /* Simple `pprint(Node*)' function call */
     const expression = `-exec call pprint((const void *) ${variable.value})`;
 
@@ -819,31 +848,9 @@ async function bootstrapExtensionCommand() {
     await vscode.window.showTextDocument(td);
 }
 
-function addElogErrorBreakpoint() {
-    /* 
-     * Check that such breakpoint already exists, otherwise
-     * it will be added again on new extension activation
-     */
-    if (vscode.debug.breakpoints
-                    .find(bp => bp instanceof vscode.FunctionBreakpoint &&
-                                bp.functionName === 'errstart')) {
-        return;
-    }
-
-    /* Breakpoint on `elog' or `ereport' with ERROR or greater */
-    vscode.debug.addBreakpoints([
-        new vscode.FunctionBreakpoint(
-            'errstart',
-            false,
-            'ERROR <= elevel',
-        )
-    ]);
-}
-
 export function setupExtension(context: vscode.ExtensionContext, specialMembers: vars.SpecialMemberRegistry,
                                nodeVars: vars.NodeVarRegistry, hashTableTypes: vars.HashTableTypes,
-                               debug: utils.IDebuggerFacade, logger: utils.ILogger,
-                               nodesView: NodePreviewTreeViewProvider) {
+                               logger: utils.ILogger, nodesView: NodePreviewTreeViewProvider) {
 
     function registerCommand(name: string, command: (...args: any[]) => void) {
         const disposable = vscode.commands.registerCommand(name, command);
@@ -924,7 +931,7 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
             if (parseResult.customListTypes) {
                 logger.debug('adding %i custom list types', parseResult.customListTypes.length);
                 try {
-                    specialMembers.addNodePtrSpecialMembers(parseResult.customListTypes);
+                    specialMembers.addListCustomPtrSpecialMembers(parseResult.customListTypes);
                 } catch (e) {
                     vscode.window.showErrorMessage('failed to add custom List types');
                     logger.error('error occurred during adding custom List types', e);
@@ -978,7 +985,11 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
     /* Register command to dump variable to log */
     const pprintVarToLogCmd = async (args: any) => {
         try {
-            await dumpVariableToLogCommand(args, logger, debug);
+            if (!nodesView.execContext) {
+                return;
+            }
+
+            await dumpVariableToLogCommand(args, logger, nodesView.execContext.debug);
         } catch (err: any) {
             logger.error('error while dumping node to log', err);
         }
@@ -1113,12 +1124,27 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
         });
     }
 
+    /* Used for testing only */
+    const getVariablesCmd = async () => {
+        try {
+            return await nodesView.getChildren(undefined);
+        } catch (err) {
+            logger.error('failed to get variables', err);
+        }
+    }
+
+    const getNodeTreeProviderCmd = async () => {
+        return nodesView;
+    }
+
     registerCommand(Configuration.Commands.RefreshConfigFile, refreshConfigCmd);
     registerCommand(Configuration.Commands.OpenConfigFile, openConfigFileCmd);
     registerCommand(Configuration.Commands.DumpNodeToLog, pprintVarToLogCmd);
     registerCommand(Configuration.Commands.RefreshPostgresVariables, refreshVariablesCmd);
     registerCommand(Configuration.Commands.BootstrapExtension, bootstrapExtensionCmd);
     registerCommand(Configuration.Commands.AddToWatchView, addVariableToWatchCmd);
+    registerCommand(Configuration.Commands.GetVariables, getVariablesCmd);
+    registerCommand(Configuration.Commands.GetTreeViewProvider, getNodeTreeProviderCmd);
 
     /* Process config files immediately */
     if (vscode.workspace.workspaceFolders) {
@@ -1139,7 +1165,6 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
 
     /* Read files with NodeTags */
     setupNodeTagFiles(logger, nodeVars, context);
-    addElogErrorBreakpoint();
 }
 
 async function setupNodeTagFiles(log: utils.ILogger, nodeVars: vars.NodeVarRegistry,
@@ -1247,6 +1272,8 @@ export class Configuration {
         FormatterDiffView: `${this.ExtensionName}.formatterShowDiff`,
         BootstrapExtension: `${this.ExtensionName}.bootstrapExtension`,
         AddToWatchView: `${this.ExtensionName}.addVariableToWatch`,
+        GetVariables: `${this.ExtensionName}.getVariables`,
+        GetTreeViewProvider: `${this.ExtensionName}.getTreeViewProvider`,
     };
     static Views = {
         NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`,

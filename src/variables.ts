@@ -2,8 +2,7 @@ import * as vscode from 'vscode';
 import * as utils from "./utils";
 import * as dap from "./dap";
 import * as constants from './constants';
-import { getActiveResourcesInfo } from 'process';
-import { stringify } from 'querystring';
+import * as dbg from './debugger';
 
 export interface AliasInfo {
     alias: string;
@@ -178,7 +177,7 @@ export class SpecialMemberRegistry {
         this.arraySpecialMembers = new Map();
         this.listCustomPtrs = new Map();
         this.addArraySpecialMembers(constants.getArraySpecialMembers());
-        this.addNodePtrSpecialMembers(constants.getKnownCustomListPtrs());
+        this.addListCustomPtrSpecialMembers(constants.getKnownCustomListPtrs());
     }
 
     addArraySpecialMembers(elements: ArraySpecialMemberInfo[]) {
@@ -194,7 +193,7 @@ export class SpecialMemberRegistry {
         }
     }
 
-    addNodePtrSpecialMembers(elements: ListPtrSpecialMemberInfo[]) {
+    addListCustomPtrSpecialMembers(elements: ListPtrSpecialMemberInfo[]) {
         const addRecord = (member: string, funcOrStruct: string,
             info: ListPtrSpecialMemberInfo) => {
             const map = this.listCustomPtrs.get(member);
@@ -374,7 +373,7 @@ export class ExecContext {
     /**
      * Facade for debugger interface (TAP)
      */
-    debug: utils.IDebuggerFacade;
+    debug: dbg.IDebuggerFacade;
 
     /**
      * Flag, indicating that this version of PostgreSQL
@@ -438,8 +437,23 @@ export class ExecContext {
      */
     hasGetAttname = true;
 
+    /**
+     * `getTypeOutputInfo` function accepts 3 arguments instead of 4 (old-style).
+     * 
+     * This is used when CodeLLDB is used as debugger, because CppDbg do not
+     * check passed amount of arguments.
+     */
+    hasGetTypeOutputInfo3Args = true;
+
+    /**
+     * 'bool' type represented as 'char'
+     * 
+     * Until PostgreSQL 10 'bool' was typedef to 'char'. Required for CodeLLDB.
+     */
+    hasBoolAsChar = false;
+
     constructor(nodeVarRegistry: NodeVarRegistry, specialMemberRegistry: SpecialMemberRegistry,
-                debug: utils.IDebuggerFacade, hashTableTypes: HashTableTypes) {
+                debug: dbg.IDebuggerFacade, hashTableTypes: HashTableTypes) {
         this.nodeVarRegistry = nodeVarRegistry;
         this.specialMemberRegistry = specialMemberRegistry;
         this.hashTableTypes = hashTableTypes;
@@ -499,6 +513,12 @@ export abstract class Variable {
      * - Pointer value for pointers (for 'char *' it has actual string at the end)
      */
     value: string;
+
+    /**
+     * Separate pointer value of this variable location.
+     * Some extensions (i.e. old CppDbg) do not return it, so marked '?'.
+     */
+    memoryReference?: string;
 
     /**
      * Parent of this variable.
@@ -583,22 +603,27 @@ export abstract class Variable {
     abstract doGetChildren(): Promise<Variable[] | undefined>;
     protected isExpandable() {
         /* Pointer to struct */
-        if (utils.isValidPointer(this.value)) {
+        if (this.debug.isValidPointerType(this)) {
             return true;
         }
 
         /* Do not deref NULL */
-        if (utils.isNull(this.value)) {
+        if (this.debug.isNull(this)) {
+            return false;
+        }
+
+        /* Builtin scalar types, like 'int' */
+        if (this.debug.isScalarType(this)) {
             return false;
         }
 
         /* Embedded or top level structs */
-        if (utils.isRawStruct(this.type, this.value)) {
+        if (this.debug.isValueStruct(this)) {
             return true;
         }
 
         /* Fixed size array: type[size] */
-        if (utils.isFixedSizeArray(this)) {
+        if (this.debug.isFixedSizeArray(this)) {
             return true;
         }
 
@@ -671,9 +696,9 @@ export abstract class Variable {
         };
 
         const realType = Variable.getRealType(debugVariable, context);
-        if (utils.isRawStruct(realType, debugVariable.value) ||      /* Raw struct, i.e. allocated on stack */
-            !utils.isValidPointer(debugVariable.value)) {             /* NULL */
-            if (utils.isNull(debugVariable.value) && 
+        if (context.debug.isValueStruct(debugVariable, realType) ||      /* Raw struct, i.e. allocated on stack */
+            !context.debug.isValidPointerType(debugVariable)) {             /* NULL */
+            if (context.debug.isNull(debugVariable) && 
                 debugVariable.type.endsWith('List *')) {
                 /* 
                  * Empty List is NIL == NULL == '0x0'
@@ -795,13 +820,13 @@ export abstract class Variable {
              * so `palloc` implemented as macro and we need to invoke `MemoryContextAlloc`
              * directly.
              */
-            if (utils.isValidPointer(result.result)) {
+            if (this.debug.isValidPointerType({...result, value: result.result})) {
                 return result.result;
             }
         }
 
         const result = await this.evaluate(`MemoryContextAlloc(CurrentMemoryContext, ${size})`);
-        if (utils.isValidPointer(result.result)) {
+        if (this.debug.isValidPointerType({...result, value: result.result})) {
             this.context.hasPalloc = false;
             return result.result;
         }
@@ -847,10 +872,10 @@ export abstract class Variable {
 
         if (this.context.hasAllowInCritSection) {
             const checkExpr = `(CurrentMemoryContext == ((void *)0))
-            ? ((NodeTag) T_Invalid)
+            ? ((NodeTag) ${this.debug.formatEnumValue('NodeTag', 'T_Invalid')})
             : (CritSectionCount == 0 || CurrentMemoryContext->allowInCritSection)
                 ? ((NodeTag) ((Node *)CurrentMemoryContext)->type)
-                : ((NodeTag) T_Invalid)`;
+                : ((NodeTag) ${this.debug.formatEnumValue('NodeTag', 'T_Invalid')})`;
             const tag = await this.evaluate(checkExpr);
 
             if (isValidMemoryContextTag(tag.result)) {
@@ -872,7 +897,7 @@ export abstract class Variable {
         }
 
         const checkExpr = `(CurrentMemoryContext == ((void *)0))
-        ? ((NodeTag) T_Invalid)
+        ? ((NodeTag) 0)
         : ((NodeTag) ((Node *)CurrentMemoryContext)->type)`;
 
         const tag = await this.evaluate(checkExpr);
@@ -893,12 +918,22 @@ export abstract class Variable {
      * call `pfree` with specified pointer
      */
     async pfree(pointer: string) {
-        if (!utils.isNull(pointer))
-            await this.evaluate(`pfree((void *)${pointer})`);
+        if (!dbg.pointerIsNull(pointer))
+            await this.evaluateVoid(`pfree((void *)${pointer})`);
     }
 
     protected async evaluate(expr: string) {
         return await this.debug.evaluate(expr, this.frameId);
+    }
+
+    protected async evaluateVoid(expr: string) {
+        return await this.debug.evaluate(expr, this.frameId, 
+                                         undefined  /* context */, 
+                                         true       /* no return */);
+    }
+
+    getPointer() {
+        return this.debug.getPointer(this);
     }
 }
 
@@ -933,13 +968,18 @@ class ScalarVariable extends Variable {
 
     async getTreeItem() {
         const item = await super.getTreeItem();
+
+        /* Some scalar variables are pseudo members without any type */
+        if (this.type === '') {
+            item.label = this.name;
+        }
+
         item.tooltip = this.tooltip;
         return item;
     }
 }
 
 interface RealVariableArgs {
-    evaluateName: string;
     memoryReference?: string;
     name: string;
     type: string;
@@ -990,10 +1030,6 @@ class UnexpectedOutputError extends EvaluationError { }
  * obtained using 'evaluate' or as members of structs).
  */
 export class RealVariable extends Variable {
-    /**
-     * Expression to access variable
-     */
-    evaluateName: string;
 
     /**
      * Memory address of variable value
@@ -1013,7 +1049,6 @@ export class RealVariable extends Variable {
 
     constructor(args: RealVariableArgs) {
         super(args.name, args.value, args.type, args.context, args.frameId, args.parent, args.logger);
-        this.evaluateName = args.evaluateName;
         this.memoryReference = args.memoryReference;
         this.variablesReference = args.variablesReference;
         this.parent = args.parent;
@@ -1021,7 +1056,6 @@ export class RealVariable extends Variable {
 
     getRealVariableArgs(): RealVariableArgs {
         return {
-            evaluateName: this.evaluateName,
             memoryReference: this.memoryReference,
             name: this.name,
             type: this.type,
@@ -1038,7 +1072,7 @@ export class RealVariable extends Variable {
      * Check that {@link value value} is valid pointer value
      */
     isValidPointer() {
-        return utils.isValidPointer(this.value);
+        return this.debug.isValidPointerType(this);
     }
 
     /**
@@ -1079,9 +1113,9 @@ export class RealVariable extends Variable {
 
     protected async getArrayMembers(expression: string, length: number) {
         const variables = await this.debug.getArrayVariables(expression,
-            length, this.frameId);
+                                                             length, this.frameId);
         return await Variable.mapVariables(variables, this.frameId, this.context,
-            this.logger, this);
+                                           this.logger, this);
     }
 
     /**
@@ -1129,7 +1163,7 @@ export class RealVariable extends Variable {
      * Get elements of member `this->member`.
      * You should use this function, because NIL is valid
      * List representation, but this extension treats it as
-     * RealVariable, not ListNodeTagVariable.
+     * RealVariable, not ListNodeVariable.
      *
      * @param member member name of this var
      * @returns Elements of list array
@@ -1145,7 +1179,7 @@ export class RealVariable extends Variable {
         }
 
         /* NIL means 0x0, so List will be RealVariable */
-        if (utils.isNull(m.value)) {
+        if (this.debug.isNull(m)) {
             return [];
         }
 
@@ -1153,34 +1187,23 @@ export class RealVariable extends Variable {
     }
 
     /**
-     * Get raw 'value' field of `this->member`.
-     *
-     * @param member member name of this var
-     * @returns 'value' field
-     */
-    async getMemberValue(member: string) {
-        const m = await this.getMember(member);
-        return m.value;
-    }
-
-    /**
      * Get string value of `char *` member `this->member`.
      * If that was NULL, then `null` returned.
      *
-     * @param member member name of this var
+     * @param memberName member name of this var
      * @returns string value of member
      */
-    async getMemberValueCharString(member: string) {
-        const value = await this.getMemberValue(member);
-        const str = utils.extractStringFromResult(value);
+    async getMemberValueCharString(memberName: string) {
+        const member = await this.getMember(memberName);
+        const str = this.debug.extractString(member);
         if (str !== null) {
             return str;
         }
-        if (utils.isNull(value)) {
+        if (this.debug.isNull(member)) {
             return null;
         }
 
-        throw new UnexpectedOutputError(`member ${member} output is not valid char string`, value);
+        throw new UnexpectedOutputError(`member ${memberName} output is not valid char string`, memberName);
     }
 
     /**
@@ -1190,13 +1213,14 @@ export class RealVariable extends Variable {
      * NOTE: var does not know, what valid enum values for this type are,
      *       so it returns anything, that looks like valid enum value.
      *
-     * @param member member name of this var
+     * @param memberName member name of this var
      * @returns Enum value of this member as string
      */
-    async getMemberValueEnum(member: string) {
-        const value = await this.getMemberValue(member);
+    async getMemberValueEnum(memberName: string) {
+        const member = await this.getMember(memberName);
+        const value = member.value;
         if (!utils.isEnumResult(value)) {
-            throw new UnexpectedOutputError(`member ${member} output is not enum`, value);
+            throw new UnexpectedOutputError(`member ${memberName} output is not enum`, value);
         }
         return value;
     }
@@ -1205,14 +1229,14 @@ export class RealVariable extends Variable {
      * Get bool value of `this->member`.
      * If failed throw UnexpectedOutputError.
      *
-     * @param member member name of this var
+     * @param memberName member name of this var
      * @returns Bool value of member
      */
-    async getMemberValueBool(member: string) {
-        const value = await this.getMemberValue(member);
-        const result = utils.extractBoolFromValue(value);
+    async getMemberValueBool(memberName: string) {
+        const member = await this.getMember(memberName);
+        const result = this.debug.extractBool(member);
         if (result === null) {
-            throw new UnexpectedOutputError(`member ${member} output is not bool`, value);
+            throw new UnexpectedOutputError(`member ${memberName} output is not bool`, member.value);
         }
         return result;
     }
@@ -1221,56 +1245,69 @@ export class RealVariable extends Variable {
      * Get number value of `this->member`.
      * If failed throws UnexpectedOutputError.
      *
-     * @param member member name of this var
+     * @param memberName member name of this var
      * @returns Number value of this member
      */
-    async getMemberValueNumber(member: string) {
-        const value = await this.getMemberValue(member);
+    async getMemberValueNumber(memberName: string) {
+        const member = await this.getMember(memberName);
+        const value = member.value;
         const num = Number(value);
         if (Number.isNaN(num)) {
-            throw new UnexpectedOutputError(`member ${member} output is not number`, value);
+            throw new UnexpectedOutputError(`member ${memberName} output is not number`, value);
         }
         return num;
     }
 
     protected formatWatchExpression(myType: string) {
+        /* TODO: only CppDbg works with this */
         if (this.parent instanceof VariablesRoot) {
             /* Top level variable */
-            if (utils.isRawStruct(myType, this.value)) {
+            if (this.debug.isValueStruct(this, myType)) {
                 /* No way to evaluate raw structs as they just lie on stack */
                 return this.name;
-            } else if (utils.isValidPointer(this.value)) {
-                return `(${myType})${this.value}`;
+            } else if (this.debug.isValidPointerType(this)) {
+                return `(${myType})${this.getPointer()}`;
             }
         }
         else if (this.parent instanceof ListElementsMember ||
             this.parent instanceof LinkedListElementsMember) {
             /* Pointer element of List, not int/Oid/TransactionId... */
-            if (utils.isValidPointer(this.value)) {
-                return `(${myType})${this.value}`;
+            if (this.debug.isValidPointerType(this)) {
+                return `(${myType})${this.getPointer()}`;
             }
         } else if (this.parent instanceof ArraySpecialMember) {
-            if (utils.isValidPointer(this.value)) {
-                return `(${myType})${this.value}`
+            if (this.debug.isValidPointerType(this)) {
+                return `(${myType})${this.getPointer()}`
             }
         } else if (this.parent instanceof RealVariable) {
             /* Member of real structure */
             const typeModifier = this.type === myType ? '' : `(${myType})`;
-            if (utils.isRawStruct(this.parent.type, this.parent.value)) {
-                if (utils.isFixedSizeArray(this.parent) && utils.isValidPointer(this.value)) {
-                    return `(${myType})${this.value}`;
+            if (this.debug.isValueStruct(this.parent)) {
+                if (this.debug.isFixedSizeArray(this.parent) && this.debug.isValidPointerType(this)) {
+                    return `(${myType})${this.getPointer()}`;
                 } else {
-                    return `${typeModifier}${this.parent.evaluateName}.${this.name}`;
+                    return `${typeModifier}(${this.parent.type})${this.parent.getPointer()}.${this.name}`;
                 }
-            } else if (utils.isValidPointer(this.parent.value)) {
-                return `${typeModifier}((${this.parent.getRealType()})${this.parent.value})->${this.name}`;
+            } else if (this.debug.isValidPointerType(this.parent)) {
+                return `${typeModifier}((${this.parent.getRealType()})${this.parent.getPointer()})->${this.name}`;
             }
         } else {
             /* Child of pseudo-member */
-            if (utils.isRawStruct(myType, this.value)) {
-                return this.evaluateName;
-            } else if (utils.isValidPointer(this.value)) {
-                return `(${myType})${this.value}`
+            if (this.debug.isValueStruct(this, myType)) {
+                if (!this.parent) {
+                    /* Should not happen */
+                    return this.name;
+                }
+
+                if (this.parent instanceof VariablesRoot) { 
+                    return this.name;
+                } else if (this.debug.isValidPointerType(this.parent)) {
+                    return `((${this.parent.type})${this.parent.getPointer()})->${this.name}`
+                } else {
+                    return `((${this.parent.type})${this.parent.getPointer()}).${this.name}`
+                }
+            } else if (this.debug.isValidPointerType(this)) {
+                return `(${myType})${this.getPointer()}`
             }
         }
 
@@ -1289,6 +1326,8 @@ export class RealVariable extends Variable {
  * in near future).
  */
 const InvalidOid = 0;
+const oidIsValid = (oid: number) => Number.isInteger(oid) && oid !== InvalidOid;
+
 const InvalidAttrNumber = 0;
 
 /**
@@ -1384,9 +1423,9 @@ export class NodeVariable extends RealVariable {
     }
 
     protected async castToType(type: string) {
-        const newVarExpression = `((${type})${this.evaluateName})`;
+        const newVarExpression = `((${type})${this.getPointer()})`;
         const response = await this.debug.evaluate(newVarExpression, this.frameId);
-        if (utils.isFailedVar(response)) {
+        if (this.debug.isFailedVar(response)) {
             /* Error - do not apply cast */
             this.logger.debug('failed to cast type "%s" to tag "%s": %s',
                 this.type, type, response.result);
@@ -1474,10 +1513,10 @@ export class NodeVariable extends RealVariable {
     }
 
     static async create(variable: dap.DebugVariable, frameId: number,
-        context: ExecContext, logger: utils.ILogger,
-        parent?: Variable): Promise<NodeVariable | undefined> {
+                        context: ExecContext, logger: utils.ILogger,
+                        parent?: Variable): Promise<NodeVariable | undefined> {
         const getRealNodeTag = async () => {
-            const nodeTagExpression = `((Node*)(${variable.value}))->type`;
+            const nodeTagExpression = `((Node*)(${context.debug.getPointer(variable)}))->type`;
             const response = await context.debug.evaluate(nodeTagExpression, frameId);
             let realTag = response.result?.replace('T_', '');
             if (!this.isValidNodeTag(realTag)) {
@@ -1591,7 +1630,7 @@ class ExprNodeVariable extends NodeVariable {
      */
     private async evalStringResult(expr: string) {
         const result = await this.evaluate(expr);
-        return utils.extractStringFromResult(result.result);
+        return this.debug.extractString({...result, value: result.result});
     }
 
     /**
@@ -1600,21 +1639,22 @@ class ExprNodeVariable extends NodeVariable {
     private async getFuncName(oidMember: string) {
         /* First check oid is valid, otherwise ERROR is thrown */
         const oid = await this.getMemberValueNumber(oidMember);
-        if (oid === InvalidOid) {
+        if (!oidIsValid(oid)) {
             return null;
         }
 
         const result = await this.evaluate(`get_func_name((Oid) ${oid})`);
-        if (utils.isFailedVar(result)) {
+        if (this.debug.isFailedVar(result)) {
             return null;
         }
 
-        const str = utils.extractStringFromResult(result.result);
+        const pseudoVar = {...result, value: result.result};
+        const str = this.debug.extractString(pseudoVar);
         if (str === null) {
             return null;
         }
 
-        const ptr = utils.extractPtrFromStringResult(result.result);
+        const ptr = this.debug.extractPtrFromString(pseudoVar);
         if (ptr) {
             await this.pfree(ptr);
         }
@@ -1626,20 +1666,22 @@ class ExprNodeVariable extends NodeVariable {
      */
     private async getOpName(oidMember: string) {
         const oid = await this.getMemberValueNumber(oidMember);
-        if (oid === InvalidOid) {
-            return null;
-        }
-        const result = await this.evaluate(`get_opname((Oid)${oid})`);
-        if (utils.isFailedVar(result)) {
+        if (!oidIsValid(oid)) {
             return null;
         }
 
-        const str = utils.extractStringFromResult(result.result);
+        const result = await this.evaluate(`get_opname((Oid)${oid})`);
+        if (this.debug.isFailedVar(result)) {
+            return null;
+        }
+
+        const pseudoVar = {...result, value: result.result};
+        const str = this.debug.extractString(pseudoVar);
         if (str === null) {
             return null;
         }
 
-        const ptr = utils.extractPtrFromStringResult(result.result);
+        const ptr = this.debug.extractPtrFromString(pseudoVar);
         if (ptr) {
             await this.pfree(ptr);
         }
@@ -1833,20 +1875,22 @@ class ExprNodeVariable extends NodeVariable {
                 }
             }
 
-            const rtePtr = `((RangeTblEntry *)${this.value})`;
+            const rtePtr = `((RangeTblEntry *)${this.getPointer()})`;
 
             if (this.context.hasGetAttname) {
-                const getAttnameExpr = `${rtePtr}->rtekind == RTE_RELATION && ${rtePtr}->relid != ${InvalidOid}`;
-                const useGetAttname = utils.extractBoolFromValue((await this.evaluate(getAttnameExpr)).result);
+                const getAttnameExpr = `${rtePtr}->rtekind == ${this.debug.formatEnumValue('RTEKind', 'RTE_RELATION')} 
+                                       && ${rtePtr}->relid != ${InvalidOid}`;
+                const evalResult = await this.evaluate(getAttnameExpr);
+                const useGetAttname = this.debug.extractBool({...evalResult, value: evalResult.result});
                 if (useGetAttname) {
                     /* Call this with `true` last - do not throw error if no such attribute found */
                     const r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno}, true)`);
-                    const attname = utils.extractStringFromResult(r.result);
+                    const attname = this.debug.extractString({...r, value: r.result});
                     if (attname !== null) {
                         return attname;
                     }
 
-                    if (utils.isFailedVar(r)) {
+                    if (this.debug.isFailedVar(r)) {
                         this.context.hasGetAttname = false;
                     }
                 }
@@ -1866,8 +1910,8 @@ class ExprNodeVariable extends NodeVariable {
             return '???';
         }
 
-        /* 'rte.value' will be pointer to RTE struct */
-        const relname = await this.evalStringResult(`((RangeTblEntry *)${rte.value})->eref->aliasname`) ?? '???';
+        /* TODO: change to Variable interface to prevent (possible) SEGFAULT */
+        const relname = await this.evalStringResult(`((RangeTblEntry *)${rte.getPointer()})->eref->aliasname`) ?? '???';
         const attname = await get_rte_attribute_name();
 
         return `${relname}.${attname}`;
@@ -1886,12 +1930,17 @@ class ExprNodeVariable extends NodeVariable {
 
         const evalStrWithPtr = async (expr: string) => {
             const result = await this.debug.evaluate(expr, this.frameId);
-            const str = utils.extractStringFromResult(result.result);
+            if (this.debug.isFailedVar(result)) {
+                this.logger.error('failed to evaluate expression "%s": %s', expr, result.result);
+                throw new EvaluationError(`failed to get string from expr: ${expr}`, result.result);
+            }
+
+            const str = this.debug.extractString({...result, value: result.result});
             if (str === null) {
                 throw new EvaluationError(`failed to get string from expr: ${expr}`, result.result);
             }
 
-            const ptr = utils.extractPtrFromStringResult(result.result);
+            const ptr = this.debug.extractPtrFromString({...result, value: result.result});
             if (ptr === null) {
                 throw new EvaluationError(`failed to get pointer from expr: ${expr}`, result.result);
             }
@@ -1906,10 +1955,14 @@ class ExprNodeVariable extends NodeVariable {
 
             const fmgrInfo = await this.palloc('sizeof(FmgrInfo)');
             /* Init FmgrInfo */
-            await this.evaluate(`fmgr_info(${funcOid}, (void *)${fmgrInfo})`);
+            const expr = `fmgr_info(${funcOid}, (void *)${fmgrInfo})`;
+            const result = await this.evaluate(expr);
+            if (this.debug.isFailedVar(result)) {
+                throw new EvaluationError(`Failed to evaluate ${expr}`, result.result);
+            }
 
             /* Call function */
-            const [str, ptr] = await evalStrWithPtr(`(char *)((Pointer) FunctionCall1(((void *)${fmgrInfo}), ((Const *)${this.value})->constvalue))`);
+            const [str, ptr] = await evalStrWithPtr(`(char *)((Pointer) FunctionCall1(((void *)${fmgrInfo}), ((Const *)${this.getPointer()})->constvalue))`);
             await this.pfree(ptr);
             return str;
         }
@@ -1918,35 +1971,83 @@ class ExprNodeVariable extends NodeVariable {
             return 'NULL';
         }
 
-        const tupoutput = await this.palloc('sizeof(Oid)');
+        const tupOutput = await this.palloc('sizeof(Oid)');
         const tupIsVarlena = await this.palloc('sizeof(Oid)');
 
-        /*
-         * Older system have 4 param - tupOIParam.
-         * We pass it also even on modern systems - anyway only thing
-         * we want is 'tupoutput'.
-         * Hope, debugger will not invalidate the stack after that...
-         */
-        const tupIOParam = await this.palloc('sizeof(Oid)');
+        /* Older system have 4 params (3rd is tupIOParam) */
+        let tupIOParam = this.context.hasGetTypeOutputInfo3Args 
+                                    ? undefined
+                                    : await this.palloc('sizeof(Oid)');
 
         /*
-         * WARN: I do not why, but you MUST cast pointers as 'void *',
-         *       not 'Oid *' or '_Bool *'.
-         *       Otherwise, passed pointers will have some offset
-         *       (*orig_value* + offset), so written values will
-         *       be stored in random place.
+         * This place is ****. In a nutshell, for CppDbg we have to pass arguments 
+         * as 'void *', otherwise passed pointers will have some offset, so written
+         * values will be stored in random place.
+         * But, CodeLLDB complains, because argument type does not match passed
+         * types ('Oid *' does not match passed 'void *').
+         * Also, there is trouble for CodeLLDB when working with old PostgreSQL,
+         * because back days 'bool' was typedef for 'char' and CodeLLDB
+         * complains "can not convert 'bool *' to 'bool *' (aka 'char *')".
+         * 
+         * I hate this place.
          */
-        await this.evaluate(`getTypeOutputInfo(((Const *)${this.value})->consttype, ((void *)${tupoutput}), ((void *)${tupIOParam}), ((void *)${tupIsVarlena}))`);
+        let tupOutputType;
+        let tupIsVarLenaType;
+        let tupIOParamType;
+        if (this.debug.type === dbg.DebuggerType.CppDbg) {
+            tupOutputType = tupIsVarLenaType = tupIOParamType = 'void *';
+        } else {
+            console.assert(this.debug.type === dbg.DebuggerType.CodeLLDB,
+                           'The only other option for DebuggerType is CodeLLDB but passed %d', this.debug.type);
+            tupOutputType = 'Oid *';
+            if (this.context.hasBoolAsChar) {
+                tupIsVarLenaType = 'char *';
+            } else {
+                tupIsVarLenaType = 'bool *';
+            }
+            tupIOParamType = 'Oid *';
+        }
+        
+        let result;
+        if (this.context.hasGetTypeOutputInfo3Args) {
+            result = await this.evaluateVoid(`getTypeOutputInfo(((Const *)${this.getPointer()})->consttype, ((${tupOutputType})${tupOutput}), ((${tupIsVarLenaType})${tupIsVarlena}))`);
+            
+            if (result.result.indexOf('char *') !== -1) {
+                tupIsVarLenaType = 'char *';
+                result = await this.evaluateVoid(`getTypeOutputInfo(((Const *)${this.getPointer()})->consttype, ((${tupOutputType})${tupOutput}), ((${tupIsVarLenaType})${tupIsVarlena}))`);
+                this.context.hasBoolAsChar = true;
+            }
 
-        const funcOid = await evalOid(`*((Oid *)${tupoutput})`);
-        if (funcOid === InvalidOid) {
+            if (result.result.indexOf('requires 4') !== -1) {
+                tupIOParam = await this.palloc('sizeof(Oid)');
+                result = await this.evaluateVoid(`getTypeOutputInfo(((Const *)${this.getPointer()})->consttype, ((${tupOutputType})${tupOutput}), ((${tupIOParamType})${tupIOParam}), ((${tupIsVarLenaType})${tupIsVarlena}))`);
+                this.context.hasGetTypeOutputInfo3Args = false;
+            }
+        } else {
+            result = await this.evaluateVoid(`getTypeOutputInfo(((Const *)${this.getPointer()})->consttype, ((${tupOutputType})${tupOutput}), ((${tupIOParamType})${tupIOParam}), ((${tupIsVarLenaType})${tupIsVarlena}))`);
+        }
+
+        if (this.debug.isFailedVar(result)) {
+            await this.pfree(tupOutput);
+            await this.pfree(tupIsVarlena);
+            if (tupIOParam)
+                await this.pfree(tupIOParam);
+            return '???';
+        }
+
+        const funcOid = await evalOid(`*((Oid *)${tupOutput})`);
+        if (!oidIsValid(funcOid)) {
             /* Invalid function */
+            await this.pfree(tupOutput);
+            await this.pfree(tupIsVarlena);
+            if (tupIOParam)
+                await this.pfree(tupIOParam);
             return '???';
         }
 
         let repr;
         try {
-            const [str, ptr] = await evalStrWithPtr(`OidOutputFunctionCall(${funcOid}, ((Const *)${this.value})->constvalue)`);
+            const [str, ptr] = await evalStrWithPtr(`OidOutputFunctionCall(${funcOid}, ((Const *)${this.getPointer()})->constvalue)`);
             await this.pfree(ptr);
             repr = str;
         } catch (e) {
@@ -1957,9 +2058,10 @@ class ExprNodeVariable extends NodeVariable {
             repr = await legacyOidOutputFunctionCall(funcOid);
         }
 
-        await this.pfree(tupoutput);
+        await this.pfree(tupOutput);
         await this.pfree(tupIsVarlena);
-        await this.pfree(tupIOParam);
+        if (tupIOParam)
+            await this.pfree(tupIOParam);
 
         return repr;
     }
@@ -1990,9 +2092,7 @@ class ExprNodeVariable extends NodeVariable {
 
     private async formatFuncExpr(rtable: RangeTableContainer) {
         const funcname = await this.getFuncName('funcid') ?? '(invalid func)';
-
         const args = await this.getListMemberElements('args');
-
         const coerceType = await this.getMemberValueEnum('funcformat');
 
         switch (coerceType) {
@@ -2313,11 +2413,11 @@ class ExprNodeVariable extends NodeVariable {
                 const upper = upperIndices[i];
                 const lower = lowerIndices[i];
                 let index = '[';
-                if (!utils.isNull(lower.value)) {
+                if (!this.debug.isNull(lower)) {
                     index += await this.getReprPlaceholder(lower, rtable);
                 }
                 index += ':';
-                if (!utils.isNull(upper.value)) {
+                if (!this.debug.isNull(upper)) {
                     index += await this.getReprPlaceholder(upper, rtable);
                 }
                 index += ']';
@@ -3168,12 +3268,11 @@ class ListElementsMember extends RealVariable {
         */
         const elements: RealVariable[] = [];
         for (let i = 0; i < length; i++) {
-            const expression = `(${this.evaluateName})[${i}].${this.cellValue}`;
+            const expression = `((ListCell *)${this.getPointer()})[${i}].${this.cellValue}`;
             const response = await this.debug.evaluate(expression, this.frameId);
             elements.push(new RealVariable({
                 name: `[${i}]` /* array elements behaviour */,
                 type: this.listCellType,
-                evaluateName: expression,
                 variablesReference: response.variablesReference,
                 value: response.result,
                 memoryReference: response.memoryReference,
@@ -3262,7 +3361,7 @@ class LinkedListElementsMember extends Variable {
             evaluateName = `${evaluateName}->next`;
             cell = await this.debug.evaluate(evaluateName, this.frameId);
             ++i;
-        } while (!utils.isNull(cell.result));
+        } while (!this.debug.isNull({...cell, value: cell.result}));
 
         return await Variable.mapVariables(elements, this.frameId, this.context,
             this.logger, this.listParent);
@@ -3294,11 +3393,11 @@ export class ListNodeVariable extends NodeVariable {
     }
 
     getMemberExpression(member: string) {
-        return `((${this.getRealType()})${this.value})->${member}`
+        return `((${this.getRealType()})${this.getPointer()})->${member}`
     }
 
     isEmpty() {
-        return utils.isNull(this.value);
+        return this.debug.isNull(this);
     }
 
     protected isExpandable(): boolean {
@@ -3333,7 +3432,7 @@ export class ListNodeVariable extends NodeVariable {
 
         /* Check only 1 case - they are mutually exclusive */
         if (this.parent instanceof VariablesRoot) {
-            const func = await this.debug.getFunctionName(this.frameId);
+            const func = await this.debug.getCurrentFunctionName();
             if (func) {
                 const info = map.get(func);
                 if (info) {
@@ -3426,11 +3525,11 @@ export class ListNodeVariable extends NodeVariable {
 
     private async castToList() {
         const realType = this.getRealType();
-        const castExpression = `(${realType}) (${this.evaluateName})`;
+        const castExpression = `(${realType}) (${this.getPointer()})`;
         const response = await this.debug.evaluate(castExpression, this.frameId);
         if (!Number.isInteger(response.variablesReference)) {
-            this.logger.warn('failed to cast %s to List*: %s',
-                this.evaluateName, response.result);
+            this.logger.warn('failed to cast %s to List: %s',
+                this.name, response.result);
             return;
         }
 
@@ -3525,7 +3624,7 @@ export class ArraySpecialMember extends RealVariable {
     }
 
     async doGetRealMembers() {
-        const lengthExpr = `(${this.parent.evaluateName})->${this.info.lengthExpr}`;
+        const lengthExpr = `((${this.parent.type})${this.parent.getPointer()})->${this.info.lengthExpr}`;
         const evalResult = await this.evaluate(lengthExpr);
         const length = Number(evalResult.result);
         if (Number.isNaN(length)) {
@@ -3538,7 +3637,7 @@ export class ArraySpecialMember extends RealVariable {
             return await super.doGetRealMembers();
         }
 
-        const memberExpr = `(${this.parent.evaluateName})->${this.info.memberName}`;
+        const memberExpr = `((${this.parent.type})${this.parent.getPointer()})->${this.info.memberName}`;
         const debugVariables = await this.debug.getArrayVariables(memberExpr,
             length, this.frameId);
         return await Variable.mapVariables(debugVariables, this.frameId, this.context,
@@ -3572,7 +3671,7 @@ class BitmapSetSpecialMember extends NodeVariable {
          * checking. So we do it here
          */
         if (this.context.hasBmsNodeTag) {
-            const tag = await this.evaluate(`((Bitmapset *)${this.value})->type`);
+            const tag = await this.evaluate(`((Bitmapset *)${this.getPointer()})->type`);
             if (tag.result !== 'T_Bitmapset') {
                 if (!utils.isValidIdentifier(tag.result)) {
                     /* Do not track NodeTag anymore and perform check again */
@@ -3594,7 +3693,7 @@ class BitmapSetSpecialMember extends NodeVariable {
              * but it contains garbage and value will be too large - we
              * check this too. 50 seems big enough to start worrying about.
              */
-            const result = await this.evaluate(`((Bitmapset *)${this.value})->nwords`);
+            const result = await this.evaluate(`((Bitmapset *)${this.getPointer()})->nwords`);
             const nwords = Number(result.result);
             if (!(result.result && Number.isInteger(nwords) && nwords < 50)) {
                 return false;
@@ -3602,9 +3701,9 @@ class BitmapSetSpecialMember extends NodeVariable {
         }
 
         if (this.context.hasBmsIsValidSet) {
-            const expression = `bms_is_valid_set((Bitmapset *)${this.value})`;
+            const expression = `bms_is_valid_set((Bitmapset *)${this.getPointer()})`;
             const response = await this.evaluate(expression);
-            if (utils.isFailedVar(response)) {
+            if (this.debug.isFailedVar(response)) {
                 /*
                  * `bms_is_valid_set' introduced in 17.
                  * On other versions `type` member will be not set (undefined).
@@ -3615,7 +3714,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                 return true;
             }
 
-            return utils.extractBoolFromValue(response.result) ?? false;
+            return this.debug.extractBool({...response, value: response.result}) ?? false;
         }
 
         return true;
@@ -3707,7 +3806,7 @@ class BitmapSetSpecialMember extends NodeVariable {
         let number = -1;
         const numbers = [];
         do {
-            const expression = `bms_next_member((Bitmapset *)${this.value}, ${number})`;
+            const expression = `bms_next_member((Bitmapset *)${this.getPointer()}, ${number})`;
             const response = await this.evaluate(expression);
             number = Number(response.result);
             if (Number.isNaN(number)) {
@@ -3741,17 +3840,17 @@ class BitmapSetSpecialMember extends NodeVariable {
          *
          * pfree(tmp);
          */
-        const e = await this.evaluate(`bms_copy(${this.evaluateName})`);
-        const bms = e.result;
-        if (!utils.isValidPointer(bms)) {
-            if (utils.isNull(bms)) {
+        const e = await this.evaluate(`bms_copy((Bitmapset *)${this.getPointer()})`);
+        if (!this.debug.isValidPointerType({...e, value: e.result})) {
+            if (this.debug.isNull({...e, value: e.result})) {
                 return;
             }
-
+            
             this.logger.warn('error during "bms_copy" evaluation: %s', e.result);
             return;
         }
-
+        
+        const bms = e.result;
         let number = -1;
         const numbers = [];
         do {
@@ -3818,7 +3917,7 @@ class BitmapSetSpecialMember extends NodeVariable {
         const ref = await this.getBmsRef();
 
         members.push(new ScalarVariable('$length$', setMembers.length.toString(),
-            'int', this.context, this.logger, this));
+            '', this.context, this.logger, this));
         members.push(new BitmapSetSpecialMember.BmsArrayVariable(this, setMembers, ref));
 
         return members.filter(v => v.name !== 'words');
@@ -3959,7 +4058,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                     /* Empty List* will be created as RealVariable */
                     return;
                 }
-                const expr = `(${field.evaluateName})[${index}]`;
+                const expr = `((${field.type})${field.getPointer()})[${index}]`;
                 const result = await this.debug.evaluate(expr, this.bmsParent.frameId);
                 if (result.result) {
                     return await Variable.create({
@@ -4067,7 +4166,7 @@ class ValueVariable extends NodeVariable {
         if (!this.context.hasValueStruct) {
             /* Try cast struct to corresponding tag */
             const result = await this.castToTag(this.realNodeTag);
-            if (!utils.isFailedVar(result)) {
+            if (!this.debug.isFailedVar(result)) {
                 /* Success */
                 return;
             }
@@ -4078,7 +4177,7 @@ class ValueVariable extends NodeVariable {
 
         const result = await this.castToTag('Value');
         /* Try cast to 'Value' structure */
-        if (!utils.isFailedVar(result)) {
+        if (!this.debug.isFailedVar(result)) {
             /* On success update flag indicating we have 'Value' */
             this.context.hasValueStruct = true;
             return;
@@ -4176,14 +4275,14 @@ class ValueVariable extends NodeVariable {
                 throw new EvaluationError('member Value->val.str not found');
             }
 
-            return utils.extractStringFromResult(str.value);
+            return this.debug.extractString(str);
         } else {
             const sval = children.find(v => v.name === 'sval');
             if (!sval) {
                 throw new EvaluationError('member String->sval not found');
             }
 
-            return utils.extractStringFromResult(sval.value);
+            return this.debug.extractString(sval);
         }
     }
 }
@@ -4210,7 +4309,7 @@ class HTABSpecialMember extends RealVariable {
 
         let parent;
         if (this.parent instanceof VariablesRoot) {
-            parent = await this.debug.getFunctionName(this.frameId);
+            parent = await this.debug.getCurrentFunctionName();
             if (!parent) {
                 return;
             }
@@ -4301,13 +4400,31 @@ class HTABElementsMember extends Variable {
         }
     }
 
-    private async createHashSeqStatus(): Promise<string> {
+    private async createHashSeqStatus(): Promise<string | undefined> {
         /*
          * HASH_SEQ_STATUS *status = palloc(sizeof(HASH_SEQ_STATUS));
          * hash_seq_init(status, htab);
          */
         const memory = await this.palloc('sizeof(HASH_SEQ_STATUS)');
-        await this.evaluate(`hash_seq_init((HASH_SEQ_STATUS *)${memory}, (HTAB *)${this.htab.value})`);
+        const pointer = this.htab.getPointer();
+        let result = await this.evaluateVoid(`hash_seq_init((HASH_SEQ_STATUS *)${memory}, (HTAB *)${pointer})`);
+        if (this.debug.isFailedVar(result)) {
+            /* 
+             * In CodeLLDB first invocation of hash_seq_init always fails with
+             * error like 'reference to HASH_SEQ_STATUS is ambiguous'.
+             * But subsequent calls succeeds.
+             */
+            if (result.result.indexOf('ambiguous') !== -1) {
+                result = await this.evaluateVoid(`hash_seq_init((HASH_SEQ_STATUS *)${memory}, (HTAB *)${pointer})`);
+            }
+
+            if (this.debug.isFailedVar(result)) {
+                await this.pfree(memory);
+                this.logger.error('failed to invoke hash_seq_init: %s', result.result);
+                return undefined;
+            }
+        }
+
         return memory;
     }
 
@@ -4316,7 +4433,10 @@ class HTABElementsMember extends Variable {
          * hash_seq_term(status);
          * pfree(status);
          */
-        await this.evaluate(`hash_seq_term((HASH_SEQ_STATUS *)${hashSeqStatus})`);
+        const result = await this.evaluateVoid(`hash_seq_term((HASH_SEQ_STATUS *)${hashSeqStatus})`);
+        if (this.debug.isFailedVar(result)) {
+            this.logger.error('Could not invoke hash_seq_term: %s', result.result);
+        }
         await this.pfree(hashSeqStatus);
     }
 
@@ -4326,11 +4446,13 @@ class HTABElementsMember extends Variable {
             throw new EvaluationError('failed to get next hash table entry');
         }
 
-        if (utils.isValidPointer(result.result)) {
+        const pseudoVar = {...result, value: result.result};
+
+        if (this.debug.isValidPointerType(pseudoVar)) {
             return result.result;
         }
 
-        if (utils.isNull(result.result)) {
+        if (this.debug.isNull(pseudoVar)) {
             return undefined;
         }
 
@@ -4340,13 +4462,16 @@ class HTABElementsMember extends Variable {
     async doGetChildren(): Promise<Variable[] | undefined> {
         const variables: Variable[] = [];
         const hashSeqStatus = await this.createHashSeqStatus();
+        if (!hashSeqStatus) {
+            return;
+        }
 
         let entry;
         while ((entry = await this.getNextHashEntry(hashSeqStatus))) {
             const result = await this.evaluate(`(${this.entryType})${entry}`);
 
             /* user can specify non-existent type */
-            if (utils.isFailedVar(result)) {
+            if (this.debug.isFailedVar(result)) {
                 this.logger.warn('Failed to create variable with type %s: %s', this.entryType, result.result);
                 await this.finalizeHashSeqStatus(hashSeqStatus);
                 return undefined;
@@ -4500,9 +4625,9 @@ class SimplehashElementsMember extends Variable {
         /* 
          * Using 'sizeof' can be first filter to define wheter it has any iteration facility.
          */
-        let value;
+        let iteratorPtr;
         try {
-            value = await this.palloc(`sizeof(${iteratorType})`);
+            iteratorPtr = await this.palloc(`sizeof(${iteratorType})`);
         } catch (error) {
             if (error instanceof EvaluationError) {
                 this.hashTable.entry.canIterate = false;
@@ -4512,26 +4637,29 @@ class SimplehashElementsMember extends Variable {
         }
 
         /* 'start_iterate' seems not important to cache for optimization */
-        const result = await this.evaluate(`${this.hashTable.prefix}_start_iterate((${hashTableType} *) ${this.hashTable.value}, (${iteratorType} *)${value})`)
-        if (utils.isFailedVar(result)) {
-            await this.pfree(value);
+        const hashTablePointer = `(${hashTableType} *) ${this.hashTable.getPointer()}`;
+        const iteratorPointer = `(${iteratorType} *)${iteratorPtr}`;
+        const expr = `${this.hashTable.prefix}_start_iterate(${hashTablePointer}, ${iteratorPointer})`;
+        const result = await this.evaluateVoid(expr);
+        if (this.debug.isFailedVar(result)) {
+            await this.pfree(iteratorPtr);
             this.hashTable.entry.canIterate = false;
             return undefined;
         }
 
-        return value;
+        return iteratorPtr;
     }
 
     async iterate(iterator: string, current: number) {
         const iterFunction = this.getIteratorFunction();
         const hashTableType = this.getHashTableType();
         const iteratorType = this.getIteratorType();
-        const result = await this.evaluate(`(${this.hashTable.elementType}) ${iterFunction}((${hashTableType} *) ${this.hashTable.value}, (${iteratorType} *)${iterator})`);
-        if (utils.isNull(result.result)) {
+        const result = await this.evaluate(`(${this.hashTable.elementType}) ${iterFunction}((${hashTableType} *) ${this.hashTable.getPointer()}, (${iteratorType} *)${iterator})`);
+        if (this.debug.isNull({...result, value: result.result})) {
             return undefined;
         }
 
-        if (utils.isFailedVar(result)) {
+        if (this.debug.isFailedVar(result)) {
             this.hashTable.entry.canIterate = false;
             return undefined;
         }

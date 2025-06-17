@@ -2,21 +2,15 @@ import * as vscode from 'vscode';
 import * as vars from './variables';
 import * as utils from './utils';
 import * as formatter from './formatter';
+import { setupDebugger } from './debugger';
+
 import {
+    NodePreviewTreeViewProvider,
     NodePreviewTreeViewProvider as PgVariablesView,
     Configuration as config,
     getCurrentLogLevel,
     setupExtension
 } from './extension';
-
-function createDebugFacade(context: vscode.ExtensionContext) {
-    const debug = new utils.VsCodeDebuggerFacade();
-    if (!utils.Features.hasEvaluateArrayLength()) {
-        debug.switchToManualArrayExpansion();
-    }
-    context.subscriptions.push(debug);
-    return debug;
-}
 
 function createLogger(context: vscode.ExtensionContext): utils.ILogger {
     let outputChannel;
@@ -53,10 +47,9 @@ function createPostgresVariablesView(context: vscode.ExtensionContext,
                                      logger: utils.ILogger,
                                      nodeVars: vars.NodeVarRegistry,
                                      specialMembers: vars.SpecialMemberRegistry,
-                                     debug: utils.VsCodeDebuggerFacade,
                                      hashTableTypes: vars.HashTableTypes) {
     const nodesView = new PgVariablesView(logger, nodeVars, 
-                                          specialMembers, debug, hashTableTypes);
+                                          specialMembers, hashTableTypes);
     const nodesViewName = config.Views.NodePreviewTreeView;
     const treeDisposable = vscode.window.registerTreeDataProvider(nodesViewName,
                                                                   nodesView);
@@ -64,43 +57,19 @@ function createPostgresVariablesView(context: vscode.ExtensionContext,
     return nodesView;
 }
 
-function setupDebugger(
-    dataProvider: PgVariablesView,
-    logger: utils.ILogger,
-    debug: utils.VsCodeDebuggerFacade,
-    context: vscode.ExtensionContext) {
-
-    if (utils.Features.debugFocusEnabled()) {
-        vscode.debug.onDidChangeActiveStackItem(() => dataProvider.refresh(),
-            undefined, context.subscriptions);
-    } else {
-        logger.warn(
-            'Current version of VS Code (%s) do not support ' +
-            'debugFocus API, falling back to compatible event-based implementation. ' +
-            'Some features might be not accessible. ' +
-            'Please update VS Code to version 1.90 or higher', vscode.version
-        );
-
-        debug.switchToEventBasedRefresh(context, dataProvider);
-    }
-    return;
-}
-
 export function activate(context: vscode.ExtensionContext) {
     const logger = createLogger(context);
     try {
         logger.info('Extension is activating');
-        const debug = createDebugFacade(context);
         const nodeVars = new vars.NodeVarRegistry();
         const specialMembers = new vars.SpecialMemberRegistry();
         const hashTableTypes = new vars.HashTableTypes();
 
         const nodesView = createPostgresVariablesView(context, logger, nodeVars, 
-                                                      specialMembers, debug, hashTableTypes);
+                                                      specialMembers, hashTableTypes);
 
-        setupExtension(context, specialMembers, nodeVars, hashTableTypes, debug, logger, nodesView);
-                
-        setupDebugger(nodesView, logger, debug, context);
+        setupExtension(context, specialMembers, nodeVars, hashTableTypes, logger, nodesView);
+        setupDebugger(nodesView, context);
 
         formatter.registerFormatting(logger);
 
