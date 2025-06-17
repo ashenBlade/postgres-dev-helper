@@ -14,26 +14,47 @@ After that we get variables from the 'PG VARIABLES' view and compare `TreeItem`s
 Firstly, you must setup environment.
 
 We do not mock behavior, instead run database and perform operations on it.
-To setup database `./assets` directory is used. It contains `setup.sh` script which: downloads PostgreSQL (of required version), applies patch with test function, run `./configure` script, builds binaries and creates database (with schema).
+To setup database `./src/test/setup.sh` script is used, which:
+
+1. downloads PostgreSQL (of required version)
+2. applies patch with test function
+3. run `./configure` script
+4. builds binaries
+5. creates database (with schema).
 
 Example usage:
 
 ```bash
-cd src/test/assets
-./setup.sh --pg-version=17.4
+./src/test/setup.sh --pg-version=17.4
 ```
 
-After that, source code, binaries and database will be installed in `/tmp/pgsrc`, `/tmp/pgsrc/build` and `/tmp/pgsrc/data` accordingly.
+After that, source code, binaries and database will be installed in `./pgsrc`, `./pgsrc/build` and `./pgsrc/data` accordingly (starting from extension directory root).
 
-And finally, run `test` script:
+To run tests use `./src/test/test.sh` script:
 
 ```bash
-npm test
+./src/test/test.sh
 ```
+
+It will run test pipeline with full matrix testing:
+
+- PG Version: 17 - 9.6
+- VS Code version: stable, 1.90, 1.80, 1.70
+- Debugger: CppDbg, CodeLLDB
+
+There are useful flags that allows to specify which value range to use:
+
+```bash
+./src/test/test.sh --pg-versions="17 16 15" \
+                   --vscode-versions="stable 1.90" \
+                   --debuggers="lldb"
+```
+
+Use `--help` flag to get more info about.
 
 ## Test design
 
-There are 2 main moments, which you should take into account.
+There are 2 main moments, which you should take into account if you want to write tests.
 
 ### Sequential execution
 
@@ -53,7 +74,7 @@ Reasons:
 
 ## Do not check `description`
 
-When performing assertions on generic variable, do not rely on `description` member (from `TreeItem`).
+When performing assertions on generic variable, do not rely on `description` member (from `vscode.TreeItem`).
 You can use it when working with our custom members (i.e. number from `Bitmapset`).
 In other cases rely on *stable* parts - variable/member name or type.
 
