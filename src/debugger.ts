@@ -12,7 +12,22 @@ export interface IDebugVariable {
 const pointerRegex = /^0x[0-9abcdef]+$/i;
 const nullRegex = /^0x0+$/i;
 const builtInTypes = new Set([
+    /* Standard builtin C types */
     'char', 'short', 'int', 'long', 'double', 'float', '_Bool', 'void',
+    'uintptr_t',
+
+    /* src/include/c.h */
+    'int8', 'int16', 'int32', 'uint8', 'uint16', 'uint32',
+    'bits8', 'bits16', 'bits32', 'int64', 'uint64', 'int128', 'uint128',
+    'Size', 'size_t', 'Index', 'Offset', 'float4', 'float8', 'Oid',
+    'regproc', 'RegProcedure', 'TransactionId', 'SubTransactionId',
+    'MultiXactId', 'MultiXactOffset', 'CommandId',
+
+    /* src/include/postgres.h */
+    'Datum',
+    
+    /* src/include/nodes/nodes.h */
+    'Cost', 'Selectivity', 'Cardinality', 'ParseLoc', 'NodeTag'
 ]);
 
 export enum DebuggerType {
@@ -544,6 +559,10 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
         return scope.name === 'Local';
     }
 
+    valueRepresentsStructure(value: string) {
+        return value.startsWith('{') && value.endsWith('}');
+    }
+
     async evaluate(expression: string, frameId: number | undefined, context?: string, noReturn?: boolean): Promise<dap.EvaluateResponse> {
         try {
             context ??= 'watch';
@@ -602,8 +621,7 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
          *  1. Raw pointer, i.e. 0x00006295b176f6b0
          *  2. Structure fields around curly brackets, i.e. {type:T_PlannerInfo}
          */
-        if (variable.value.startsWith('{') && variable.value.endsWith('}') &&
-            variable.type.indexOf('*') !== -1) {
+        if (this.valueRepresentsStructure(variable.value) && variable.type.indexOf('*') !== -1) {
             return true;
         }
 
@@ -612,6 +630,18 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
         }
 
         return false;
+    }
+
+    isScalarType(variable: IDebugVariable, type?: string) {
+        /* 
+         * CodeLLDB displays structures in 'description', so we can use
+         * this info to figure out, that even if type is not builtin, it
+         * is actually not a struct.
+         * 'valueRepresentsStructure' also covers case, when 'description'
+         * is array - it rendered as '{1, 2, 3, ...}'.
+         */
+        return super.isScalarType(variable, type) || 
+              !this.valueRepresentsStructure(variable.value);
     }
 
     isValueStruct(variable: IDebugVariable, type?: string): boolean {
