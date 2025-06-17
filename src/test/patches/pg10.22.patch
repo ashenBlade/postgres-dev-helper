@@ -1,8 +1,8 @@
 diff --git a/src/backend/optimizer/plan/Makefile b/src/backend/optimizer/plan/Makefile
-index 80ef162e484..84b847faaf9 100644
+index 88a9f7ff8c0..d4678a02ad0 100644
 --- a/src/backend/optimizer/plan/Makefile
 +++ b/src/backend/optimizer/plan/Makefile
-@@ -13,6 +13,6 @@
+@@ -13,6 +13,6 @@ top_builddir = ../../../..
  include $(top_builddir)/src/Makefile.global
  
  OBJS = analyzejoins.o createplan.o initsplan.o planagg.o planmain.o planner.o \
@@ -11,10 +11,10 @@ index 80ef162e484..84b847faaf9 100644
  
  include $(top_srcdir)/src/backend/common.mk
 diff --git a/src/backend/optimizer/plan/planmain.c b/src/backend/optimizer/plan/planmain.c
-index e17d31a5c3e..0bc057825d3 100644
+index f4e0a6ea3df..9922e07b3bd 100644
 --- a/src/backend/optimizer/plan/planmain.c
 +++ b/src/backend/optimizer/plan/planmain.c
-@@ -29,6 +29,7 @@
+@@ -27,6 +27,7 @@
  #include "optimizer/placeholder.h"
  #include "optimizer/planmain.h"
  
@@ -22,7 +22,7 @@ index e17d31a5c3e..0bc057825d3 100644
  
  /*
   * query_planner
-@@ -284,5 +285,7 @@ query_planner(PlannerInfo *root,
+@@ -263,5 +264,7 @@ query_planner(PlannerInfo *root, List *tlist,
  		final_rel->cheapest_total_path->param_info != NULL)
  		elog(ERROR, "failed to construct the join relation");
  
@@ -32,16 +32,17 @@ index e17d31a5c3e..0bc057825d3 100644
  }
 diff --git a/src/backend/optimizer/plan/vscodehelper.c b/src/backend/optimizer/plan/vscodehelper.c
 new file mode 100644
-index 00000000000..76f2903e179
+index 00000000000..358d8795a48
 --- /dev/null
 +++ b/src/backend/optimizer/plan/vscodehelper.c
-@@ -0,0 +1,128 @@
+@@ -0,0 +1,248 @@
 +#include "postgres.h"
 +
++#include "nodes/relation.h"
 +#include "nodes/bitmapset.h"
-+#include "nodes/pathnodes.h"
 +#include "utils/hsearch.h"
 +
++#define UNUSED(x) ((void)x)
 +#define ARRAY_SIZE 16
 +
 +typedef struct TestStructure
@@ -70,13 +71,47 @@ index 00000000000..76f2903e179
 +	int array[];
 +} TestFlexibleArrayMember;
 +
++typedef struct CustomListElement
++{
++	int value;
++} CustomListElement;
++
++typedef struct CustomListVariable
++{
++	List *value;
++} CustomListVariable;
++
 +typedef struct TestHtabEntry
 +{
 +	int key;
 +	int value;
 +} TestHtabEntry;
 +
++typedef struct SimpleHashEntry
++{
++	uint32 status;
++	uint32 hash;
++	int key;
++	int value;
++} SimpleHashEntry;
++
++#define SH_PREFIX 			testhash
++#define SH_ELEMENT_TYPE 	SimpleHashEntry
++#define SH_KEY_TYPE 		int
++#define SH_KEY				key
++#define SH_SCOPE 			static inline
++#define SH_HASH_KEY(tb, key)   ((uint32)(key))
++#define SH_EQUAL(tb, a, b) 	((a) == (b))
++#define SH_STORE_HASH
++#define SH_GET_HASH(tb, a)	((a)->hash)
++#define SH_DECLARE
++#define SH_DEFINE
++#include "lib/simplehash.h"
++
++static Bitmapset *create_bms(void);
 +static HTAB *create_htab(void);
++static testhash_hash *create_simplehash(void);
++static List *create_custom_list(void);
 +
 +static HTAB *
 +create_htab(void)
@@ -105,6 +140,64 @@ index 00000000000..76f2903e179
 +	return htab;
 +}
 +
++static testhash_hash *
++create_simplehash(void)
++{
++	testhash_hash *hash;
++	bool found;
++	SimpleHashEntry *entry;
++
++	hash = testhash_create(CurrentMemoryContext, 6, NULL);
++	entry = testhash_insert(hash, 1, &found);
++	entry->value = 2;
++	entry = testhash_insert(hash, 10, &found);
++	entry->value = 4;
++	entry = testhash_insert(hash, 20, &found);
++	entry->value = 8;
++
++	return hash;
++}
++
++static Bitmapset *
++create_bms(void)
++{
++	Bitmapset *bms = NULL;
++	for (int i = 5; i <= 9; i++)
++		bms = bms_add_member(bms, i);
++	return bms;
++}
++
++static List *
++create_custom_list(void)
++{
++	List *list = NIL;
++	CustomListElement *element;
++
++	element = palloc(sizeof(CustomListElement));
++	element->value = 1;
++	list = lappend(list, element);
++
++	element = palloc(sizeof(CustomListElement));
++	element->value = 2;
++	list = lappend(list, element);
++
++	element = palloc(sizeof(CustomListElement));
++	element->value = 3;
++	list = lappend(list, element);
++
++	return list;
++}
++
++void
++vscode_test_helper_unused(void *pointer)
++{
++	/* This function is used to prevent symbol truncation in debug builds */
++	testhash_iterator iterator;
++	testhash_hash *hash = (testhash_hash *)pointer;
++	testhash_start_iterate(hash, &iterator);
++	testhash_iterate(hash, &iterator);
++}
++
 +void
 +vscode_test_helper(PlannerInfo *root)
 +{
@@ -126,10 +219,12 @@ index 00000000000..76f2903e179
 +	Expr *expr;
 +	List *list;
 +	List *int_list;
++	List *custom_list;
++	CustomListVariable custom_list_variable;
 +	HTAB *htab;
 +	RestrictInfo *rinfo;
 +	EquivalenceClass *eclass;
-+	HASH_SEQ_STATUS seq_status;
++	testhash_hash *simplehash;
 +
 +	/* Protect against arbitrary query */
 +	if (!(   list_length(root->parse->rtable) == 3
@@ -139,9 +234,12 @@ index 00000000000..76f2903e179
 +
 +	int_list = list_make4_int(1, 2, 4, 8);
 +	list = list_make3(root, root->parse, root->parse->rtable);
++	custom_list = create_custom_list();
++	custom_list_variable.value = custom_list;
 +	node = (Node *) root;
-+	bms = bms_add_range(NULL, 5, 9);
++	bms = create_bms();
 +	htab = create_htab();
++	simplehash = create_simplehash();
 +	rinfo = (RestrictInfo *) linitial((root->simple_rel_array[1])->baserestrictinfo);
 +	expr = rinfo->clause;
 +	eclass = (EquivalenceClass *) linitial(root->eq_classes);
@@ -161,6 +259,28 @@ index 00000000000..76f2903e179
 +		structure_pointer_array[j] = palloc(sizeof(TestStructure));
 +		structure_pointer_array[j]->value = j + 1;
 +	}
++
++	UNUSED(bms);
++	UNUSED(node);
++	UNUSED(expr);
++	UNUSED(list);
++	UNUSED(int_list);
++	UNUSED(htab);
++	UNUSED(rinfo);
++	UNUSED(eclass);
++	UNUSED(simplehash);
++	UNUSED(i);
++	UNUSED(int_array);
++	UNUSED(structure_array);
++	UNUSED(structure_pointer_array);
++	UNUSED(value_struct);
++	UNUSED(pointer_struct);
++	UNUSED(pointer_member);
++	UNUSED(embedded_member);
++	UNUSED(fixed_size_array_member);
++	UNUSED(flexible_array_member);
++	UNUSED(custom_list);
++	UNUSED(custom_list_variable);
 +
 +	return;
 +}

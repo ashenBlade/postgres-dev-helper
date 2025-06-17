@@ -3,7 +3,7 @@
 function print_help {
     cat <<EOM
 Run database and/or PSQL with settings for current installation.
-Log file is written to ./postgresql.log
+Log file is written to ./postgresql.log.
 
 Usage: $0 [--run-db] [--stop-db]
 
@@ -12,6 +12,9 @@ Usage: $0 [--run-db] [--stop-db]
     --help, -h          Print this help message
 
 Example: $0 --run
+
+NOTE: this script is intended to run in test database
+      and locate in root of src directory
 EOM
 }
 

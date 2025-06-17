@@ -35,7 +35,7 @@ new file mode 100644
 index 00000000000..358d8795a48
 --- /dev/null
 +++ b/src/backend/optimizer/plan/vscodehelper.c
-@@ -0,0 +1,138 @@
+@@ -0,0 +1,197 @@
 +#include "postgres.h"
 +
 +#include "nodes/relation.h"
@@ -43,6 +43,9 @@ index 00000000000..358d8795a48
 +#include "utils/hsearch.h"
 +
 +#define ARRAY_SIZE 16
++#define UNUSED(x) ((void)x)
++
++extern void vscode_test_helper(PlannerInfo *root);
 +
 +typedef struct TestStructure
 +{
@@ -70,6 +73,16 @@ index 00000000000..358d8795a48
 +	int array[];
 +} TestFlexibleArrayMember;
 +
++typedef struct CustomListElement
++{
++	int value;
++} CustomListElement;
++
++typedef struct CustomListVariable
++{
++	List *value;
++} CustomListVariable;
++
 +typedef struct TestHtabEntry
 +{
 +	int key;
@@ -78,6 +91,7 @@ index 00000000000..358d8795a48
 +
 +static HTAB *create_htab(void);
 +static Bitmapset *create_bms(void);
++static List *create_custom_list(void);
 +
 +static HTAB *
 +create_htab(void)
@@ -115,6 +129,27 @@ index 00000000000..358d8795a48
 +	return bms;
 +}
 +
++static List *
++create_custom_list(void)
++{
++	List *list = NIL;
++	CustomListElement *element;
++
++	element = palloc(sizeof(CustomListElement));
++	element->value = 1;
++	list = lappend(list, element);
++
++	element = palloc(sizeof(CustomListElement));
++	element->value = 2;
++	list = lappend(list, element);
++
++	element = palloc(sizeof(CustomListElement));
++	element->value = 3;
++	list = lappend(list, element);
++
++	return list;
++}
++
 +void
 +vscode_test_helper(PlannerInfo *root)
 +{
@@ -136,10 +171,11 @@ index 00000000000..358d8795a48
 +	Expr *expr;
 +	List *list;
 +	List *int_list;
++	List *custom_list;
++	CustomListVariable custom_list_variable;
 +	HTAB *htab;
 +	RestrictInfo *rinfo;
 +	EquivalenceClass *eclass;
-+	HASH_SEQ_STATUS seq_status;
 +
 +	/* Protect against arbitrary query */
 +	if (!(   list_length(root->parse->rtable) == 3
@@ -149,6 +185,8 @@ index 00000000000..358d8795a48
 +
 +	int_list = list_make4_int(1, 2, 4, 8);
 +	list = list_make3(root, root->parse, root->parse->rtable);
++	custom_list = create_custom_list();
++	custom_list_variable.value = custom_list;
 +	node = (Node *) root;
 +	bms = create_bms();
 +	htab = create_htab();
@@ -171,6 +209,27 @@ index 00000000000..358d8795a48
 +		structure_pointer_array[j] = palloc(sizeof(TestStructure));
 +		structure_pointer_array[j]->value = j + 1;
 +	}
++
++	UNUSED(bms);
++	UNUSED(node);
++	UNUSED(expr);
++	UNUSED(list);
++	UNUSED(int_list);
++	UNUSED(htab);
++	UNUSED(rinfo);
++	UNUSED(eclass);
++	UNUSED(i);
++	UNUSED(int_array);
++	UNUSED(structure_array);
++	UNUSED(structure_pointer_array);
++	UNUSED(value_struct);
++	UNUSED(pointer_struct);
++	UNUSED(pointer_member);
++	UNUSED(embedded_member);
++	UNUSED(fixed_size_array_member);
++	UNUSED(flexible_array_member);
++	UNUSED(custom_list);
++	UNUSED(custom_list_variable);
 +
 +	return;
 +}

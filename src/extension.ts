@@ -931,7 +931,7 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
             if (parseResult.customListTypes) {
                 logger.debug('adding %i custom list types', parseResult.customListTypes.length);
                 try {
-                    specialMembers.addNodePtrSpecialMembers(parseResult.customListTypes);
+                    specialMembers.addListCustomPtrSpecialMembers(parseResult.customListTypes);
                 } catch (e) {
                     vscode.window.showErrorMessage('failed to add custom List types');
                     logger.error('error occurred during adding custom List types', e);

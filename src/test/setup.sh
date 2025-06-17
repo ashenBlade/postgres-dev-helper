@@ -49,7 +49,7 @@ while [ "$1" ]; do
 done
 
 # Exit on error
-set -e
+set -e -o pipefail
 
 if [[ -z "$ARG_PG_VERSION" ]]; then
     echo "--pg-version is not set - specify PostgreSQL version"
@@ -98,7 +98,7 @@ EXT_ROOT_DIR="$PWD"
 
 CFLAGS="-O0 -g $CFLAGS"
 CPPFLAGS="-O0 -g $CPPFLAGS"
-PATCH_FILE="$EXT_ROOT_DIR/src/test/assets/patches/pg${PG_VERSION}.patch"
+PATCH_FILE="$EXT_ROOT_DIR/src/test/patches/pg${PG_VERSION}.patch"
 PG_SRC_DOWNLOAD_URL="https://ftp.postgresql.org/pub/source/v${PG_VERSION}/postgresql-${PG_VERSION}.tar.gz"
 CACHEDIR="$PWD/src/test/cache"
 TARFILE="$CACHEDIR/postgresql-${PG_VERSION}.tar.gz"
@@ -110,6 +110,7 @@ mkdir -p "$LOGDIR"
 
 # Download PostgreSQL source code into it's directory and apply patch
 {
+set -e -o pipefail
 rm -rf "$SRC_PATH"
 mkdir -p "$SRC_PATH"
 mkdir -p "$CACHEDIR"
@@ -158,5 +159,5 @@ psql -c "CREATE TABLE t2(x int, y int);"
 pg_ctl stop -w
 
 # Copy test function
-cp "$EXT_ROOT_DIR/src/test/assets/run.sh" "$SRC_PATH"
+cp "$EXT_ROOT_DIR/src/test/run.sh" "$SRC_PATH"
 } 2>&1 | tee "$LOGFILE"

@@ -177,7 +177,7 @@ export class SpecialMemberRegistry {
         this.arraySpecialMembers = new Map();
         this.listCustomPtrs = new Map();
         this.addArraySpecialMembers(constants.getArraySpecialMembers());
-        this.addNodePtrSpecialMembers(constants.getKnownCustomListPtrs());
+        this.addListCustomPtrSpecialMembers(constants.getKnownCustomListPtrs());
     }
 
     addArraySpecialMembers(elements: ArraySpecialMemberInfo[]) {
@@ -193,7 +193,7 @@ export class SpecialMemberRegistry {
         }
     }
 
-    addNodePtrSpecialMembers(elements: ListPtrSpecialMemberInfo[]) {
+    addListCustomPtrSpecialMembers(elements: ListPtrSpecialMemberInfo[]) {
         const addRecord = (member: string, funcOrStruct: string,
             info: ListPtrSpecialMemberInfo) => {
             const map = this.listCustomPtrs.get(member);

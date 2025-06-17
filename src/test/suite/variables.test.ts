@@ -52,14 +52,19 @@ type DebuggerType = 'cppdbg' | 'lldb';
 
 class TestEnv {
     /* Version of Postgresql being tested */
-    pgVersion: string;
+    pgVersion: number;
     /* Version of VS Code we are running on */
     vscodeVersion: string;
     /* Debugger extension is used */
     debugger: DebuggerType;
 
     constructor(pgVersion: string, vscodeVersion: string, debuggerType: DebuggerType) {
-        this.pgVersion = pgVersion;
+        this.pgVersion = Number(pgVersion);
+        if (Number.isNaN(this.pgVersion)) {
+            throw new Error(`Invalid PostgreSQL version "${pgVersion}".` +
+                            'Version must be in "major.minor" form.')
+        }
+
         this.vscodeVersion = vscodeVersion;
         this.debugger = debuggerType;
     }
@@ -71,10 +76,16 @@ class TestEnv {
     isCppDbg() {
         return this.debugger === 'cppdbg';
     }
+
+    pgVersionSatisfies(required: string) {
+        const requiredVersion = Number(required);
+        console.assert(!Number.isNaN(requiredVersion));
+        return this.pgVersion >= requiredVersion;
+    }
 }
 
 function getTestEnv(): TestEnv {
-    const pgVersion = process.env.PGHH_PG_VERSION ?? '17.4';
+    const pgVersion = process.env.PGHH_PG_VERSION ?? '17';
     const vscodeVersion = process.env.PGHH_VSCODE_VERSION ?? 'stable';
     const dbg = process.env.PGHH_DEBUGGER ?? 'cppdbg';
     if (!(dbg === 'cppdbg' || dbg === 'lldb')) {
@@ -205,6 +216,23 @@ suite('Variables', async () => {
                 member: 'htab',
                 type: 'TestHtabEntry *'
             }
+        ]);
+        treeViewProvider.execContext.hashTableTypes.addSimplehashTypes([
+            {
+                prefix: 'testhash',
+                elementType: 'SimpleHashEntry *',
+                canIterate: true,
+            }
+        ]);
+        treeViewProvider.execContext.specialMemberRegistry.addListCustomPtrSpecialMembers([
+            {
+                type: 'CustomListElement *',
+                variable: ['vscode_test_helper', 'custom_list']
+            },
+            {
+                type: 'CustomListElement *',
+                member: ['CustomListVariable', 'value']
+            },
         ]);
 
         /* Wait before breakpoint enables and run query */
@@ -482,10 +510,9 @@ suite('Variables', async () => {
         });
 
         /* List with non-pointer elements */
-        test('IntList', async () => {
+        test('List[Int]', async () => {
             /* int_list = [1, 2, 4, 8] */
-            const childrenItems = await expand(getVar("int_list"));
-            const elementsMember = getMember(childrenItems, '$elements$');
+            const elementsMember = await getMemberOf(getVar('int_list'), '$elements$');
             const listElements = await expand(elementsMember);
             assert.equal(listElements.length, 4,
                          '$elements$ does not contains all list members');
@@ -493,6 +520,35 @@ suite('Variables', async () => {
             const elementsValues = listElements.map(x => x.item.description);
             assert.deepEqual(elementsValues, ['1', '2', '4', '8'],
                             'values of IntList are not valid');
+        });
+
+        /* List with Non-Node pointer array elements */
+        test('List[CustomPtr]', async () => {
+            /* list = [{value: 1}, {value: 2}, {value: 3}] */
+
+            /* Check variable */
+            let elementsMember = await getMemberOf(getVar('custom_list'), '$elements$');
+            let elements = await expand(elementsMember);
+            assert.equal(elements.length, 3,
+                         '$elements$ of variable does not contains all list members');
+            
+            for (const [i, element] of elements.entries()) {
+                const valueMember = await getMemberOf(element, 'value');
+                assert.match(valueMember.item.description, intRegexp(i + 1),
+                             `Element at ${i} does not contain valid value for variable`);
+            }
+
+            /* Check member */
+            const valueMember = await getMemberOf(getVar('custom_list_variable'), 'value');
+            elementsMember = await getMemberOf(valueMember, '$elements$');
+            assert.equal(elements.length, 3,
+                         '$elements$ of member does not contains all list members');
+
+            for (const [i, element] of elements.entries()) {
+                const valueMember = await getMemberOf(element, 'value');
+                assert.match(valueMember.item.description, intRegexp(i + 1),
+                             `Element at ${i} does not contain valid value for member`);
+            } 
         });
 
         /* Bitmapset elements shown correctly */
@@ -579,6 +635,35 @@ suite('Variables', async () => {
                     {key: '20', value: '8'}
                 ]),
                 'Shown elements of HTAB are not ones that stored');
+        });
+
+        /* Simplehash elements are shown */
+        test('Simplehash', async function() {
+            if (!env.pgVersionSatisfies('10')) {
+                /* 9.6 does not support simple hash */
+                this.skip();
+            }
+
+            const elementsVar = await getMemberOf(getVar('simplehash'), '$elements$');
+            const elementsChildren = await expand(elementsVar);
+            assert.equal(elementsChildren.length, 3, 'simple hash must contain 3 elements');
+
+            const htabElements = [];
+            for (const pair of elementsChildren) {
+                const x = await expand(pair);
+                htabElements.push({
+                    key: getMember(x, 'key').item.description,
+                    value: getMember(x, 'value').item.description
+                });
+            }
+            assert.deepEqual(
+                new Set(htabElements), 
+                new Set([
+                    {key: '1', value: '2'}, 
+                    {key: '10', value: '4'}, 
+                    {key: '20', value: '8'}
+                ]),
+                'Shown elements of simplehash are not ones that stored');
         });
 
         /* Array members are rendered as actual array */

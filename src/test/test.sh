@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DEFAULT_VSCODE_VERSIONS="stable 1.90.2 1.80.2 1.70.2 1.67.2"
+DEFAULT_VSCODE_VERSIONS="stable 1.90.2 1.80.2 1.70.2"
 DEFAULT_PG_VERSIONS="17 16 15 14 13 12 11 10 9.6"
 DEFAULT_DEBUGGERS="cppdbg lldb"
 
@@ -103,12 +103,15 @@ for PGVERSION in $PG_VERSIONS; do
         ./src/test/setup.sh --pg-version="$PGVERSION" "$THREADS"
     fi
 
+    export PGHH_PG_VERSION="$PGVERSION"
     for VSCODEVERSION in $VSCODE_VERSIONS; do
         export PGHH_VSCODE_VERSION="$VSCODEVERSION"
         for DEBUGGER in $DEBUGGERS; do
             {
-                echo "Testing PostgreSQL $PGVERSION in VS Code $VSCODEVERSION using $DEBUGGERS"
-                PGHH_DEBUGGER="$DEBUGGER" npm test
+                echo "Testing PostgreSQL $PGVERSION in VS Code $VSCODEVERSION using $DEBUGGER"
+                export PGHH_DEBUGGER="$DEBUGGER"
+
+                npm test
             } 2>&1 | tee "$LOGFILE"
         done
     done
