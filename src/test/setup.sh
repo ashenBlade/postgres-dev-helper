@@ -155,8 +155,8 @@ patch -p1 -i "$PATCH_FILE"
             --without-zstd \
             --without-llvm \
             --without-zlib \
-            CFLAGS="-O0 -g3 $CFLAGS" \
-            CPPFLAGS="-O0 -g3 $CPPFLAGS"
+            CFLAGS="-O0 -gdwarf-5 $CFLAGS" \
+            CPPFLAGS="-O0 -gdwarf-5 $CPPFLAGS"
 
 # Setup special file with 
 ENV_PATH="${PWD}/env.sh"
