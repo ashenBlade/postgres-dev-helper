@@ -143,7 +143,8 @@
                     "name": "pg variables",
                     "type": "tree",
                     "visibility": "visible",
-                    "when": "inDebugMode && postgresql-hacker-helper:activated"
+                    "when": "inDebugMode && postgresql-hacker-helper:activated",
+                    "icon": "./resources/logo.png"
                 }
             ]
         },
