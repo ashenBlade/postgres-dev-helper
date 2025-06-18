@@ -696,16 +696,21 @@ export abstract class Variable {
         };
 
         const realType = Variable.getRealType(debugVariable, context);
-        if (context.debug.isValueStruct(debugVariable, realType) ||      /* Raw struct, i.e. allocated on stack */
-            !context.debug.isValidPointerType(debugVariable)) {             /* NULL */
+        if (context.debug.isValueStruct(debugVariable, realType) ||
+            !context.debug.isValidPointerType(debugVariable)) {
             if (context.debug.isNull(debugVariable) && 
                 debugVariable.type.endsWith('List *')) {
                 /* 
                  * Empty List is NIL == NULL == '0x0'
                  *
-                 * Also 'endsWith' checks for 'const List *'
+                 * Also 'endsWith' covers cases like 'const List *'
                  */
                 return new ListNodeVariable('List', args);
+            }
+
+            if (realType === 'bitmapword') {
+                /* Show bitmapword as bitmask, not integer */
+                return new BitmapwordVariable(args);
             }
 
             return new RealVariable(args);
@@ -4134,6 +4139,33 @@ class BitmapSetSpecialMember extends NodeVariable {
             return utils.getPointersCount(type) === 0;
         }
         return false;
+    }
+}
+
+/**
+ * Represent single 'bitmapword' as bitmask, not integer
+ */
+class BitmapwordVariable extends RealVariable {
+    async getTreeItem(): Promise<vscode.TreeItem> {
+        const value = Number(this.value);
+        if (Number.isNaN(value)) {
+            return await super.getTreeItem();
+        }
+
+        let bitmask = value.toString(2);
+
+        /* 
+         * Pad length to nearest power of 2, so it is easier to compare
+         * multiple bitmapwords lying together.
+         */
+        const length = Math.pow(2, Math.ceil(Math.log2(bitmask.length)))
+        bitmask = bitmask.padStart(length, '0');
+
+        return {
+            label: `${this.name}: bitmapword`,
+            description: bitmask,
+            collapsibleState: vscode.TreeItemCollapsibleState.None
+        }
     }
 }
 
