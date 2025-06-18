@@ -28,7 +28,8 @@ Example usage:
 ./src/test/setup.sh --pg-version=17.4
 ```
 
-After that, source code, binaries and database will be installed in `./pgsrc`, `./pgsrc/build` and `./pgsrc/data` accordingly (starting from extension directory root).
+After that, source code, binaries and database will be installed in `./pgsrc/VERSION`, `./pgsrc/VERSION/build` and `./pgsrc/VERSION/data` accordingly (starting from extension directory root), where `VERSION` - is a major version of PostgreSQL.
+UNIX socket is used for connection - `EXT_ROOT/pgsrc/VERSION/data/.s.PGSQL.5432`.
 
 To run tests use `./src/test/test.sh` script:
 

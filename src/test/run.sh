@@ -57,7 +57,7 @@ source "$ENV_FILE"
 if [ "$RUN_DB" ]; then
     # Not 0 exit code can mean DB already running.
     # For tests this is valid
-    pg_ctl start -o '-k ""' -l ./postgresql.log -w || true
+    pg_ctl start -l "$PGDATA/postgresql.log" -w || true
 fi
 
 if [ "$STOP_DB" ]; then

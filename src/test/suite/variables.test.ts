@@ -52,15 +52,15 @@ type DebuggerType = 'cppdbg' | 'lldb';
 
 class TestEnv {
     /* Version of Postgresql being tested */
-    pgVersion: number;
+    pgVersion: string;
     /* Version of VS Code we are running on */
     vscodeVersion: string;
     /* Debugger extension is used */
     debugger: DebuggerType;
 
     constructor(pgVersion: string, vscodeVersion: string, debuggerType: DebuggerType) {
-        this.pgVersion = Number(pgVersion);
-        if (Number.isNaN(this.pgVersion)) {
+        this.pgVersion = pgVersion;
+        if (Number.isNaN(Number(this.pgVersion))) {
             throw new Error(`Invalid PostgreSQL version "${pgVersion}".` +
                             'Version must be in "major.minor" form.')
         }
@@ -80,7 +80,7 @@ class TestEnv {
     pgVersionSatisfies(required: string) {
         const requiredVersion = Number(required);
         console.assert(!Number.isNaN(requiredVersion));
-        return this.pgVersion >= requiredVersion;
+        return Number(this.pgVersion) >= requiredVersion;
     }
 }
 
@@ -164,9 +164,9 @@ const execGetVariables = async () => {
 
 suite('Variables', async () => {
     let variables: vars.Variable[] | undefined;
+    const env = getTestEnv();
     const client = new pg.Client({
-        /* TODO: move to env */
-        host: 'localhost',
+        host: `${process.cwd()}/pgsrc/${env.pgVersion}/data`,
         port: 5432,
         database: 'postgres',
         user: 'postgres'
@@ -174,12 +174,11 @@ suite('Variables', async () => {
 
     /* There must be only 1 workspace */
     const workspace = vscode.workspace.workspaceFolders![0];
-    const env = getTestEnv();
 
     suiteSetup(async () => {
         /* Connect to backend */
         await client.connect();
-
+        
         /* Obtain backend PID */
         const pidResponse = await client.query('SELECT pg_backend_pid() AS pid');
         const pid = Number(pidResponse.rows[0].pid);
