@@ -8,7 +8,7 @@ based on `NodeTag` and provide some other utilities.
 
 ## Features
 
-More info you can find in documentation for [pg variables view](docs/pg_variables.md).
+More info you can find in documentation for [`PG Variables` view](docs/pg_variables.md).
 
 ### Investigate real type of `Node *`
 
@@ -23,7 +23,7 @@ variables.
 
 ### Show contents of containers
 
-Extension support showing contents of containers: `List` (including Oid, TransactionId, int and custom user pointer types) and `Bitmapset`.
+Extension support showing contents of containers: `List` (including `Oid`, `TransactionId`, `int` and non-Node types) and `Bitmapset`.
 
 ![List * expansion](resources/list.gif)
 
@@ -245,23 +245,22 @@ There are 4 settings:
 
 ## Compatibility
 
-Extension tries to be compatible with multiple versions of both VS Code and
-PostgreSQL.
+Compatibility is ensured using testing. Minimal supported versions are **PostgreSQL 9.6** and **VS Code 1.70**.
+But actually it can support PostgreSQL down to 8.0 and VS Code 1.30, but testing is not done due to large test matrix - for these versions testing is done manually.
 
-Minimal supported version of:
-
-- `VS Code` - 1.30
-- `PostgreSQL` - 8.0
-
-> It is tested manually and not all use cases might be covered. If you found
-> bug specific to some version please [create issue](https://github.com/ashenBlade/postgres-dev-helper/issues).
-
-Also, extension will target latest VS Code version and try to use the full functionality of new versions.
-So, use latest VS Code versions to get new features earlier.
+There are 2 supported debugger extensions: [C/C++](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools) and [CodeLLDB](https://marketplace.visualstudio.com/items?itemName=vadimcn.vscode-lldb).
+Extension always tested on *latest version of debugger* and do not tries to be compatible with old ones due to *possible* large/breaking changes in behavior (most features implemented using hacks).
+Minimal supported version for **C/C++ 1.12** and **CodeLLDB 11.0**.
 
 For using formatter minimal supported version Postgres is `10`.
 
-> WARN: I *do not stand* that all extension features will work as expected on all versions
+## Testing
+
+Directory [`./src/test`](./src/test) contains multiple staff for extension testing.
+You can read [README](./src/test/README.md) to look at testing process.
+
+In short, only variable expansion is tested using large test matrix: PG Version x VS Code Version x Debugger.
+Each dimension contains all supported values: 9 (PG Versions) x 4 (VS Code Versions) x 2 (Debuggers) = 72 tests in total.
 
 ## Known Issues
 
@@ -269,12 +268,9 @@ Known issues:
 
 - If in pointer variable was garbage, extension will not detect it and expand this variable (may be garbage).
   Usually, this will not lead to fatal errors, just note this.
-- To get NodeTags extension reads all available NodeTag files (from settings),
+- To get `NodeTag`s extension reads all available NodeTag files (from settings),
   but these files may be not created (./configure or make not run). I assume by
   time of debugging start files will be created, so extension catch them and process.
-- Works only with [ms-vscode.cpptools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools)
-  extension. Currently, no support for other DAP adapters (i.e. Code LLDB).
-  Reason: strongly tied to output format of this extension (not only expression evaluation, but stack trace format i.e.)
 - Sometimes formatting can misbehave. This is due to `pg_bsd_indent` internal
   logic. If formatting is not applied try run command again. If file after
   formatting is a mess this can be due to errors in logic.
