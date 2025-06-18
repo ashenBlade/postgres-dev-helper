@@ -19,6 +19,7 @@ Options:
     --debuggers             List of debug extensions to tests against
     --no-rebuild            Do not rebuild PostgreSQL at first run.
                             Useful during development when installation already present.
+    --no-gui                Run tests without GUI (using 'xvfb')
 
 Supported PG versions from 17 to 9.6 inclusive.
 Default value: $DEFAULT_PG_VERSIONS
@@ -44,6 +45,7 @@ THREADS=""
 PG_VERSIONS=""
 DEBUGGERS=""
 NO_REBUILD=""
+NO_GUI=""
 while [ "$1" ]; do
     ARG="$1"
     case "$ARG" in
@@ -69,6 +71,9 @@ while [ "$1" ]; do
         ;;
     --no-rebuild)
         NO_REBUILD="1"
+        ;;
+    --no-gui)
+        NO_GUI="1"
         ;;
     *)
         echo "Unknown option: $1"
@@ -111,7 +116,11 @@ for PGVERSION in $PG_VERSIONS; do
                 echo "Testing PostgreSQL $PGVERSION in VS Code $VSCODEVERSION using $DEBUGGER"
                 export PGHH_DEBUGGER="$DEBUGGER"
 
-                npm test
+                if [[ -z "$NO_GUI" ]]; then
+                    npm test
+                else
+                    xvfb-run -a npm test
+                fi
             } 2>&1 | tee "$LOGFILE"
         done
     done

@@ -4,7 +4,7 @@ function print_help {
     cat <<EOM 
 Setup environment for PostgreSQL Hacker Helper extension testing.
 This script downloads specified PostgreSQL version (source code), applies patch, runs build and setups database (initdb + initial schema).
-Source code is installed to EXT_SRC/pgsrc, where EXT_SRC - root directory of extension.
+Source code is installed to EXT_SRC/pgsrc/PG_VERSION, where EXT_SRC - root directory of extension and PG_VERSION - major PostgreSQL version.
 
 Usage: $0 --pg-version=17
 
@@ -12,6 +12,7 @@ Options:
     -h, --help              Print this help message
     --pg-version            Major version of PostgreSQL to install.
     --threads               Number of threads to use during build
+    --force                 Remove old installation if it exists.
 
 Supported PG versions from 17 to 9.6 inclusive.
 
@@ -21,16 +22,20 @@ Example:
 EOM
 }
 
-ARG_PG_VERSION=""
+MAJOR_PG_VERSION=""
 THREADS="1"
+FORCE=""
 while [ "$1" ]; do
     ARG="$1"
     case "$ARG" in
     --pg-version=*)
-        ARG_PG_VERSION="${ARG#*=}"
+        MAJOR_PG_VERSION="${ARG#*=}"
         ;;
     --threads=*)
         THREADS="${ARG#*=}"
+        ;;
+    --force)
+        FORCE="1"
         ;;
     -j)
         shift
@@ -51,13 +56,13 @@ done
 # Exit on error
 set -e -o pipefail
 
-if [[ -z "$ARG_PG_VERSION" ]]; then
+if [[ -z "$MAJOR_PG_VERSION" ]]; then
     echo "--pg-version is not set - specify PostgreSQL version"
     exit 1
 fi
 
 PG_VERSION=""
-case "$ARG_PG_VERSION" in
+case "$MAJOR_PG_VERSION" in
     '17')
         PG_VERSION='17.4'
         ;;
@@ -86,7 +91,7 @@ case "$ARG_PG_VERSION" in
         PG_VERSION='9.6.24'
         ;;
     *)
-        echo "Version $ARG_PG_VERSION is not supported"
+        echo "Version $MAJOR_PG_VERSION is not supported"
         echo "Supported version from 17 to 9.6 inclusive"
         exit 1
         ;;
@@ -96,28 +101,37 @@ esac
 cd "$(dirname ${BASH_SOURCE[0]:-$0})/../.."
 EXT_ROOT_DIR="$PWD"
 
-CFLAGS="-O0 -g $CFLAGS"
-CPPFLAGS="-O0 -g $CPPFLAGS"
 PATCH_FILE="$EXT_ROOT_DIR/src/test/patches/pg${PG_VERSION}.patch"
 PG_SRC_DOWNLOAD_URL="https://ftp.postgresql.org/pub/source/v${PG_VERSION}/postgresql-${PG_VERSION}.tar.gz"
-CACHEDIR="$PWD/src/test/cache"
+CACHEDIR="$EXT_ROOT_DIR/src/test/cache"
 TARFILE="$CACHEDIR/postgresql-${PG_VERSION}.tar.gz"
-SRC_PATH="$EXT_ROOT_DIR/pgsrc"
-INSTALL_PATH="$EXT_ROOT_DIR/pgsrc/build"
-LOGDIR="$PWD/src/test/log"
+SRC_PATH="$EXT_ROOT_DIR/pgsrc/$MAJOR_PG_VERSION"
+INSTALL_PATH="$SRC_PATH/build"
+LOGDIR="$EXT_ROOT_DIR/src/test/log"
 LOGFILE="$LOGDIR/setup_$(date +%Y%m%d%H%M).log"
+
+set -e -o pipefail
 mkdir -p "$LOGDIR"
 
-# Download PostgreSQL source code into it's directory and apply patch
 {
-set -e -o pipefail
-rm -rf "$SRC_PATH"
+
+if [[ -d "$SRC_PATH" ]]; then
+    if [[ -z "$FORCE" ]]; then
+        echo "Installation already exists. Use --force to remove old src dir"
+        exit 0
+    else
+        rm -rf "$SRC_PATH"
+    fi
+fi
+
+
+# Download PostgreSQL source code into it's directory and apply patch
 mkdir -p "$SRC_PATH"
 mkdir -p "$CACHEDIR"
 if [[ ! -f "$TARFILE" ]]; then
-    wget "$PG_SRC_DOWNLOAD_URL" -O "$TARFILE"
+    wget -q "$PG_SRC_DOWNLOAD_URL" -O "$TARFILE"
 fi
-tar -xvzf "$TARFILE" -C "$SRC_PATH" --strip-components=1
+tar -xvzf "$TARFILE" -C "$SRC_PATH" --strip-components=1 1>/dev/null
 cd "$SRC_PATH"
 patch -p1 -i "$PATCH_FILE"
 
@@ -127,15 +141,29 @@ patch -p1 -i "$PATCH_FILE"
             --enable-debug \
             --enable-cassert \
             --without-openssl \
-            CFLAGS="$CFLAGS" \
-            CPPFLAGS="$CPPFLAGS"
+            --without-readline \
+            --without-python \
+            --without-tcl \
+            --without-pam \
+            --without-selinux \
+            --without-icu \
+            --without-ldap \
+            --without-libxml \
+            --without-libxslt \
+            --without-bonjour \
+            --without-lz4 \
+            --without-zstd \
+            --without-llvm \
+            --without-zlib \
+            CFLAGS="-O0 -g3 $CFLAGS" \
+            CPPFLAGS="-O0 -g3 $CPPFLAGS"
 
 # Setup special file with 
 ENV_PATH="${PWD}/env.sh"
 cat <<EOF >"$ENV_PATH"
 export PGINSTDIR="$INSTALL_PATH"
 export PGDATA="$SRC_PATH/data"
-export PGHOST="localhost"
+export PGHOST="$SRC_PATH/data"
 export PGPORT="5432"
 export PGUSER="postgres"
 export PGDATABASE="postgres"
@@ -153,7 +181,14 @@ make install-world-bin
 
 # Create database and setup schema
 initdb -U "$PGUSER"
-pg_ctl start -l ./postgresql.log -o '-k ""' -w
+cat <<EOF >>"$PGDATA/postgresql.conf"
+unix_socket_directories='$PGDATA'
+listen_addresses=''
+port=5432
+log_min_messages=DEBUG1
+EOF
+
+pg_ctl start -l "$PGDATA/postgresql.log" -w
 psql -c "CREATE TABLE t1(x int, y int);"
 psql -c "CREATE TABLE t2(x int, y int);"
 pg_ctl stop -w
