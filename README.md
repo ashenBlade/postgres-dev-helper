@@ -283,6 +283,12 @@ Known issues:
 
 ## Release Notes
 
+### 1.10.0
+
+Add support for CodeLLDB debugger extension.
+
+Display `bitmapword` and bitmask, not integer with padding by `0` for length equal to nearest power of 2.
+
 ### 1.9.0
 
 Show elements of Hash Tables, according to stored types: `HTAB` and simplehash (from `simplehash.c`)

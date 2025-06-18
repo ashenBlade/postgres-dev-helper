@@ -5,6 +5,14 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0]
+
+### Added
+
+Support for CodeLLDB debugger extension. Totally, C/C++ and CodeLLDB now supported.
+
+Display `bitmapword` as bitmask, not integer. Also, bitmask is padded by `0` for length equal to nearest power of 2.
+
 ## [1.9.0]
 
 ### Added
