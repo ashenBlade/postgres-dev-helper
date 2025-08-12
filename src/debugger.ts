@@ -700,10 +700,6 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
         return value.startsWith('{') && value.endsWith('}');
     }
 
-    override async extractLongString(variable: IDebugVariable, frameId: number): Promise<string | null> {
-        throw new Error('Not implemented');
-    }
-
     async evaluate(expression: string, frameId: number | undefined, context?: string, noReturn?: boolean): Promise<dap.EvaluateResponse> {
         try {
             context ??= 'watch';
@@ -804,12 +800,80 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
         return true;
     }
 
-    extractString(variable: IDebugVariable): string | null {
+    extractStringInternal(str: string) {
         /* 
          * char* is rendered as string wrapped into double quotes,
          * without any pointer - just trim them.
          */
-        return variable.value.substring(1, variable.value.length - 1);
+        return str.substring(1, str.length - 1);
+    }
+
+    extractString(variable: IDebugVariable): string | null {
+        return this.extractStringInternal(variable.value);
+    }
+
+    async extractLongString(variable: IDebugVariable, frameId: number): Promise<string | null> {
+        const isStringTruncated = (response: string) => {
+            /* 
+             * Rendered truncated string has '...' at the very end, not in
+             * string value itself, so check 'result' member.
+             */
+            return response.endsWith('...');
+        }
+
+        const normalize = (str: string) => {
+            /* Replace escape characters */
+            str = str.replace(/\\n/g, '\n');
+            str = str.replace(/\\t/g, '\t');
+            str = str.replace(/\\"/g, '"');
+
+            /* Unlike cppdbg it does not render <repeats XXX> */
+            return str;
+        }
+
+        const extractStringExtended = (str: string) => {
+            if (str.endsWith('...')) {
+                str = str.substring(0, str.length - 3);
+            }
+            
+            return this.extractStringInternal(str);
+        }
+
+        let chunk = extractStringExtended(variable.value);
+        if (chunk == null) {
+            return null;
+        }
+
+        chunk = normalize(chunk);
+        if (!isStringTruncated(variable.value)) {
+            return chunk;
+        }
+
+        /*
+         * To get full string we consume string by chunks and then build
+         * whole string using concatenating.
+         */
+        const stringPtr = this.extractPtrFromString(variable);
+        const chunks = [chunk];
+        let currentLength = chunk.length;
+        while (true) {
+            const currentChunkExpr = `(const char *)${stringPtr} + ${currentLength}`;
+            const response = await this.evaluate(currentChunkExpr, frameId);
+            chunk = extractStringExtended(response.result);
+            if (chunk === null || chunk.length <= 0) {
+                return null;
+            }
+
+            chunk = normalize(chunk);
+            chunks.push(chunk);
+            if (!isStringTruncated(response.result)) {
+                break;
+            }
+
+            currentLength += chunk.length;
+        }
+
+        return chunks.join('');
     }
 
     extractBool(variable: IDebugVariable): boolean | null {
