@@ -175,6 +175,78 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
     }
 }
 
+export async function dumpVariableToDocumentCommand(args: any, log: utils.ILogger,
+                                                    debug: dbg.IDebuggerFacade) {
+    const session = vscode.debug.activeDebugSession;
+    if (!session) {
+        vscode.window.showWarningMessage('Can not dump variable - no active debug session!');
+        return;
+    }
+
+    const variable: dap.DebugVariable = args.variable;
+
+    const frameId = await debug.getCurrentFrameId();
+    if (frameId === undefined) {
+        vscode.window.showWarningMessage(`Could not get current stack frame id in order to invoke 'pprint'`);
+        return;
+    }
+
+    if (!(debug.isValidPointerType(variable))) {
+        vscode.window.showWarningMessage(`Variable ${variable.value} is not valid pointer`);
+        return;
+    }
+
+    const nodeToStringExpr = `nodeToString((const void *) ${debug.getPointer(variable)})`;
+    let response;
+    try {
+        response = await debug.evaluate(nodeToStringExpr, frameId);
+    } catch (err: any) {
+        log.error('could not dump variable %s to string', variable.name, err);
+        vscode.window.showErrorMessage(`Could not dump variable ${variable.name}. `
+                                     + 'See errors in Output log');
+        return;
+    }
+
+    /* Save to pfree later */
+    const savedNodeToStringPtr = response.memoryReference;
+
+    const prettyFormatExpr = `pretty_format_node_dump((const char *) ${response.memoryReference})`;
+    try {
+        response = await debug.evaluate(prettyFormatExpr, frameId);
+    } catch (err: any) {
+        log.error('could not pretty print node dump', variable.name, err);
+        vscode.window.showErrorMessage(`Could pretty print variable ${variable.name}. `
+                                     + 'See errors in Output log');
+        return;
+    }
+
+    const debugVariable: dbg.IDebugVariable = {
+        type: response.type,
+        value: response.result,
+        memoryReference: response.memoryReference,
+    }
+    const ptr = debug.extractPtrFromString(debugVariable);
+    const node = await debug.extractLongString(debugVariable, frameId);
+
+    try {
+        await debug.evaluate(`pfree((const void *) ${ptr})`, frameId,
+                             undefined, true);
+        await debug.evaluate(`pfree((const void *) ${savedNodeToStringPtr})`, frameId,
+                             undefined, true);           
+    } catch (err: any) {
+        /* This is not critical error actually, so just log and continue */
+        log.error('could not dump variable %s to log', variable.name, err);
+    }
+
+    if (node === null) {
+        vscode.window.showErrorMessage('Could not obtain node dump: NULL is returned from nodeToString');
+        return;
+    }
+
+    const document = await vscode.workspace.openTextDocument({content: node});
+    vscode.window.showTextDocument(document);
+}
+
 class ConfigFileParseResult {
     /* Array special members */
     arrayInfos?: vars.ArraySpecialMemberInfo[];
@@ -987,6 +1059,18 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
         }
     };
 
+    const dumpNodeToDocCmd = async (args: any) => {
+        try {
+            if (!nodesView.execContext) {
+                return;
+            }
+
+            await dumpVariableToDocumentCommand(args, logger, nodesView.execContext.debug);
+        } catch (err: any) {
+            logger.error('error while dumping node to log', err);
+        }
+    }
+
     const openConfigFileCmd = async () => {
         if (!vscode.workspace.workspaceFolders?.length) {
             vscode.window.showInformationMessage('No workspaces found - open directory first');
@@ -1132,6 +1216,7 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
     registerCommand(Configuration.Commands.RefreshConfigFile, refreshConfigCmd);
     registerCommand(Configuration.Commands.OpenConfigFile, openConfigFileCmd);
     registerCommand(Configuration.Commands.DumpNodeToLog, pprintVarToLogCmd);
+    registerCommand(Configuration.Commands.DumpNodeToDoc, dumpNodeToDocCmd);
     registerCommand(Configuration.Commands.RefreshPostgresVariables, refreshVariablesCmd);
     registerCommand(Configuration.Commands.BootstrapExtension, bootstrapExtensionCmd);
     registerCommand(Configuration.Commands.AddToWatchView, addVariableToWatchCmd);
@@ -1258,6 +1343,7 @@ export class Configuration {
     };
     static Commands = {
         DumpNodeToLog: `${this.ExtensionName}.dumpNodeToLog`,
+        DumpNodeToDoc: `${this.ExtensionName}.dumpNodeToDoc`,
         OpenConfigFile: `${this.ExtensionName}.openConfigurationFile`,
         RefreshPostgresVariables: `${this.ExtensionName}.refreshPostgresVariablesView`,
         RefreshConfigFile: `${this.ExtensionName}.refreshConfigFile`,

@@ -128,6 +128,16 @@ export interface IDebuggerFacade {
     extractString: (variable: IDebugVariable) => string | null;
 
     /**
+     * For given variable with string type extract string it represents.
+     * All debuggers do not return full string, but instead they truncate
+     * it. This function attempts to read the full string.
+     * 
+     * @param variable Variable with string type
+     * @returns Full string it contains, without quotes, or null if failed
+     */
+    extractLongString: (variable: IDebugVariable, frameId: number) => Promise<string | null>;
+
+    /**
      * For given variable with 'bool' type extract it's value with converting
      * to 'boolean' TS type.
      * 'null' is returned if failed to extract it.
@@ -406,6 +416,7 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
     abstract extractBool(variable: IDebugVariable): boolean | null;
     abstract extractPtrFromString(variable: IDebugVariable): string | null;
     abstract formatEnumValue(name: string, value: string): string;
+    abstract extractLongString(variable: IDebugVariable, frameId: number): Promise<string | null>;
 }
 
 export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
@@ -430,7 +441,7 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
         this.getArrayVariables = super.getArrayVariables;
     }
     
-    async evaluate(expression: string, frameId: number | undefined, context?: string) {
+    async evaluate(expression: string, frameId: number | undefined, context?: string): Promise<dap.EvaluateResponse> {
         context ??= 'watch';
         return await this.getSession().customRequest('evaluate', {
             expression,
@@ -501,6 +512,132 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
         return variable.value.substring(left + 1, right);
     }
 
+    override async extractLongString(variable: IDebugVariable, frameId: number): Promise<string | null> {
+        const isStringTruncated = (response: string) => {
+            /* 
+             * Rendered truncated string has '...' at the very end, not in
+             * string value itself, so check 'result' member.
+             */
+            return response.endsWith('...');
+        }
+
+        const normalize = (str: string) => {
+            /* Replace escape characters */
+            str = str.replace(/\\n/g, '\n');
+            str = str.replace(/\\t/g, '\t');
+            str = str.replace(/\\"/g, '"');
+
+            /*
+             * Now find shortages in form <repeats XXX times> and replace with
+             * actual values.  Thankfully, here we only have spaces repeated
+             * (haven't seen any other values yet).  Also, remember that
+             * repeated parts can be located in any part of string, so add
+             * (", )? checks for such cases.
+             */
+            let exec;
+            while ((exec = /(", )?' ' <repeats (\d+) times>(, ")?/m.exec(str)) !== null) {
+                let times;
+                if (exec.length > 2) {
+                    times = Number(exec[2]);
+                } else {
+                    times = Number(exec[1]);
+                }
+
+                if (!Number.isInteger(times)) {
+                    return str;
+                }
+
+                str = str.replace(exec[0], ' '.repeat(times));
+            }
+            
+            return str;
+        }
+
+        const extractStringExtended = (value: string) => {
+            /* 
+             * Original 'extractString' does not handle leading/trailing
+             * <repeats XXX> chunks and this is fatal when parsing node dumps
+             * because it has lots of spaces which are turned into such
+             * repeats.
+             * 
+             * This is special version that just do not truncate such shortcuts
+             * if they are placed in start/end of string.
+             * 
+             * I am not planning to replace original function with this, because
+             * currently this is only place where we must be aware of such
+             * behavior.
+             */
+
+            /* Trim pointer part */
+            const exec = /^0x[\dA-Fa-f]+ /.exec(value);
+            if (!exec) {
+                /* Pointer part always must be in string */
+                return null;
+            }
+
+            let str = value.substring(exec[0].length);
+            if (str[0] === '"') {
+                /* Remove leading ", but do not do this for <repeats ...> */
+                str = str.substring(1);
+            }
+
+            /* Remove ... for truncated strings */
+            if (str.endsWith('...')) {
+                str = str.substring(0, str.length - 3);
+            }
+
+            if (str[str.length - 1] === '"') {
+                /* Remove trailing ", but do not do this for <repeats ...> */
+                str = str.substring(0, str.length - 1);
+            }
+
+            return str;
+        }
+
+        let chunk = extractStringExtended(variable.value);
+        if (chunk == null) {
+            return null;
+        }
+
+        chunk = normalize(chunk);
+        /* Shortcut for little strings */
+        if (!isStringTruncated(variable.value)) {
+            return chunk;
+        }
+        
+        /* To get full string we consume string by chunks and then build
+         * whole string using concatenating.
+         */
+        const stringPtr = this.extractPtrFromString(variable);
+        const chunks = [chunk];
+        let currentLength = chunk.length;
+        while (true) {
+            const currentChunkExpr = `(const char *)${stringPtr} + ${currentLength}`;
+            const response = await this.evaluate(currentChunkExpr, frameId);
+            chunk = extractStringExtended(response.result);
+            if (chunk === null || chunk.length <= 0) {
+                return null;
+            }
+
+            chunk = normalize(chunk);
+            chunks.push(chunk);
+            if (!isStringTruncated(response.result)) {
+                break;
+            }
+
+            currentLength += chunk.length;
+
+            /* 
+             * Experimentally found that max string size (original string length)
+             * is 200 characters.  For truncated strings after normalization
+             * we must get exactly this size.
+             */
+            console.assert(chunk.length === 200);
+        }
+
+        return chunks.join('');
+    }
+
     extractBool(variable: IDebugVariable) {
         /* 
          * On older pg versions bool stored as 'char' and have format: "X '\00X'"
@@ -561,6 +698,10 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
 
     valueRepresentsStructure(value: string) {
         return value.startsWith('{') && value.endsWith('}');
+    }
+
+    override async extractLongString(variable: IDebugVariable, frameId: number): Promise<string | null> {
+        throw new Error('Not implemented');
     }
 
     async evaluate(expression: string, frameId: number | undefined, context?: string, noReturn?: boolean): Promise<dap.EvaluateResponse> {
