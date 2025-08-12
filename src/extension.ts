@@ -3,6 +3,7 @@ import * as utils from './utils';
 import { Features } from './utils';
 import * as vars from './variables';
 import * as dbg from './debugger';
+import * as dap from './dap';
 import path from 'path';
 
 
@@ -148,35 +149,29 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
         return;
     }
 
-    const variable = args.variable;
-    if (!variable?.value) {
-        log.warn('Variable info not present in args');
+    const variable: dap.DebugVariable = args.variable;
+
+    const frameId = await debug.getCurrentFrameId();
+    if (frameId === undefined) {
+        vscode.window.showWarningMessage(`Could not get current stack frame id in order to invoke 'pprint'`);
         return;
     }
 
-    console.assert(typeof variable.value === 'string');
-
-    if (!(debug.isValidPointerType(variable.value))) {
-        vscode.window.showWarningMessage(`Variable ${variable.name} is not valid pointer`);
+    if (!(debug.isValidPointerType(variable))) {
+        vscode.window.showWarningMessage(`Variable ${variable.value} is not valid pointer`);
         return;
     }
 
-    const stackFrame = await debug.getCurrentFrameId();
-    if (stackFrame === undefined) {
-        log.error('could not obtain current frameId');
-        return;
-    }
-    
-    /* TODO: tested only for CppDbg */
-    /* Simple `pprint(Node*)' function call */
-    const expression = `-exec call pprint((const void *) ${variable.value})`;
-
+    const expression = `pprint((const void *) ${debug.getPointer(variable)})`;
     try {
-        await debug.evaluate(expression, stackFrame);
+        await debug.evaluate(expression,
+                             frameId, 
+                             undefined  /* context */, 
+                             true       /* no return */);
     } catch (err: any) {
         log.error('could not dump variable %s to log', variable.name, err);
         vscode.window.showErrorMessage(`Could not dump variable ${variable.name}. `
-                                     + `See errors in Output log`)
+                                     + 'See errors in Output log');
     }
 }
 
