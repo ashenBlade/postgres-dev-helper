@@ -175,15 +175,13 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
     }
 }
 
-export async function dumpVariableToDocumentCommand(args: any, log: utils.ILogger,
+export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable, log: utils.ILogger,
                                                     debug: dbg.IDebuggerFacade) {
     const session = vscode.debug.activeDebugSession;
     if (!session) {
         vscode.window.showWarningMessage('Can not dump variable - no active debug session!');
         return;
     }
-
-    const variable: dap.DebugVariable = args.variable;
 
     const frameId = await debug.getCurrentFrameId();
     if (frameId === undefined) {
@@ -1065,7 +1063,27 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
                 return;
             }
 
-            await dumpVariableToDocumentCommand(args, logger, nodesView.execContext.debug);
+            /* Command can be run for 'Variable' or 'pg variables' views */
+            let variable: dap.DebugVariable;
+            if (args instanceof vars.Variable) {
+                const nodeVar = args;
+                if (!(nodeVar instanceof vars.NodeVariable)) {
+                    return;
+                }
+
+                variable = {
+                    name: nodeVar.name,
+                    type: nodeVar.type,
+                    value: nodeVar.value,
+                    evaluateName: nodeVar.name,
+                    variablesReference: nodeVar.variablesReference,
+                    memoryReference: nodeVar.memoryReference
+                }
+            } else {
+                variable = args.variable;
+            }
+
+            await dumpVariableToDocumentCommand(variable, logger, nodesView.execContext.debug);
         } catch (err: any) {
             logger.error('error while dumping node to log', err);
         }

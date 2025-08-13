@@ -43,6 +43,12 @@
                 "category": "PgSQL"
             },
             {
+                "command": "postgresql-hacker-helper.dumpNodeToDoc",
+                "title": "Dump Node to new document",
+                "shortTitle": "Dump Node to document",
+                "category": "PgSQL"
+            },
+            {
                 "command": "postgresql-hacker-helper.openConfigurationFile",
                 "title": "Open or create configuration file (JSON)",
                 "shortTitle": "Open configuration file",
@@ -97,6 +103,10 @@
                 {
                     "command": "postgresql-hacker-helper.dumpNodeToLog",
                     "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated"
+                },
+                {
+                    "command": "postgresql-hacker-helper.dumpNodeToDoc",
+                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated"
                 }
             ],
             "view/title": [
@@ -110,11 +120,19 @@
                 {
                     "command": "postgresql-hacker-helper.addVariableToWatch",
                     "when": "inDebugMode && view == postgresql-hacker-helper.node-tree-view"
+                },
+                {
+                    "command": "postgresql-hacker-helper.dumpNodeToDoc",
+                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated"
                 }
             ],
             "commandPalette": [
                 {
                     "command": "postgresql-hacker-helper.dumpNodeToLog",
+                    "when": "false"
+                },
+                {
+                    "command": "postgresql-hacker-helper.dumpNodeToDoc",
                     "when": "false"
                 },
                 {
