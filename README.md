@@ -286,6 +286,12 @@ Known issues:
 
 ## Release Notes
 
+### 1.11.0
+
+Add `Dump node to document` command in variable submenu.
+
+Support CodeLLDB for `Dump node to stdout` command.
+
 ### 1.10.0
 
 Add support for CodeLLDB debugger extension.
