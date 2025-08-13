@@ -130,7 +130,8 @@ export interface IDebuggerFacade {
     /**
      * For given variable with string type extract string it represents.
      * All debuggers do not return full string, but instead they truncate
-     * it. This function attempts to read the full string.
+     * it. This function attempts to read the full string (observing chunk
+     * by chunk).
      * 
      * @param variable Variable with string type
      * @returns Full string it contains, without quotes, or null if failed

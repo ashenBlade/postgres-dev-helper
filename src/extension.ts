@@ -175,17 +175,17 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
     }
 }
 
-export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable, log: utils.ILogger,
+export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable,
+                                                    log: utils.ILogger,
                                                     debug: dbg.IDebuggerFacade) {
     const session = vscode.debug.activeDebugSession;
     if (!session) {
-        vscode.window.showWarningMessage('Can not dump variable - no active debug session!');
         return;
     }
 
     const frameId = await debug.getCurrentFrameId();
     if (frameId === undefined) {
-        vscode.window.showWarningMessage(`Could not get current stack frame id in order to invoke 'pprint'`);
+        vscode.window.showWarningMessage(`Could not get current stack frame id to invoke functions`);
         return;
     }
 
@@ -194,7 +194,16 @@ export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable,
         return;
     }
 
-    const nodeToStringExpr = `nodeToString((const void *) ${debug.getPointer(variable)})`;
+    /* 
+     * In order to make node dump we use 2 functions:
+     * 
+     * 1. 'nodeToStringWithLocations' - dump arbitrary node object into string form
+     * 2. 'pretty_format_node_dump' - prettify dump returned from 'nodeToString'
+     * 
+     * This sequence is well known and also used in 'pprint' itself, so feel
+     * free to use it.
+     */
+    const nodeToStringExpr = `nodeToStringWithLocations((const void *) ${debug.getPointer(variable)})`;
     let response;
     try {
         response = await debug.evaluate(nodeToStringExpr, frameId);
@@ -226,6 +235,10 @@ export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable,
     const ptr = debug.extractPtrFromString(debugVariable);
     const node = await debug.extractLongString(debugVariable, frameId);
 
+    /*
+     * Perform pfree'ing ONLY after extracting string, otherwise there will
+     * be garbage '\\177' in string buffer.
+     */
     try {
         await debug.evaluate(`pfree((const void *) ${ptr})`, frameId,
                              undefined, true);
@@ -241,6 +254,10 @@ export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable,
         return;
     }
 
+    /* 
+     * Finally, show document with node dump.  It would be nice to also set
+     * appropriate title, but I don't known how to do it without saving file.
+     */
     const document = await vscode.workspace.openTextDocument({content: node});
     vscode.window.showTextDocument(document);
 }
