@@ -74,13 +74,16 @@ A quick glance will make it clear what's inside!
 > Also, for displaying representation it's required to have range table.
 > In such cases placeholder is displayed.
 
-### Dump `Node *` state to log
+### Dump `Node *`
 
 In PostgreSQL there is `pprint(Node *)` which dumps passed Node variable to
 stdout with pretty printing it. Using 'Dump Node to log' option in variable
 context menu you also will be able to do so.
 
 ![call pprint](resources/dump.gif)
+
+Also, you can dump `Node *` into newly created document and work with it as text file.
+There is `Dump Node to document` option in variable context menu.
 
 ### Formatting
 

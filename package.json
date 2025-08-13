@@ -2,7 +2,7 @@
     "name": "postgresql-hacker-helper",
     "displayName": "PostgreSQL Hacker Helper",
     "description": "Extension to assist Postgres hackers - source code developers",
-    "version": "1.10.0",
+    "version": "1.11.0",
     "engines": {
         "vscode": "^1.30.0"
     },
@@ -44,7 +44,7 @@
             },
             {
                 "command": "postgresql-hacker-helper.dumpNodeToDoc",
-                "title": "Dump Node to new document",
+                "title": "Dump Node to document",
                 "shortTitle": "Dump Node to document",
                 "category": "PgSQL"
             },
