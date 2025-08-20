@@ -286,6 +286,10 @@ Known issues:
 
 ## Release Notes
 
+## 1.11.2
+
+Fix invalid attribute rendering if it does not have `alias` member set.
+
 ## 1.11.1
 
 Search `context` or `cxt` variable in walkers/mutators to find `rtable` and render attributes in `Expr` variables.
