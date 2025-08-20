@@ -1875,8 +1875,7 @@ class ExprNodeVariable extends NodeVariable {
          */
 
         const rte = rtable.rtable[varno - 1];
-        const rtePtr = `((RangeTblEntry *)${this.getPointer()})`;
-
+        const rtePtr = `((RangeTblEntry *)${rte.getPointer()})`;
         const get_rte_attribute_name = async () => {
             /* Copy of `get_rte_attribute_name` logic */
 
@@ -1936,7 +1935,7 @@ class ExprNodeVariable extends NodeVariable {
         }
 
         /* TODO: change to Variable interface to prevent (possible) SEGFAULT */
-        const relname = await this.evalStringResult(`(${rtePtr}->eref->aliasname`) ?? '???';
+        const relname = await this.evalStringResult(`${rtePtr}->eref->aliasname`) ?? '???';
         const attname = await get_rte_attribute_name();
 
         return `${relname}.${attname}`;
