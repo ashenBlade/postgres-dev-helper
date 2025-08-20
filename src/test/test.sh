@@ -33,7 +33,7 @@ Default value: $DEFAULT_DEBUGGERS
 Example:
     $0 --pg-versions="17 15 10"
     $0 --threads=15
-    $0 -j 15 --vscode="stable 1.78.2" --debugger="lldb"
+    $0 -j 15 --vscode-versions="stable 1.78.2" --debugger="lldb"
 EOM
 }
 
