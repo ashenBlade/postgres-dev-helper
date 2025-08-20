@@ -3077,69 +3077,113 @@ class ExprNodeVariable extends NodeVariable {
 
     private async findRtable() {
         /*
-         * We can go in 3 ways:
+         * We can go in 4 ways:
          *
          * 1. PlannderInfo->parse (Query)->rtable
          * 2. Query->rtable
          * 3. PlannedStmt->rtable
+         * 4. Search in 'context *' variable members
+         * 
+         * Anyway logic is the following: traverse variable tree up while
+         * looking for PlannerInfo/Query/PlannedStmt. If we reached top-level
+         * then look them for same nodes and also (if failed) find 'context *'
+         * variable (in walkers/mutators it often contains these nodes).
          */
-        let node = this.parent;
-        while (node) {
-            if (node instanceof VariablesRoot) {
-                node = node.topLevelVariables.find(v =>
-                ((v instanceof NodeVariable &&
-                    (v.realNodeTag === 'PlannerInfo' ||
-                        v.realNodeTag === 'Query' ||
-                        v.realNodeTag === 'PlannedStmt'))));
-                if (!node) {
-                    /* No more variables */
-                    return;
-                }
+        const isRtableContainingNode = (v: Variable) => {
+            return v instanceof NodeVariable && 
+                    (    v.realNodeTag === 'PlannerInfo'
+                      || v.realNodeTag === 'Query'
+                      || v.realNodeTag === 'PlannedStmt');
+        }
 
-                break;
-            } else if (node instanceof NodeVariable &&
-                (node.realNodeTag === 'PlannerInfo' ||
-                    node.realNodeTag === 'Query' ||
-                    node.realNodeTag === 'PlannedStmt')) {
+        const tryGetRtable = async (v: NodeVariable) => {
+            switch (v.realNodeTag) {
+                case 'Query':
+                    /* Query->rtable */
+                    return await v.getListMemberElements('rtable');
+                case 'PlannerInfo':
+                    /* PlannerInfo->parse->rtable */
+                    const parse = await v.getMember('parse');
+                    if (!(parse && parse instanceof NodeVariable)) {
+                        return;
+                    }
+                    return await parse.getListMemberElements('rtable');
+                case 'PlannedStmt':
+                    /* PlannedStmt->rtable */
+                    return v.getListMemberElements('rtable');
+                default:
+                    this.logger.warn('got unexpected NodeTag in findRtable: %s',
+                                     v.realNodeTag);
+                    return;
+            }
+        }
+
+        let node = this.parent;
+        while (node && !(node instanceof VariablesRoot)) {
+            if (isRtableContainingNode(node)) {
+                /* Found suitable Node */
                 break;
             }
 
+            /* Continue traversing variable tree upper */
             node = node.parent;
         }
 
-        if (!(node && node instanceof NodeVariable)) {
+        if (!node) {
             return;
         }
 
-        let rtable;
-        switch (node.realNodeTag) {
-            case 'Query':
-                /* Query->rtable */
-                rtable = await node.getListMemberElements('rtable');
-                break;
-            case 'PlannerInfo':
-                /* PlannerInfo->parse->rtable */
-                const parse = await node.getMember('parse');
-                if (!(parse && parse instanceof NodeVariable)) {
-                    break;
+        if (isRtableContainingNode(node)) {
+            /* Ok, Node variable found - extract */
+            return await tryGetRtable(node as NodeVariable);
+        }
+
+        /* 
+         * Reached top level: search appropriate Node var at the top level
+         * or apply heuristic and find it in walker/mutator's members.
+         */
+        if (!(node instanceof VariablesRoot)) {
+            return;
+        }
+
+        for (const v of node.topLevelVariables) {
+            /* Find Node variables directly in top level */
+            if (isRtableContainingNode(v)) {
+                console.assert(v instanceof NodeVariable);
+                return await tryGetRtable(v as NodeVariable);
+            }
+
+            /* 
+             * May be we are in walker/mutator, so check 'context'
+             * variable - conventional name of argument variable with
+             * work context.
+             */
+            if (   v instanceof RealVariable 
+                && (v.name === 'context' || v.name === 'cxt') 
+                && v.type !== 'void *') {
+                const members = await v.getRealMembers();
+                if (!members) {
+                    continue;
                 }
 
-                rtable = await parse.getListMemberElements('rtable');
-                break;
-            case 'PlannedStmt':
-                /* PlannedStmt->rtable */
-                rtable = node.getListMemberElements('rtable');
-                break;
-            default:
-                this.logger.warn('got unexpected NodeTag in findRtable: %s', node.realNodeTag);
-                return;
+                for (const member of members) {
+                    if (!isRtableContainingNode(member)) {
+                        continue;
+                    }
+
+                    /* 
+                     * Some 'context' variable types have both 'PlannerInfo'
+                     * and 'Query' but one of them may be null.  By design,
+                     * only RealVariable can be NULL, so if variable is
+                     * NodeVariable so no check required.
+                     */
+                    console.assert(member instanceof NodeVariable);
+                    return await tryGetRtable(member as NodeVariable);
+                }
+            }
         }
 
-        if (rtable === undefined) {
-            return;
-        }
-
-        return rtable;
+        /* Did not find anything */
     }
 
     async doGetChildren() {
