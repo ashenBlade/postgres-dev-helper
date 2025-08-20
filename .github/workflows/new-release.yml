@@ -2,16 +2,8 @@ name: Publish package
 on:
   release:
     types: [published]
-
-  # Run tests before publishing package
-  workflow_run:
-    workflows: ["Run tests"]
-    types: [completed]
 jobs:
   publish:
-    # Attempt to publish package only if test succeeds
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
-    
     runs-on: ubuntu-latest
     steps:
     - name: Setup repository
