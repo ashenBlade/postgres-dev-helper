@@ -286,6 +286,12 @@ Known issues:
 
 ## Release Notes
 
+## 1.11.1
+
+Search `context` or `cxt` variable in walkers/mutators to find `rtable` and render attributes in `Expr` variables.
+
+Do not show `int` type for `Bitmapset` elements.
+
 ### 1.11.0
 
 Add `Dump node to document` command in variable submenu.
