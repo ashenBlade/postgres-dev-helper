@@ -5,7 +5,9 @@ import * as constants from './constants';
 import * as dbg from './debugger';
 
 export interface AliasInfo {
+    /* Declared type */
     alias: string;
+    /* Actual type */
     type: string;
 }
 
@@ -14,7 +16,7 @@ export interface AliasInfo {
  */
 export class NodeVarRegistry {
     /**
-     * Known NodeTag values (without T_ prefix)
+     * Known NodeTag values (without 'T_' prefix)
      */
     nodeTags: Set<string> = new Set<string>(constants.getDefaultNodeTags());
 
@@ -64,8 +66,8 @@ export class NodeVarRegistry {
             }
 
             const tag = text.replace(',', '')
-                .replace('T_', '')
-                .split(' ', 1)[0];
+                            .replace('T_', '')
+                            .split(' ', 1)[0];
             if (tag.trim() === '') {
                 continue;
             }
@@ -491,7 +493,8 @@ function isExpectedError(error: any) {
      * 'CodeExpectedError' in name, at least exceptions with messages
      * above).
      */
-    return error && (error instanceof EvaluationError || error?.name === 'CodeExpectedError');
+    return    error instanceof EvaluationError
+           || error?.name === 'CodeExpectedError';
 }
 
 export abstract class Variable {
@@ -506,7 +509,8 @@ export abstract class Variable {
     type: string;
 
     /**
-     * Evaluate value of variable. Have different meaning for different types of variables:
+     * Evaluate value of variable. Have different meaning for
+     * different types of variables:
      *
      * - Empty for raw structures
      * - Actual values for primitives (integers, floats)
@@ -556,14 +560,18 @@ export abstract class Variable {
         return this.context.debug;
     }
 
-    constructor(name: string, value: string, type: string, context: ExecContext, frameId: number, parent: Variable | undefined, logger: utils.ILogger) {
+    constructor(name: string, value: string, type: string,
+                context: ExecContext, frameId: number,
+                parent: Variable | undefined, logger?: utils.ILogger) {
         this.parent = parent;
         this.name = name;
         this.value = value;
         this.type = type;
         this.context = context;
-        this.logger = logger;
         this.frameId = frameId;
+
+        /* logger argument is optional, because parent must be set always */
+        this.logger = logger ?? parent?.logger!;
     }
 
     /**
@@ -640,7 +648,9 @@ export abstract class Variable {
     async getTreeItem(): Promise<vscode.TreeItem> {
         try {
             return {
-                label: `${this.name}: ${this.type}`,
+                label: this.type === '' 
+                            ? this.name
+                            : `${this.name}: ${this.type}`,
                 description: await this.getDescription(),
                 collapsibleState: this.isExpandable()
                     ? vscode.TreeItemCollapsibleState.Collapsed
@@ -682,10 +692,9 @@ export abstract class Variable {
                         context: ExecContext, logger: utils.ILogger,
                         parent?: Variable): Promise<RealVariable | undefined> {
         /*
-         * We pass RealVariable - not generic Variable,
-         * because if we want to use this function - if means
-         * we create it using debugger interface and this variable
-         * is real
+         * We pass RealVariable (not generic Variable), because if we
+         * want to use this function - it means we create variable
+         * using debugger interface and this variable is present in code.
          */
         const args: RealVariableArgs = {
             ...debugVariable,
@@ -701,9 +710,15 @@ export abstract class Variable {
             if (context.debug.isNull(debugVariable) && 
                 debugVariable.type.endsWith('List *')) {
                 /* 
-                 * Empty List is NIL == NULL == '0x0'
-                 *
-                 * Also 'endsWith' covers cases like 'const List *'
+                 * Empty List is NIL == NULL == '0x0' Also 'endsWith'
+                 * covers cases like 'const List *'.
+                 * 
+                 * Note that even if 'Bitmapset' also falls in this
+                 * variable category (NULL is meaningful), by design
+                 * do not create 'BitmapSetSpecialMember' for it,
+                 * because some runtime checks will end up in SEGFAULT.
+                 * Currently, there is no need for that, but take this
+                 * into account if you are planning to do this.
                  */
                 return new ListNodeVariable('List', args);
             }
@@ -748,13 +763,13 @@ export abstract class Variable {
             }
         }
 
-        /* HTAB* */
+        /* 'HTAB *' */
         if (utils.getPointersCount(realType) === 1 &&
             utils.getStructNameFromType(realType) === 'HTAB') {
             return new HTABSpecialMember(args);
         }
 
-        /* Simple hash table */
+        /* Simple hash table (simple hash) */
         if (SimplehashMember.looksLikeSimpleHashTable(realType)) {
             const entry = context.hashTableTypes.findSimpleHashTableType(realType);
             if (entry) {
@@ -951,8 +966,10 @@ export abstract class Variable {
 export class VariablesRoot extends Variable {
     static variableRootName = '$variables root$'
 
-    constructor(public topLevelVariables: Variable[], context: ExecContext, logger: utils.ILogger) {
-        super(VariablesRoot.variableRootName, '', '', context, invalidFrameId, undefined, logger);
+    constructor(public topLevelVariables: Variable[],
+                context: ExecContext, logger: utils.ILogger) {
+        super(VariablesRoot.variableRootName, '', '', context, invalidFrameId,
+              undefined, logger);
     }
 
     async doGetChildren(): Promise<Variable[] | undefined> {
@@ -962,7 +979,8 @@ export class VariablesRoot extends Variable {
 
 class ScalarVariable extends Variable {
     tooltip?: string;
-    constructor(name: string, value: string, type: string, context: ExecContext, logger: utils.ILogger, parent?: Variable, tooltip?: string) {
+    constructor(name: string, value: string, type: string, context: ExecContext,
+                logger: utils.ILogger, parent?: Variable, tooltip?: string) {
         super(name, value, type, context, invalidFrameId, parent, logger);
         this.tooltip = tooltip;
     }
@@ -984,6 +1002,7 @@ class ScalarVariable extends Variable {
     }
 }
 
+/* Utility structure used to reduce the number of function arguments */
 interface RealVariableArgs {
     memoryReference?: string;
     name: string;
@@ -1288,7 +1307,8 @@ export class RealVariable extends Variable {
             /* Member of real structure */
             const typeModifier = this.type === myType ? '' : `(${myType})`;
             if (this.debug.isValueStruct(this.parent)) {
-                if (this.debug.isFixedSizeArray(this.parent) && this.debug.isValidPointerType(this)) {
+                if (   this.debug.isFixedSizeArray(this.parent)
+                    && this.debug.isValidPointerType(this)) {
                     return `(${myType})${this.getPointer()}`;
                 } else {
                     return `${typeModifier}(${this.parent.type})${this.parent.getPointer()}.${this.name}`;
@@ -1521,8 +1541,8 @@ export class NodeVariable extends RealVariable {
                         context: ExecContext, logger: utils.ILogger,
                         parent?: Variable): Promise<NodeVariable | undefined> {
         const getRealNodeTag = async () => {
-            const nodeTagExpression = `((Node*)(${context.debug.getPointer(variable)}))->type`;
-            const response = await context.debug.evaluate(nodeTagExpression, frameId);
+            const expr = `((Node*)(${context.debug.getPointer(variable)}))->type`;
+            const response = await context.debug.evaluate(expr, frameId);
             let realTag = response.result?.replace('T_', '');
             if (!this.isValidNodeTag(realTag)) {
                 return;
@@ -1613,7 +1633,7 @@ class RangeTableContainer {
     rtableSearched: boolean = false;
 
     /**
-     * Found 'rtable' amoung variables. Before updating/using
+     * Found 'rtable' among variables. Before updating/using
      * this field check `rtableSearched` if this member has
      * actual value.
      */
@@ -1855,6 +1875,7 @@ class ExprNodeVariable extends NodeVariable {
          */
 
         const rte = rtable.rtable[varno - 1];
+        const rtePtr = `((RangeTblEntry *)${this.getPointer()})`;
 
         const get_rte_attribute_name = async () => {
             /* Copy of `get_rte_attribute_name` logic */
@@ -1880,11 +1901,10 @@ class ExprNodeVariable extends NodeVariable {
                 }
             }
 
-            const rtePtr = `((RangeTblEntry *)${this.getPointer()})`;
-
             if (this.context.hasGetAttname) {
-                const getAttnameExpr = `${rtePtr}->rtekind == ${this.debug.formatEnumValue('RTEKind', 'RTE_RELATION')} 
-                                       && ${rtePtr}->relid != ${InvalidOid}`;
+                const rteRelation = this.debug.formatEnumValue('RTEKind', 'RTE_RELATION'); 
+                const getAttnameExpr = `   ${rtePtr}->rtekind == ${rteRelation} 
+                                        && ${rtePtr}->relid   != ${InvalidOid}`;
                 const evalResult = await this.evaluate(getAttnameExpr);
                 const useGetAttname = this.debug.extractBool({...evalResult, value: evalResult.result});
                 if (useGetAttname) {
@@ -1916,7 +1936,7 @@ class ExprNodeVariable extends NodeVariable {
         }
 
         /* TODO: change to Variable interface to prevent (possible) SEGFAULT */
-        const relname = await this.evalStringResult(`((RangeTblEntry *)${rte.getPointer()})->eref->aliasname`) ?? '???';
+        const relname = await this.evalStringResult(`(${rtePtr}->eref->aliasname`) ?? '???';
         const attname = await get_rte_attribute_name();
 
         return `${relname}.${attname}`;
@@ -1927,7 +1947,8 @@ class ExprNodeVariable extends NodeVariable {
             const res = await this.evaluate(expr);
             const oid = Number(res.result);
             if (Number.isNaN(oid)) {
-                throw new EvaluationError(`failed to get Oid from expr: ${expr}`, res.result);
+                throw new EvaluationError(`failed to get Oid from expr: ${expr}`,
+                                          res.result);
             }
 
             return oid;
@@ -1936,17 +1957,21 @@ class ExprNodeVariable extends NodeVariable {
         const evalStrWithPtr = async (expr: string) => {
             const result = await this.debug.evaluate(expr, this.frameId);
             if (this.debug.isFailedVar(result)) {
-                throw new EvaluationError(`failed to get string from expr: ${expr}`, result.result);
+                throw new EvaluationError(`failed to get string from expr: ${expr}`,
+                                          result.result);
             }
 
-            const str = this.debug.extractString({...result, value: result.result});
+            const debugVar = {...result, value: result.result};
+            const str = this.debug.extractString(debugVar);
             if (str === null) {
-                throw new EvaluationError(`failed to get string from expr: ${expr}`, result.result);
+                throw new EvaluationError(`failed to get string from expr: ${expr}`,
+                                          result.result);
             }
 
-            const ptr = this.debug.extractPtrFromString({...result, value: result.result});
+            const ptr = this.debug.extractPtrFromString(debugVar);
             if (ptr === null) {
-                throw new EvaluationError(`failed to get pointer from expr: ${expr}`, result.result);
+                throw new EvaluationError(`failed to get pointer from expr: ${expr}`,
+                                          result.result);
             }
             return [str, ptr];
         }
@@ -1979,7 +2004,7 @@ class ExprNodeVariable extends NodeVariable {
         const tupIsVarlena = await this.palloc('sizeof(Oid)');
 
         /* Older system have 4 params (3rd is tupIOParam) */
-        let tupIOParam = this.context.hasGetTypeOutputInfo3Args 
+        let tupIOParam = this.context.hasGetTypeOutputInfo3Args
                                     ? undefined
                                     : await this.palloc('sizeof(Oid)');
 
@@ -2913,7 +2938,7 @@ class ExprNodeVariable extends NodeVariable {
         /*
          * This is hard to determine name of field using only
          * attribute number - there are many manipulations should occur.
-         * For example, see src/backend/utils/adt/ruleutils.c:get_name_for_var_field.
+         * i.e. src/backend/utils/adt/ruleutils.c:get_name_for_var_field.
          *
          * For now, just print container expr and '???' as field.
          * I think, in the end developers will understand which field is used.
@@ -3275,8 +3300,8 @@ class ListElementsMember extends RealVariable {
      */
     listParent: ListNodeVariable;
 
-    constructor(listParent: ListNodeVariable, cellValue: string, listCellType: string,
-        args: RealVariableArgs) {
+    constructor(listParent: ListNodeVariable, cellValue: string,
+                listCellType: string, args: RealVariableArgs) {
         super(args);
         this.listParent = listParent;
         this.cellValue = cellValue;
@@ -3310,8 +3335,8 @@ class ListElementsMember extends RealVariable {
         }
 
         /*
-        * We can not just cast `elements' to int* or Oid*
-        * due to padding in `union'. For these we iterate
+        * We can not just cast `elements' to 'int *' or 'Oid *'
+        * due to padding in union.  For these we iterate
         * each element and evaluate each item independently
         */
         const elements: RealVariable[] = [];
@@ -3378,7 +3403,7 @@ class LinkedListElementsMember extends Variable {
 
     constructor(listParent: ListNodeVariable, cellValue: string,
         realType: string, context: ExecContext) {
-        super('$elements$', '', '', context, listParent.frameId, listParent, listParent.logger);
+        super('$elements$', '', '', context, listParent.frameId, listParent);
         this.listParent = listParent;
         this.cellValue = cellValue;
         this.realType = realType;
@@ -3412,7 +3437,7 @@ class LinkedListElementsMember extends Variable {
         } while (!this.debug.isNull({...cell, value: cell.result}));
 
         return await Variable.mapVariables(elements, this.frameId, this.context,
-            this.logger, this.listParent);
+                                           this.logger, this.listParent);
     }
 
     async doGetChildren() {
@@ -3520,7 +3545,7 @@ export class ListNodeVariable extends NodeVariable {
                 break;
             default:
                 this.logger.warn('failed to determine List tag for %s->elements. using int value',
-                    this.name);
+                                 this.name);
                 break;
         }
 
@@ -3555,7 +3580,7 @@ export class ListNodeVariable extends NodeVariable {
                 break;
             default:
                 this.logger.warn('failed to determine List tag for %s->elements. using int value',
-                    this.name);
+                                 this.name);
                 break;
         }
 
@@ -3965,7 +3990,7 @@ class BitmapSetSpecialMember extends NodeVariable {
         const ref = await this.getBmsRef();
 
         members.push(new ScalarVariable('$length$', setMembers.length.toString(),
-            '', this.context, this.logger, this));
+                                        '', this.context, this.logger, this));
         members.push(new BitmapSetSpecialMember.BmsArrayVariable(this, setMembers, ref));
 
         return members.filter(v => v.name !== 'words');
@@ -3990,7 +4015,7 @@ class BitmapSetSpecialMember extends NodeVariable {
             value: number,
             context: ExecContext,
             ref: constants.BitmapsetReference | undefined) {
-            super(`[${index}]`, value.toString(), 'int', context, parent.frameId, parent, parent.logger);
+            super(`[${index}]`, value.toString(), '', context, parent.frameId, parent);
             this.relid = value;
             this.bmsParent = bmsParent;
             this.ref = ref;
@@ -4103,7 +4128,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                 }
             } else if (field instanceof RealVariable) {
                 if (field.type === 'List *') {
-                    /* Empty List* will be created as RealVariable */
+                    /* Empty 'List *' will be created as RealVariable */
                     return;
                 }
                 const expr = `((${field.type})${field.getPointer()})[${index}]`;
@@ -4152,13 +4177,18 @@ class BitmapSetSpecialMember extends NodeVariable {
         constructor(parent: BitmapSetSpecialMember,
             setElements: number[],
             private ref?: constants.BitmapsetReference) {
-            super('$elements$', '', '', parent.context, parent.frameId, parent, parent.logger);
+            super('$elements$', '', '', parent.context, parent.frameId, parent);
             this.setElements = setElements;
             this.bmsParent = parent;
         }
 
+        private createElement(index: number, value: number) {
+            return new BitmapSetSpecialMember.BmsElementVariable(index, this,
+                                this.bmsParent, value, this.context, this.ref);
+        }
+
         async doGetChildren(): Promise<Variable[] | undefined> {
-            return this.setElements.map((se, i) => new BitmapSetSpecialMember.BmsElementVariable(i, this, this.bmsParent, se, this.context, this.ref))
+            return this.setElements.map((se, i) => this.createElement(i, se))
         }
 
         protected isExpandable(): boolean {
@@ -4417,7 +4447,7 @@ class HTABSpecialMember extends RealVariable {
                  */
                 if (HTABSpecialMember.evaluationUsedFunctions.indexOf(bp.functionName) !== -1) {
                     this.logger.info('found breakpoint at %s - bms elements not shown',
-                        bp.functionName);
+                                     bp.functionName);
                     return false;
                 }
             }
@@ -4482,15 +4512,16 @@ class HTABElementsMember extends Variable {
          */
         const memory = await this.palloc('sizeof(HASH_SEQ_STATUS)');
         const pointer = this.htab.getPointer();
-        let result = await this.evaluateVoid(`hash_seq_init((HASH_SEQ_STATUS *)${memory}, (HTAB *)${pointer})`);
+        const expr = `hash_seq_init((HASH_SEQ_STATUS *)${memory}, (HTAB *)${pointer})`;
+        let result = await this.evaluateVoid(expr);
         if (this.debug.isFailedVar(result)) {
             /* 
-             * In CodeLLDB first invocation of hash_seq_init always fails with
-             * error like 'reference to HASH_SEQ_STATUS is ambiguous'.
-             * But subsequent calls succeeds.
+             * In CodeLLDB first invocation of 'hash_seq_init' always fails
+             * with error like 'reference to HASH_SEQ_STATUS is ambiguous',
+             * but subsequent calls succeed.
              */
             if (result.result.indexOf('ambiguous') !== -1) {
-                result = await this.evaluateVoid(`hash_seq_init((HASH_SEQ_STATUS *)${memory}, (HTAB *)${pointer})`);
+                result = await this.evaluateVoid(expr);
             }
 
             if (this.debug.isFailedVar(result)) {
@@ -4547,7 +4578,8 @@ class HTABElementsMember extends Variable {
 
             /* user can specify non-existent type */
             if (this.debug.isFailedVar(result)) {
-                this.logger.warn('Failed to create variable with type %s: %s', this.entryType, result.result);
+                this.logger.warn('Failed to create variable with type %s: %s',
+                                 this.entryType, result.result);
                 await this.finalizeHashSeqStatus(hashSeqStatus);
                 return undefined;
             }
@@ -4659,7 +4691,8 @@ class SimplehashElementsMember extends Variable {
     hashTable: SimplehashMember;
 
     constructor(hashTable: SimplehashMember) {
-        super('$elements$', '', '', hashTable.context, hashTable.frameId, hashTable, hashTable.logger);
+        super('$elements$', '', '', hashTable.context, hashTable.frameId, 
+              hashTable, hashTable.logger);
         this.hashTable = hashTable;
     }
 
@@ -4727,9 +4760,11 @@ class SimplehashElementsMember extends Variable {
 
     async iterate(iterator: string, current: number) {
         const iterFunction = this.getIteratorFunction();
-        const hashTableType = this.getHashTableType();
-        const iteratorType = this.getIteratorType();
-        const result = await this.evaluate(`(${this.hashTable.elementType}) ${iterFunction}((${hashTableType} *) ${this.hashTable.getPointer()}, (${iteratorType} *)${iterator})`);
+        const hashTableType = `(${this.getHashTableType()} *) ${this.hashTable.getPointer()}`;
+        const iteratorArg = `(${this.getIteratorType()} *) ${iterator}`;
+        const elementType = this.hashTable.elementType;
+        const expression = `(${elementType}) ${iterFunction}(${hashTableType}, ${iteratorArg})`;
+        const result = await this.evaluate(expression);
         if (this.debug.isNull({...result, value: result.result})) {
             return undefined;
         }
