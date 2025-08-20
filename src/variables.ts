@@ -454,6 +454,14 @@ export class ExecContext {
      */
     hasBoolAsChar = false;
 
+    /**
+     * 'get_attname' function accepts 3 arguments.
+     * 
+     * In PostgreSQL 10 and below 'get_attname' accepted 2 arguments and
+     * worked same way as current with 'true' passed as 3rd argument.
+     */
+    hasGetAttname3 = true;
+
     constructor(nodeVarRegistry: NodeVarRegistry, specialMemberRegistry: SpecialMemberRegistry,
                 debug: dbg.IDebuggerFacade, hashTableTypes: HashTableTypes) {
         this.nodeVarRegistry = nodeVarRegistry;
@@ -1907,15 +1915,46 @@ class ExprNodeVariable extends NodeVariable {
                 const evalResult = await this.evaluate(getAttnameExpr);
                 const useGetAttname = this.debug.extractBool({...evalResult, value: evalResult.result});
                 if (useGetAttname) {
-                    /* Call this with `true` last - do not throw error if no such attribute found */
-                    const r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno}, true)`);
-                    const attname = this.debug.extractString({...r, value: r.result});
-                    if (attname !== null) {
-                        return attname;
-                    }
-
-                    if (this.debug.isFailedVar(r)) {
-                        this.context.hasGetAttname = false;
+                    let r;
+                    let attname;
+                    if (this.context.hasGetAttname3) {
+                        /* 
+                         * There are 2 notes:
+                         * 
+                         * 1. In older versions `get_attname` accepted only 2
+                         *    arguments and behaved in same way as `true` is
+                         *    passed today
+                         * 2. We first should check for failed var, not extract
+                         *    string and check for null. My current code for
+                         *    extracting strings is dumb and does not check for
+                         *    such situations (so it will return non-null in
+                         *    case of such error)
+                         */
+                        r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno}, true)`);
+                        if (this.debug.isFailedVar(r)) {
+                            if (r.result.indexOf('no matching function') !== -1) {
+                                r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno})`);
+                                if (!this.debug.isFailedVar(r) && 
+                                    (attname = this.debug.extractString({...r, value: r.result})) !== null) {
+                                    this.context.hasGetAttname3 = false;
+                                    return attname;
+                                }
+                            } else {
+                                this.context.hasGetAttname = false;
+                            }
+                        } else {
+                            attname = this.debug.extractString({...r, value: r.result});
+                            if (!this.debug.isFailedVar(r) && 
+                                (attname = this.debug.extractString({...r, value: r.result})) !== null) {
+                                return attname;
+                            }
+                        }
+                    } else {
+                        r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno})`);
+                        if (!this.debug.isFailedVar(r) && 
+                             (attname = this.debug.extractString({...r, value: r.result})) !== null) {
+                            return attname;
+                        }
                     }
                 }
             }
