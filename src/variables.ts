@@ -3725,6 +3725,12 @@ export class ListNodeVariable extends NodeVariable {
 
 export class ArraySpecialMember extends RealVariable {
     /**
+     * Prevent errors/bugs if there was garbage after
+     * length expression evaluation.
+     */
+    static plausibleMaxLength = 1024;
+    
+    /**
      * Expression to evaluate to obtain array length.
      * Appended to target struct from right.
      * First element is length member name, but after
@@ -3766,15 +3772,20 @@ export class ArraySpecialMember extends RealVariable {
     async doGetRealMembers() {
         const lengthExpr = this.getLengthExpr();
         const evalResult = await this.evaluate(lengthExpr);
-        const length = Number(evalResult.result);
+        let length = Number(evalResult.result);
         if (Number.isNaN(length)) {
             this.logger.warn('failed to obtain array size using expr "%s" for (%s)->%s',
                 lengthExpr, this.type, this.name);
             return await super.doGetRealMembers();
         }
 
-        if (length === 0) {
+        if (length <= 0) {
             return await super.doGetRealMembers();
+        }
+
+        /* Yes, we may have garbage, but what if the array is that huge? */
+        if (ArraySpecialMember.plausibleMaxLength < length) {
+            length = ArraySpecialMember.plausibleMaxLength;
         }
 
         const memberExpr = `((${this.parent.type})${this.parent.getPointer()})->${this.info.memberName}`;
