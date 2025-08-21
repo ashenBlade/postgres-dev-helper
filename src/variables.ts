@@ -3740,8 +3740,31 @@ export class ArraySpecialMember extends RealVariable {
         this.parent = parent;
     }
 
+    getLengthExpr() {
+        /* 
+         * To be more flexible and (simultaneously) simple we have 2 forms
+         * of expressions:
+         * 
+         * 1. Parent member expression: `lengthExpr` concatenated to `parent->`
+         * 2. Generic expression: `lengthExpr` is arbitrary expression
+         * 
+         * Generic expression starts with `!` (because parent member expression
+         * will never be member expression in that way).
+         * Also, to be able to reference parent `{}` is used as a placeholder,
+         * so we can reference parent (members) multple times or use function
+         * invocation instead of simple member.
+         */
+        const parentExpr = `((${this.parent.type})${this.parent.getPointer()})`;
+        const lengthExpr = this.info.lengthExpr.replace(/{}/g, parentExpr);
+        if (lengthExpr.startsWith('!')) {
+            return lengthExpr.substring(1);
+        } else {
+            return `${parentExpr}->${lengthExpr}`;
+        }
+    }
+
     async doGetRealMembers() {
-        const lengthExpr = `((${this.parent.type})${this.parent.getPointer()})->${this.info.lengthExpr}`;
+        const lengthExpr = this.getLengthExpr();
         const evalResult = await this.evaluate(lengthExpr);
         const length = Number(evalResult.result);
         if (Number.isNaN(length)) {
