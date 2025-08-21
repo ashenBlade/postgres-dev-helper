@@ -739,6 +739,27 @@ export abstract class Variable {
             return new RealVariable(args);
         }
 
+        /* 
+         * Array special member should be processed before all, because
+         * it acts like decorator.
+         * 
+         * It should never be one of others (Node, HTAB, etc...), but elements
+         * of array can be.
+         */
+        if (parent?.type && parent instanceof RealVariable) {
+            const specialMember = context.specialMemberRegistry
+                .getArraySpecialMember(parent.type, debugVariable.name);
+            if (specialMember) {
+                return new ArraySpecialMember(parent, specialMember, {
+                    ...debugVariable,
+                    frameId: frameId,
+                    parent: parent,
+                    context,
+                    logger
+                }) as RealVariable;
+            }
+        }
+
         /*
          * PostgreSQL versions prior 16 do not have Bitmapset Node.
          * So handle Bitmapset (with Relids) here.
@@ -753,21 +774,6 @@ export abstract class Variable {
                                                          context, logger, parent);
             if (nodeTagVar) {
                 return nodeTagVar;
-            }
-        }
-
-        /* Special members */
-        if (parent?.type && parent instanceof RealVariable) {
-            const specialMember = context.specialMemberRegistry
-                .getArraySpecialMember(parent.type, debugVariable.name);
-            if (specialMember) {
-                return new ArraySpecialMember(parent, specialMember, {
-                    ...debugVariable,
-                    frameId: frameId,
-                    parent: parent,
-                    context,
-                    logger
-                }) as RealVariable;
             }
         }
 
