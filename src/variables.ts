@@ -1792,6 +1792,7 @@ class ExprNodeVariable extends NodeVariable {
         ['NullTest', 'NULL_TEST'],
         ['OpExpr', 'OP_EXPR'],
         ['Param', 'PARAM'],
+        ['PlaceHolderVar', 'PLACEHOLDER_VAR'],
         ['RelabelType', 'RELABEL_TYPE'],
         ['RowCompareExpr', 'ROW_COMPARE'],
         ['RowExpr', 'ROW()'],
@@ -1984,6 +1985,10 @@ class ExprNodeVariable extends NodeVariable {
         const attname = await get_rte_attribute_name();
 
         return `${relname}.${attname}`;
+    }
+
+    private async formatPlaceHolderVar(rtable: RangeTableContainer) {
+        return await this.getMemberRepr('phexpr', rtable);
     }
 
     private async formatConst(rtable: RangeTableContainer) {
@@ -3022,6 +3027,8 @@ class ExprNodeVariable extends NodeVariable {
                     return await this.formatFuncExpr(rtable);
                 case 'Aggref':
                     return await this.formatAggref(rtable);
+                case 'PlaceHolderVar':
+                    return await this.formatPlaceHolderVar(rtable);
                 case 'TargetEntry':
                     return await this.formatTargetEntry(rtable);
                 case 'ScalarArrayOpExpr':
@@ -3117,8 +3124,8 @@ class ExprNodeVariable extends NodeVariable {
 
     /*
      * Entry point to get text representation of Expr during
-     * recursive repr evaluation.
-     * This is speed up, because of already found 'rtable' passing.
+     * recursive repr evaluation.  This is speed up, because
+     * of already found 'rtable' passing.
      */
     private async getReprInternal(rtable: RangeTableContainer) {
         if (this.repr) {
