@@ -286,6 +286,16 @@ Known issues:
 
 ## Release Notes
 
+## 1.12.0
+
+Support for generic expressions for length expression in array special members.
+
+Add more builtin array special members.
+
+Check length in array special members not greater than 1024 to prevent errors/bugs.
+
+Show expression in `PlaceHolderVar` instead of `EXPR` placeholder.
+
 ## 1.11.2
 
 Fix invalid attribute rendering if it does not have `alias` member set.

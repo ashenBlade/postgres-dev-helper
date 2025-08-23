@@ -5,6 +5,20 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0]
+
+### Add
+
+Support for generic expressions for length expression in array special members.
+
+Add more builtin array special members.
+
+Check length in array special members not greater than 1024 to prevent errors/bugs.
+
+### Fix
+
+Show expression in `PlaceHolderVar` instead of `EXPR` placeholder.
+
 ## [1.11.2]
 
 ### Fix
