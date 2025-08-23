@@ -64,10 +64,22 @@ Each object of this array has 3 fields:
     This must be name of type without any qualifiers, like 'const' or 'volatile'.
 - `memberName` - name of member of this type.
 - `lengthExpression` - expression to be evaluated to get array length.
-    It is not just member name that contain array length - this is
-    expression that getting evaluated.
-    It evaluates using concatenation like `((typeName)variable)->${lengthExpression}`.
-    I.e. if you add `+ 1` - it will be applied.
+
+Length expression can be in 2 forms:
+
+1. Member name concatenated to parent object.
+
+   In such case `lengthExpression` is just *concatenated* to parent object as
+   `parent->lengthExpression`. As it is concatenated, then you can add some
+   other expressions to it, i.e. `some_member + 1`.
+2. Generic expression
+
+    `lengthExpression` represents any expression which must be evaluated to
+    some number (integer). This expression starts with `!` to distinguish between
+    this form and member name form.
+
+Note: in both cases you can refer to parent object using `{}`, i.e. `!{}->member1 + {}->member2`
+or the same in member form `member1 + {}->member2`.
 
 Examples:
 
@@ -87,9 +99,9 @@ Examples:
                 "lengthExpression": "nreaders + 1"
             },
             {
-                "typeName": "EPQState",
-                "memberName": "relsubs_slot",
-                "lengthExpression": "parentestate->es_range_table_size"
+                "typeName": "RelOptInfo",
+                "memberName": "attr_needed",
+                "lengthExpression": "!{}->max_attr - {}->min_attr + 1"
             }
         ]
     }
