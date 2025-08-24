@@ -288,6 +288,12 @@ Known issues:
 
 ## 1.12.0
 
+Improve performance by caching current context properties, i.e. if it is safe to call `palloc`, etc...
+
+Handle `ROWID` special varno when rendering Var expression.
+
+## 1.12.0
+
 Support for generic expressions for length expression in array special members.
 
 Add more builtin array special members.
