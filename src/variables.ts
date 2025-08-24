@@ -1426,6 +1426,7 @@ const InvalidOid = 0;
 const oidIsValid = (oid: number) => Number.isInteger(oid) && oid !== InvalidOid;
 
 const InvalidAttrNumber = 0;
+const MaxAttrNumber = 32767;
 
 /**
  * Variable/member with `NodeTag' assigned.
@@ -1882,14 +1883,17 @@ class ExprNodeVariable extends NodeVariable {
             return 'INDEX.???';
         }
 
+        if (varno === -4) {
+            return 'ROWID';
+        }
+
         const rtable = await this.getRtable();
         if (!rtable) {
             return '???.???';
         }
 
-        if (!(varno > 0 && varno <= rtable.length)) {
-            /* This was an Assert */
-            throw new EvaluationError('failed to get RTEs from range table');
+        if (!(varno >= InvalidAttrNumber && varno <= rtable.length)) {
+            return '???.???';
         }
 
         /*
@@ -2003,10 +2007,8 @@ class ExprNodeVariable extends NodeVariable {
             return '???';
         }
 
-        /* TODO: change to Variable interface to prevent (possible) SEGFAULT */
         const relname = await this.evalStringResult(`${rtePtr}->eref->aliasname`) ?? '???';
         const attname = await get_rte_attribute_name();
-
         return `${relname}.${attname}`;
     }
 
