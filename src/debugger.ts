@@ -80,7 +80,7 @@ export interface IDebuggerFacade {
      * @param variable Variable to test pointer for
      * @returns true if variable's pointer is NULL, otherwise false
      */
-    isNull: (variable: IDebugVariable) => boolean;
+    isNull: (variable: IDebugVariable | dap.EvaluateResponse) => boolean;
 
     /**
      * Check provided pointer value represents valid value.
@@ -89,7 +89,7 @@ export interface IDebuggerFacade {
      * @param variable Variable to test
      * @returns Pointer value is valid and not NULL
      */
-    isValidPointerType: (variable: IDebugVariable) => boolean;
+    isValidPointerType: (variable: IDebugVariable | dap.EvaluateResponse) => boolean;
 
     /**
      * Check that variable represents value struct - structure stored in place,
@@ -130,7 +130,7 @@ export interface IDebuggerFacade {
      * @param variable Variable with string type
      * @returns String it contains, without quotes, or null if failed.
      */
-    extractString: (variable: IDebugVariable) => string | null;
+    extractString: (variable: IDebugVariable | dap.EvaluateResponse) => string | null;
 
     /**
      * For given variable with string type extract string it represents.
@@ -151,7 +151,7 @@ export interface IDebuggerFacade {
      * @param variable Variable of boolean type
      * @returns 'boolean' - stored value, or 'null' if failed to obtain result
      */
-    extractBool: (variable: IDebugVariable) => boolean | null;
+    extractBool: (variable: IDebugVariable | dap.EvaluateResponse) => boolean | null;
 
     /**
      * For given string variable extract it's pointer. This primarily used
@@ -162,7 +162,7 @@ export interface IDebuggerFacade {
      * @param variable Variable of string type
      * @returns String representing pointer value
      */
-    extractPtrFromString: (variable: IDebugVariable) => string | null;
+    extractPtrFromString: (variable: IDebugVariable | dap.EvaluateResponse) => string | null;
 
     /**
      * Format passed enum value in form which is acceptable for specific. debugger.
@@ -401,6 +401,10 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
         return variable.memoryReference ?? variable.value;
     }
 
+    protected getValue(variable: IDebugVariable | dap.EvaluateResponse) {
+        return 'value' in variable ? variable.value : variable.result;
+    }
+
     dispose() {
         this.registrations.forEach(r => r.dispose());
         this.registrations.length = 0;
@@ -414,12 +418,12 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
     abstract maybeCalcFrameIndex(frameId: number): number | undefined;
     abstract shouldShowScope(scope: dap.Scope): boolean;
     abstract evaluate(expression: string, frameId: number | undefined, context?: string): Promise<dap.EvaluateResponse>;
-    abstract isNull(variable: IDebugVariable): boolean;
-    abstract isValidPointerType(variable: IDebugVariable): boolean;
+    abstract isNull(variable: IDebugVariable | dap.EvaluateResponse): boolean;
+    abstract isValidPointerType(variable: IDebugVariable | dap.EvaluateResponse): boolean;
     abstract isValueStruct(variable: IDebugVariable, type?: string): boolean;
-    abstract extractString(variable: IDebugVariable): string | null;
-    abstract extractBool(variable: IDebugVariable): boolean | null;
-    abstract extractPtrFromString(variable: IDebugVariable): string | null;
+    abstract extractString(variable: IDebugVariable | dap.EvaluateResponse): string | null;
+    abstract extractBool(variable: IDebugVariable | dap.EvaluateResponse): boolean | null;
+    abstract extractPtrFromString(variable: IDebugVariable | dap.EvaluateResponse): string | null;
     abstract formatEnumValue(name: string, value: string): string;
     abstract extractLongString(variable: IDebugVariable, frameId: number): Promise<string | null>;
 }
@@ -488,12 +492,12 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
         return response.result.startsWith('-var-create');
     }
 
-    isNull(variable: IDebugVariable) {
-        return variable.value === '0x0';
+    isNull(variable: IDebugVariable | dap.EvaluateResponse) {
+        return this.getValue(variable) === '0x0';
     }
 
-    isValidPointerType(variable: IDebugVariable) {
-        return pointerRegex.test(variable.value) && !this.isNull(variable);
+    isValidPointerType(variable: IDebugVariable | dap.EvaluateResponse) {
+        return pointerRegex.test(this.getValue(variable)) && !this.isNull(variable);
     }
 
     isValueStruct(variable: IDebugVariable, type?: string) {
@@ -510,15 +514,16 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
         return false;
     }
 
-    extractString(variable: IDebugVariable) {
-        const left = variable.value.indexOf('"');
-        const right = variable.value.lastIndexOf('"');
+    extractString(variable: IDebugVariable | dap.EvaluateResponse) {
+        const value = this.getValue(variable);
+        const left = value.indexOf('"');
+        const right = value.lastIndexOf('"');
         if (left === -1 || left === right) {
             /* No STR can be found */
             return null;
         }
 
-        return variable.value.substring(left + 1, right);
+        return value.substring(left + 1, right);
     }
 
     override async extractLongString(variable: IDebugVariable, frameId: number): Promise<string | null> {
@@ -647,11 +652,11 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
         return chunks.join('');
     }
 
-    extractBool(variable: IDebugVariable) {
+    extractBool(variable: IDebugVariable | dap.EvaluateResponse) {
         /* 
          * On older pg versions bool stored as 'char' and have format: "X '\00X'"
          */
-        switch (variable.value.trim().toLowerCase()) {
+        switch (this.getValue(variable).trim().toLowerCase()) {
             case 'true':
             case "1 '\\001'":
                 return true;
@@ -663,17 +668,18 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
         return null;
     }
 
-    extractPtrFromString(variable: IDebugVariable) {
+    extractPtrFromString(variable: IDebugVariable | dap.EvaluateResponse) {
         /*
          * When evaluating 'char*' member, 'result' field will be in form: `0x00000 "STR"`.
          * This function extracts stored pointer (0x00000), otherwise null returned
          */
-        const space = variable.value.indexOf(' ');
+        const value = this.getValue(variable);
+        const space = value.indexOf(' ');
         if (space === -1) {
             return null;
         }
 
-        const ptr = variable.value.substring(0, space);
+        const ptr = value.substring(0, space);
         if (!pointerRegex.test(ptr)) {
             return null;
         }
@@ -692,7 +698,7 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
         return frameId - 1000;
     }
 
-    formatEnumValue(name: string, value: string) {
+    formatEnumValue(_name: string, value: string) {
         /* CppDbg allows passing only identifier, without type qualification */
         return value;
     }
@@ -748,13 +754,16 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
         }
     }
 
-    isNull(variable: IDebugVariable): boolean {
-        return variable.value === '<null>' || nullRegex.test(variable.value);
+    isNull(variable: IDebugVariable | dap.EvaluateResponse): boolean {
+        const value = this.getValue(variable);
+        return value === '<null>' || nullRegex.test(value);
     }
+    
+    isValidPointerType(variable: IDebugVariable | dap.EvaluateResponse): boolean {
+        const value = this.getValue(variable);
 
-    isValidPointerType(variable: IDebugVariable): boolean {
         /* CodeLLDB examine pointers itself, so this is handy for us */
-        if (variable.value === '<invalid address>' || variable.value === '<null>') {
+        if (value === '<invalid address>' || value === '<null>') {
             return false;
         }
         
@@ -763,11 +772,11 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
          *  1. Raw pointer, i.e. 0x00006295b176f6b0
          *  2. Structure fields around curly brackets, i.e. {type:T_PlannerInfo}
          */
-        if (this.valueRepresentsStructure(variable.value) && variable.type.indexOf('*') !== -1) {
+        if (this.valueRepresentsStructure(value) && variable.type.indexOf('*') !== -1) {
             return true;
         }
 
-        if (pointerRegex.test(variable.value)) {
+        if (pointerRegex.test(value)) {
             return true;
         }
 
@@ -805,7 +814,7 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
         return true;
     }
 
-    extractStringInternal(str: string) {
+    private extractStringInternal(str: string) {
         /* 
          * char* is rendered as string wrapped into double quotes,
          * without any pointer - just trim them.
@@ -813,8 +822,8 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
         return str.substring(1, str.length - 1);
     }
 
-    extractString(variable: IDebugVariable): string | null {
-        return this.extractStringInternal(variable.value);
+    extractString(variable: IDebugVariable | dap.EvaluateResponse): string | null {
+        return this.extractStringInternal(this.getValue(variable));
     }
 
     async extractLongString(variable: IDebugVariable, frameId: number): Promise<string | null> {
@@ -881,11 +890,11 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
         return chunks.join('');
     }
 
-    extractBool(variable: IDebugVariable): boolean | null {
+    extractBool(variable: IDebugVariable | dap.EvaluateResponse): boolean | null {
         /* 
          * On older pg versions bool stored as 'char' and have format: "X '\00X'"
          */
-        switch (variable.value.trim().toLowerCase()) {
+        switch (this.getValue(variable).trim().toLowerCase()) {
             case 'true':
             case "'\\x01'":
                 return true;
@@ -897,7 +906,7 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
         return null;
     }
 
-    extractPtrFromString(variable: IDebugVariable): string | null {
+    extractPtrFromString(variable: IDebugVariable | dap.EvaluateResponse): string | null {
         /* 
          * String pointer is not stored in 'value', the only we can do is
          * to take 'memoryReference'
@@ -908,7 +917,7 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
         return variable.memoryReference;
     }
 
-    maybeCalcFrameIndex(frameId: number) {
+    maybeCalcFrameIndex(_frameId: number) {
         /* 
          * Unlike CppDbg, CodeLLDB returns new 'frameId' always, it does not
          * refresh values after steps, so we can not rely on frameId returned

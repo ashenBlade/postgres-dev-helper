@@ -929,13 +929,13 @@ export abstract class Variable {
              * so `palloc` implemented as macro and we need to invoke `MemoryContextAlloc`
              * directly.
              */
-            if (this.debug.isValidPointerType({...result, value: result.result})) {
+            if (this.debug.isValidPointerType(result)) {
                 return result.result;
             }
         }
 
         const result = await this.evaluate(`MemoryContextAlloc(CurrentMemoryContext, ${size})`);
-        if (this.debug.isValidPointerType({...result, value: result.result})) {
+        if (this.debug.isValidPointerType(result)) {
             this.context.hasPalloc = false;
             return result.result;
         }
@@ -1356,7 +1356,6 @@ export class RealVariable extends Variable {
     }
 
     protected formatWatchExpression(myType: string) {
-        /* TODO: only CppDbg works with this */
         if (this.parent instanceof VariablesRoot) {
             /* Top level variable */
             if (this.debug.isValueStruct(this, myType)) {
@@ -1696,7 +1695,7 @@ class ExprNodeVariable extends NodeVariable {
      */
     private async evalStringResult(expr: string) {
         const result = await this.evaluate(expr);
-        return this.debug.extractString({...result, value: result.result});
+        return this.debug.extractString(result);
     }
 
     /**
@@ -1710,13 +1709,12 @@ class ExprNodeVariable extends NodeVariable {
         }
 
         const result = await this.evaluate(`get_func_name((Oid) ${oid})`);
-        const pseudoVar = {...result, value: result.result};
-        const str = this.debug.extractString(pseudoVar);
+        const str = this.debug.extractString(result);
         if (str === null) {
             return null;
         }
 
-        const ptr = this.debug.extractPtrFromString(pseudoVar);
+        const ptr = this.debug.extractPtrFromString(result);
         if (ptr) {
             await this.pfree(ptr);
         }
@@ -1734,13 +1732,12 @@ class ExprNodeVariable extends NodeVariable {
 
         const result = await this.evaluate(`get_opname((Oid)${oid})`);
 
-        const pseudoVar = {...result, value: result.result};
-        const str = this.debug.extractString(pseudoVar);
+        const str = this.debug.extractString(result);
         if (str === null) {
             return null;
         }
 
-        const ptr = this.debug.extractPtrFromString(pseudoVar);
+        const ptr = this.debug.extractPtrFromString(result);
         if (ptr) {
             await this.pfree(ptr);
         }
@@ -1942,7 +1939,7 @@ class ExprNodeVariable extends NodeVariable {
                 const getAttnameExpr = `   ${rtePtr}->rtekind == ${rteRelation} 
                                         && ${rtePtr}->relid   != ${InvalidOid}`;
                 const evalResult = await this.evaluate(getAttnameExpr);
-                const useGetAttname = this.debug.extractBool({...evalResult, value: evalResult.result});
+                const useGetAttname = this.debug.extractBool(evalResult);
                 if (useGetAttname) {
                     let r;
                     let attname;
@@ -1961,7 +1958,7 @@ class ExprNodeVariable extends NodeVariable {
                          */
                         try {
                             r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno}, true)`);
-                            attname = this.debug.extractString({...r, value: r.result});
+                            attname = this.debug.extractString(r);
                             if (attname !== null) {
                                 return attname;
                             }
@@ -1977,14 +1974,14 @@ class ExprNodeVariable extends NodeVariable {
                         }
 
                         r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno})`);
-                        attname = this.debug.extractString({...r, value: r.result});
+                        attname = this.debug.extractString(r);
                         if (attname !== null) {
                             this.context.hasGetAttname3 = false;
                             return attname;
                         }
                     } else {
                         r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno})`);
-                        attname = this.debug.extractString({...r, value: r.result});
+                        attname = this.debug.extractString(r);
                         if (attname !== null) {
                             return attname;
                         }
@@ -2030,13 +2027,12 @@ class ExprNodeVariable extends NodeVariable {
 
         const evalStrWithPtr = async (expr: string) => {
             const result = await this.debug.evaluate(expr, this.frameId);
-            const debugVar = {...result, value: result.result};
-            const str = this.debug.extractString(debugVar);
+            const str = this.debug.extractString(result);
             if (str === null) {
                 throw new EvaluationError(`failed to get string from expr: ${expr}`);
             }
 
-            const ptr = this.debug.extractPtrFromString(debugVar);
+            const ptr = this.debug.extractPtrFromString(result);
             if (ptr === null) {
                 throw new EvaluationError(`failed to get pointer from expr: ${expr}`);
             }
@@ -3577,7 +3573,7 @@ class LinkedListElementsMember extends Variable {
             evaluateName = `${evaluateName}->next`;
             cell = await this.debug.evaluate(evaluateName, this.frameId);
             ++i;
-        } while (!this.debug.isNull({...cell, value: cell.result}));
+        } while (!this.debug.isNull(cell));
 
         return await Variable.mapVariables(elements, this.frameId, this.context,
                                            this.logger, this.listParent);
@@ -3964,7 +3960,7 @@ class BitmapSetSpecialMember extends NodeVariable {
             const expression = `bms_is_valid_set((Bitmapset *)${this.getPointer()})`;
             try {
                 const response = await this.evaluate(expression);
-                return this.debug.extractBool({...response, value: response.result}) ?? false;
+                return this.debug.extractBool(response) ?? false;
             } catch (err) {
                 if (!(err instanceof EvaluationError)) {
                     throw err;
@@ -4113,7 +4109,7 @@ class BitmapSetSpecialMember extends NodeVariable {
          * pfree(tmp);
          */
         const e = await this.evaluate(`bms_copy((Bitmapset *)${this.getPointer()})`);
-        if (!this.debug.isValidPointerType({...e, value: e.result})) {
+        if (!this.debug.isValidPointerType(e)) {
             /* NULL means empty */
             return [];
         }
@@ -4776,13 +4772,11 @@ class HTABElementsMember extends Variable {
             throw new EvaluationError('failed to get next hash table entry');
         }
 
-        const pseudoVar = {...result, value: result.result};
-
-        if (this.debug.isValidPointerType(pseudoVar)) {
+        if (this.debug.isValidPointerType(result)) {
             return result.result;
         }
 
-        if (this.debug.isNull(pseudoVar)) {
+        if (this.debug.isNull(result)) {
             return undefined;
         }
 
@@ -5013,7 +5007,7 @@ class SimplehashElementsMember extends Variable {
             return undefined;
         }
         
-        if (this.debug.isNull({...result, value: result.result})) {
+        if (this.debug.isNull(result)) {
             return undefined;
         }
 
