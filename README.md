@@ -286,7 +286,7 @@ Known issues:
 
 ## Release Notes
 
-## 1.12.0
+## 1.12.1
 
 Improve performance by caching current context properties, i.e. if it is safe to call `palloc`, etc...
 
