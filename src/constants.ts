@@ -1365,6 +1365,7 @@ export function getArraySpecialMembers(): ArraySpecialMember[] {
         lengthExpr
     });
 
+    /* TODO: add src files to which structs belongs to */
     return [
         _('PlannerInfo', 'simple_rel_array', 'simple_rel_array_size'),
         _('PlannerInfo', 'simple_rte_array', 'simple_rel_array_size'),

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as dap from "./dap";
 import { Features, ILogger } from './utils';
 import { NodePreviewTreeViewProvider } from './extension';
+import {EvaluationError} from './error';
 
 export interface IDebugVariable {
     value: string;
@@ -44,7 +45,19 @@ export interface IDebuggerFacade {
      */
     readonly type: DebuggerType;
 
-    /* Common debugger functionality */
+    /* TODO: specific expression when debugger is unavailable - not 'stopped' mode */
+    /**
+     * Evaluate generic C code expression
+     * 
+     * @param expression Expression to evaluate
+     * @param frameId At which frame to evaluate expression
+     * @param context @see {@link dap.EvaluateArguments.context}
+     * @param noReturn 'true' if function is known to be 'void' returning,
+     *                  otherwise some debuggers will throw error in such cases
+     *                  like CodeLLDB. Default - 'false'.
+     * @returns Result of evaluation
+     * @throws @see {@link error.EvaluationError} if evaluation failed
+     */
     evaluate: (expression: string, frameId: number | undefined,
                context?: string, noReturn?: boolean) => Promise<dap.EvaluateResponse>;
     getVariables: (frameId: number) => Promise<dap.DebugVariable[]>;
@@ -61,14 +74,6 @@ export interface IDebuggerFacade {
      * Get pointer for location of this variable
      */
     getPointer: (variable: IDebugVariable) => string | undefined;
-
-    /**
-     * Check that `evaluate` function/DAP request failed.
-     * 
-     * @param response Result of `evaluate` function call
-     * @returns true if evaluation failed
-     */
-    isFailedVar: (response: dap.EvaluateResponse) => boolean;
 
     /**
      * 
@@ -409,7 +414,6 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
     abstract maybeCalcFrameIndex(frameId: number): number | undefined;
     abstract shouldShowScope(scope: dap.Scope): boolean;
     abstract evaluate(expression: string, frameId: number | undefined, context?: string): Promise<dap.EvaluateResponse>;
-    abstract isFailedVar(response: dap.EvaluateResponse): boolean;
     abstract isNull(variable: IDebugVariable): boolean;
     abstract isValidPointerType(variable: IDebugVariable): boolean;
     abstract isValueStruct(variable: IDebugVariable, type?: string): boolean;
@@ -442,13 +446,19 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
         this.getArrayVariables = super.getArrayVariables;
     }
     
-    async evaluate(expression: string, frameId: number | undefined, context?: string): Promise<dap.EvaluateResponse> {
+    async evaluate(expression: string, frameId: number | undefined, context?: string) {
         context ??= 'watch';
-        return await this.getSession().customRequest('evaluate', {
+        const response: dap.EvaluateResponse = await this.getSession().customRequest('evaluate', {
             expression,
             context,
             frameId
         } as dap.EvaluateArguments);
+
+        if (this.isFailedVar(response)) {
+            throw new EvaluationError(response.result);
+        }
+
+        return response;
     }
 
     async getMembers(variablesReference: number): Promise<dap.DebugVariable[]> {
@@ -460,8 +470,6 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
     }
 
     isFailedVar(response: dap.EvaluateResponse): boolean {
-        /* TODO: throw exception in such cases */
-
         /* 
         * gdb/mi has many error types for different operations.
         * In common - when error occurs 'result' has message in form
@@ -704,8 +712,17 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
     async evaluate(expression: string, frameId: number | undefined, context?: string, noReturn?: boolean): Promise<dap.EvaluateResponse> {
         try {
             context ??= 'watch';
+
+            /* 
+             * CodeLLDB has many expression evaluators: simple, python and native.
+             * https://github.com/vadimcn/codelldb/blob/master/MANUAL.md#expressions
+             * 
+             * Default is 'simple' (changed in settings), but we use only native,
+             * so add '/nat' for each expression for sure.
+             */
+            expression = `/nat ${expression}`;
             return await this.getSession().customRequest('evaluate', {
-                expression: `/nat ${expression}`,
+                expression,
                 context,
                 frameId
             } as dap.EvaluateArguments);
@@ -724,24 +741,11 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
                     }
                 }
 
-                /* 
-                 * Current interface assumes that 'failed variable' is
-                 * returned instead of exception throwing.
-                 */
-                return {
-                    memoryReference: '0x0',
-                    result: `-var-create: ${err.message}`,
-                    type: '',
-                    variablesReference: -1
-                }
+                throw new EvaluationError(err.message);
             }
 
             throw err;
         }
-    }
-
-    isFailedVar(response: dap.EvaluateResponse): boolean {
-        return response.result.startsWith('-var-create')
     }
 
     isNull(variable: IDebugVariable): boolean {
