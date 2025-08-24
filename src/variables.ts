@@ -355,6 +355,61 @@ export class HashTableTypes {
 }
 
 /**
+ * Used only inside ExprNodeVariable in order not to pass huge type specification.
+ * Created as container to postpone 'rtable' evaluation.
+ */
+class RangeTableContainer {
+    /**
+     * Flag indicating, that search of rtable already occurred.
+     * 'rtable' can be undefined because we could not find it.
+     */
+    exists: boolean = false;
+
+    /**
+     * Special promise to be resolved when rtable is set.
+     * Used as simple lock to prevent multiple rtable evaluations.
+     * I.e. when 'ec_members' is opened with lots of members in it.
+     */
+    waiter?: Promise<void>;
+
+    /**
+     * Found 'rtable' among variables. Before updating/using
+     * this field check `rtableSearched` if this member has
+     * actual value.
+     */
+    rtable: NodeVariable[] | undefined;
+}
+
+/**
+ * Container for properties hold only during debugger is stopped on breakpoint.
+ * They may change on next step, so invalidated when code execution continues.
+ */
+export class StepContext {
+    /**
+     * Whether it is safe for now to allocate memory.
+     */
+    isSafeToAllocateMemory?: boolean;
+
+    /**
+     * List variable containing RTable
+     */
+    rtable: RangeTableContainer = new RangeTableContainer();
+
+    /**
+     * Name of function which frame we are currently observing.
+     */
+    currentFunctionName?: string;
+
+    reset() {
+        this.isSafeToAllocateMemory = undefined;
+        this.rtable.rtable = undefined;
+        this.rtable.waiter = undefined;
+        this.rtable.exists = false;
+        this.currentFunctionName = undefined;
+    }
+}
+
+/**
  * Context of current execution.
  */
 export class ExecContext {
@@ -378,6 +433,12 @@ export class ExecContext {
      */
     debug: dbg.IDebuggerFacade;
 
+    /**
+     * Cached properties for current step.
+     */
+    step: StepContext;
+
+    /* Properties for current debug session */
     /**
      * Flag, indicating that this version of PostgreSQL
      * has common class for 'String', 'Integer' and other
@@ -477,6 +538,17 @@ export class ExecContext {
         this.specialMemberRegistry = specialMemberRegistry;
         this.hashTableTypes = hashTableTypes;
         this.debug = debug;
+        this.step = new StepContext();
+    }
+
+    async getCurrentFunctionName() {
+        if (this.step.currentFunctionName !== undefined) {
+            return this.step.currentFunctionName;
+        }
+
+        const name = await this.debug.getCurrentFunctionName();
+        this.step.currentFunctionName = name;
+        return name;
     }
 }
 
@@ -892,6 +964,10 @@ export abstract class Variable {
                     return false;
             }
         }
+        
+        if (this.context.step.isSafeToAllocateMemory !== undefined) {
+            return this.context.step.isSafeToAllocateMemory;
+        }
 
         const T_Invalid = this.debug.formatEnumValue('NodeTag', 'T_Invalid');
 
@@ -944,7 +1020,9 @@ export abstract class Variable {
         }
 
 
-        return isValidMemoryContextTag(result.result);
+        const isSafe = isValidMemoryContextTag(result.result);
+        this.context.step.isSafeToAllocateMemory = isSafe;
+        return isSafe;
     }
 
     /**
@@ -1604,25 +1682,6 @@ export class NodeVariable extends RealVariable {
 }
 
 /**
- * Used only inside ExprNodeVariable in order not to pass huge type specification.
- * Created as container to postpone 'rtable' evaluation.
- */
-class RangeTableContainer {
-    /**
-     * Flag indicating, that search of rtable already occurred.
-     * 'rtable' can be undefined because we could not find it.
-     */
-    rtableSearched: boolean = false;
-
-    /**
-     * Found 'rtable' among variables. Before updating/using
-     * this field check `rtableSearched` if this member has
-     * actual value.
-     */
-    rtable: NodeVariable[] | undefined;
-}
-
-/**
  * Subtypes of Expr node, that can be displayed with text representation of it's expression
  */
 class ExprNodeVariable extends NodeVariable {
@@ -1693,12 +1752,12 @@ class ExprNodeVariable extends NodeVariable {
      * Get elements of member 'this->member' and return list
      * of repr for each element
      */
-    private async getListMemberElementsReprs(member: string, rtable: RangeTableContainer) {
+    private async getListMemberElementsReprs(member: string) {
         const elements = await this.getListMemberElements(member);
 
         const reprs = [];
         for (const elem of elements) {
-            reprs.push(await this.getReprPlaceholder(elem, rtable));
+            reprs.push(await this.getReprPlaceholder(elem));
         }
 
         return reprs;
@@ -1707,9 +1766,9 @@ class ExprNodeVariable extends NodeVariable {
     /**
      * Get repr of 'this->member'
      */
-    private async getMemberRepr(member: string, rtable: RangeTableContainer) {
+    private async getMemberRepr(member: string) {
         const exprMember = await this.getMember(member);
-        return await this.getReprPlaceholder(exprMember, rtable);
+        return await this.getReprPlaceholder(exprMember);
     }
 
     /**
@@ -1795,10 +1854,10 @@ class ExprNodeVariable extends NodeVariable {
      * Auxiliary function to get repr of Variable with
      * max details if failed. This is
      */
-    private async getReprPlaceholder(variable: Variable, rtable: RangeTableContainer) {
+    private async getReprPlaceholder(variable: Variable) {
         if (variable instanceof ExprNodeVariable) {
             try {
-                return await variable.getReprInternal(rtable);
+                return await variable.getReprInternal();
             } catch (err) {
                 if (err instanceof EvaluationError) {
                     return this.getExprPlaceholder(variable);
@@ -1811,7 +1870,7 @@ class ExprNodeVariable extends NodeVariable {
         }
     }
 
-    private async formatVarExpr(rtable: RangeTableContainer) {
+    private async formatVarExpr() {
         const varno = await this.getMemberValueNumber('varno');
 
         if (varno === -1 || varno === 65000) {
@@ -1826,18 +1885,12 @@ class ExprNodeVariable extends NodeVariable {
             return 'INDEX.???';
         }
 
-        if (!rtable.rtableSearched) {
-            if (!rtable.rtable) {
-                rtable.rtable = await this.findRtable() as NodeVariable[] | undefined;
-                rtable.rtableSearched = true;
-            }
-        }
-
-        if (!rtable.rtable) {
+        const rtable = await this.getRtable();
+        if (!rtable) {
             return '???.???';
         }
 
-        if (!(varno > 0 && varno <= rtable.rtable.length)) {
+        if (!(varno > 0 && varno <= rtable.length)) {
             /* This was an Assert */
             throw new EvaluationError('failed to get RTEs from range table');
         }
@@ -1858,7 +1911,7 @@ class ExprNodeVariable extends NodeVariable {
          * we just copy it's logic.
          */
 
-        const rte = rtable.rtable[varno - 1];
+        const rte = rtable[varno - 1];
         const rtePtr = `((RangeTblEntry *)${rte.getPointer()})`;
         const get_rte_attribute_name = async () => {
             /* Copy of `get_rte_attribute_name` logic */
@@ -1960,11 +2013,11 @@ class ExprNodeVariable extends NodeVariable {
         return `${relname}.${attname}`;
     }
 
-    private async formatPlaceHolderVar(rtable: RangeTableContainer) {
-        return await this.getMemberRepr('phexpr', rtable);
+    private async formatPlaceHolderVar() {
+        return await this.getMemberRepr('phexpr');
     }
 
-    private async formatConst(rtable: RangeTableContainer) {
+    private async formatConst() {
         const evalOid = async (expr: string) => {
             const res = await this.evaluate(expr);
             const oid = Number(res.result);
@@ -2137,7 +2190,7 @@ class ExprNodeVariable extends NodeVariable {
         return repr;
     }
 
-    private async formatOpExpr(rtable: RangeTableContainer) {
+    private async formatOpExpr() {
         const opname = await this.getOpName('opno') ?? '(invalid op)';
         const args = await this.getListMemberElements('args');
         if (args.length === 0) {
@@ -2147,21 +2200,21 @@ class ExprNodeVariable extends NodeVariable {
         let data;
         if (args.length > 1) {
             data = [
-                await this.getReprPlaceholder(args[0], rtable),
+                await this.getReprPlaceholder(args[0]),
                 opname,
-                await this.getReprPlaceholder(args[1], rtable),
+                await this.getReprPlaceholder(args[1]),
             ]
         } else {
             data = [
                 opname,
-                await this.getReprPlaceholder(args[0], rtable)
+                await this.getReprPlaceholder(args[0])
             ]
         }
 
         return data.join(' ');
     }
 
-    private async formatFuncExpr(rtable: RangeTableContainer) {
+    private async formatFuncExpr() {
         const funcname = await this.getFuncName('funcid') ?? '(invalid func)';
         const args = await this.getListMemberElements('args');
         const coerceType = await this.getMemberValueEnum('funcformat');
@@ -2180,24 +2233,24 @@ class ExprNodeVariable extends NodeVariable {
                  */
                 const argsExpressions: string[] = [];
                 for (const arg of args) {
-                    argsExpressions.push(await this.getReprPlaceholder(arg, rtable));
+                    argsExpressions.push(await this.getReprPlaceholder(arg));
                 }
 
                 return `${funcname}(${argsExpressions.join(', ')})`;
             case 'COERCE_EXPLICIT_CAST':
-                const argRepr = await this.getReprPlaceholder(args[0], rtable);
+                const argRepr = await this.getReprPlaceholder(args[0]);
                 return `${argRepr}::${funcname}`;
             case 'COERCE_IMPLICIT_CAST':
                 /* User did not request explicit cast, so show as simple expr */
-                return await this.getReprPlaceholder(args[0], rtable);
+                return await this.getReprPlaceholder(args[0]);
         }
         return '???';
     }
 
-    private async formatAggref(rtable: RangeTableContainer) {
+    private async formatAggref() {
         const funcname = await this.getFuncName('aggfnoid') ?? '(invalid func)';
 
-        const reprs = await this.getListMemberElementsReprs('args', rtable);
+        const reprs = await this.getListMemberElementsReprs('args');
 
         let args;
         if (reprs.length === 0) {
@@ -2211,15 +2264,15 @@ class ExprNodeVariable extends NodeVariable {
         return `${funcname}(${args})`;
     }
 
-    private async formatTargetEntry(rtable: RangeTableContainer) {
+    private async formatTargetEntry() {
         /* NOTE: keep return type annotation, because now compiler can not
          *       handle such recursion correctly
          */
         const expr = await this.getMember('expr');
-        return await this.getReprPlaceholder(expr, rtable);
+        return await this.getReprPlaceholder(expr);
     }
 
-    private async formatScalarArrayOpExpr(rtable: RangeTableContainer) {
+    private async formatScalarArrayOpExpr() {
         const opname = await this.getOpName('opno') ?? '(invalid op)';
 
         const useOr = await this.getMemberValueBool('useOr');
@@ -2229,25 +2282,25 @@ class ExprNodeVariable extends NodeVariable {
         }
 
         const [scalar, array] = args;
-        const scalarRepr = await this.getReprPlaceholder(scalar, rtable);
-        const arrayRepr = await this.getReprPlaceholder(array, rtable);
+        const scalarRepr = await this.getReprPlaceholder(scalar);
+        const arrayRepr = await this.getReprPlaceholder(array);
         const funcname = useOr ? 'ANY' : 'ALL';
 
         return `${scalarRepr} ${opname} ${funcname}(${arrayRepr})`;
     }
 
-    private async formatBoolExpr(rtable: RangeTableContainer) {
+    private async formatBoolExpr() {
         const boolOp = await this.getMemberValueEnum('boolop')
         const args = await this.getListMemberElements('args');
 
         if (boolOp === 'NOT_EXPR') {
-            const exprRepr = await this.getReprPlaceholder(args[0], rtable);
+            const exprRepr = await this.getReprPlaceholder(args[0]);
             return `NOT ${exprRepr}`;
         }
 
         const argsReprs = [];
         for (const arg of args) {
-            argsReprs.push(await this.getReprPlaceholder(arg, rtable));
+            argsReprs.push(await this.getReprPlaceholder(arg));
         }
 
         let joinExpr;
@@ -2266,19 +2319,19 @@ class ExprNodeVariable extends NodeVariable {
         return argsReprs.join(joinExpr);
     }
 
-    private async formatCoalesceExpr(rtable: RangeTableContainer) {
+    private async formatCoalesceExpr() {
         const args = await this.getListMemberElements('args');
         const argsReprs = [];
         for (const arg of args) {
-            argsReprs.push(await this.getReprPlaceholder(arg, rtable));
+            argsReprs.push(await this.getReprPlaceholder(arg));
         }
 
         return `COALESCE(${argsReprs.join(', ')})`;
     }
 
-    private async formatNullTest(rtable: RangeTableContainer) {
+    private async formatNullTest() {
         const expr = await this.getMember('arg');
-        const innerRepr = await this.getReprPlaceholder(expr, rtable);
+        const innerRepr = await this.getReprPlaceholder(expr);
 
         const testType = await this.getMemberValueEnum('nulltesttype');
         let testSql;
@@ -2296,9 +2349,9 @@ class ExprNodeVariable extends NodeVariable {
         return `${innerRepr} ${testSql}`;
     }
 
-    private async formatBooleanTest(rtable: RangeTableContainer) {
+    private async formatBooleanTest() {
         const arg = await this.getMember('arg');
-        const innerRepr = await this.getReprPlaceholder(arg, rtable);
+        const innerRepr = await this.getReprPlaceholder(arg);
 
         const testType = await this.getMemberValueEnum('booltesttype');
         let test;
@@ -2329,12 +2382,12 @@ class ExprNodeVariable extends NodeVariable {
         return `${innerRepr} ${test}`;
     }
 
-    private async formatArrayExpr(rtable: RangeTableContainer) {
-        const reprs = await this.getListMemberElementsReprs('elements', rtable);
+    private async formatArrayExpr() {
+        const reprs = await this.getListMemberElementsReprs('elements');
         return `ARRAY[${reprs.join(', ')}]`;
     }
 
-    private async formatSqlValueFunction(rtable: RangeTableContainer) {
+    private async formatSqlValueFunction() {
         const getTypmod = async () => {
             return await this.getMemberValueNumber('typmod');
         }
@@ -2394,9 +2447,9 @@ class ExprNodeVariable extends NodeVariable {
         return funcname;
     }
 
-    private async formatMinMaxExpr(rtable: RangeTableContainer) {
+    private async formatMinMaxExpr() {
         const op = await this.getMemberValueEnum('op');
-        const argsReprs = await this.getListMemberElementsReprs('args', rtable);
+        const argsReprs = await this.getListMemberElementsReprs('args');
 
         let funcname;
         switch (op) {
@@ -2414,13 +2467,13 @@ class ExprNodeVariable extends NodeVariable {
         return `${funcname}(${argsReprs.join(', ')})`;
     }
 
-    private async formatRowExpr(rtable: RangeTableContainer) {
-        const reprs = await this.getListMemberElementsReprs('args', rtable);
+    private async formatRowExpr() {
+        const reprs = await this.getListMemberElementsReprs('args');
         return `ROW(${reprs.join(', ')})`;
     }
 
-    private async formatDistinctExpr(rtable: RangeTableContainer) {
-        const reprs = await this.getListMemberElementsReprs('args', rtable);
+    private async formatDistinctExpr() {
+        const reprs = await this.getListMemberElementsReprs('args');
         if (reprs.length != 2) {
             throw new EvaluationError('should be 2 arguments for DistinctExpr');
         }
@@ -2429,8 +2482,8 @@ class ExprNodeVariable extends NodeVariable {
         return `${left} IS DISTINCT FROM ${right}`;
     }
 
-    private async formatNullIfExpr(rtable: RangeTableContainer) {
-        const reprs = await this.getListMemberElementsReprs('args', rtable);
+    private async formatNullIfExpr() {
+        const reprs = await this.getListMemberElementsReprs('args');
         if (reprs.length != 2) {
             throw new EvaluationError('should be 2 arguments for NullIf');
         }
@@ -2439,23 +2492,23 @@ class ExprNodeVariable extends NodeVariable {
         return `NULLIF(${left}, ${right})`;
     }
 
-    private async formatNamedArgExpr(rtable: RangeTableContainer) {
-        const arg = await this.getMemberRepr('arg', rtable);
+    private async formatNamedArgExpr() {
+        const arg = await this.getMemberRepr('arg');
         const name = await this.getMemberValueCharString('name');
         return `${name} => ${arg}`;
     }
 
-    private async formatGroupingFunc(rtable: RangeTableContainer) {
-        const reprs = await this.getListMemberElementsReprs('args', rtable);
+    private async formatGroupingFunc() {
+        const reprs = await this.getListMemberElementsReprs('args');
         return `GROUPING(${reprs.join(', ')})`;
     }
 
-    private async formatWindowFunc(rtable: RangeTableContainer) {
+    private async formatWindowFunc() {
         const funcname = await this.getFuncName('winfnoid') ?? '(invalid func)';
-        const reprs = await this.getListMemberElementsReprs('args', rtable);
+        const reprs = await this.getListMemberElementsReprs('args');
         let repr = `${funcname}(${reprs.join(', ')})`
         try {
-            const filterRepr = await this.getMemberRepr('aggfilter', rtable);
+            const filterRepr = await this.getMemberRepr('aggfilter');
             repr += ` FILTER (${filterRepr})`;
         } catch (e) {
             if (!(e instanceof EvaluationError)) {
@@ -2466,8 +2519,8 @@ class ExprNodeVariable extends NodeVariable {
         return repr;
     }
 
-    private async formatSubscriptingRef(rtable: RangeTableContainer) {
-        const exprRepr = await this.getMemberRepr('refexpr', rtable);
+    private async formatSubscriptingRef() {
+        const exprRepr = await this.getMemberRepr('refexpr');
         const upperIndices = await this.getListMemberElements('refupperindexpr');
         let lowerIndices = null;
         try {
@@ -2485,11 +2538,11 @@ class ExprNodeVariable extends NodeVariable {
                 const lower = lowerIndices[i];
                 let index = '[';
                 if (!this.debug.isNull(lower)) {
-                    index += await this.getReprPlaceholder(lower, rtable);
+                    index += await this.getReprPlaceholder(lower);
                 }
                 index += ':';
                 if (!this.debug.isNull(upper)) {
-                    index += await this.getReprPlaceholder(upper, rtable);
+                    index += await this.getReprPlaceholder(upper);
                 }
                 index += ']';
                 indicesReprs.push(index);
@@ -2497,7 +2550,7 @@ class ExprNodeVariable extends NodeVariable {
         } else {
             for (let i = 0; i < upperIndices.length; i++) {
                 const upper = upperIndices[i];
-                const index = await this.getReprPlaceholder(upper, rtable);
+                const index = await this.getReprPlaceholder(upper);
                 indicesReprs.push(`[${index}]`);
             }
         }
@@ -2505,7 +2558,7 @@ class ExprNodeVariable extends NodeVariable {
         return `(${exprRepr}${indicesReprs.join('')})`;
     }
 
-    private async formatXmlExpr(rtable: RangeTableContainer) {
+    private async formatXmlExpr() {
         const getArgNameListOfStrings = async () => {
             /* Get List of T_String elements and take their 'sval' values */
             const list = await this.getListMemberElements('arg_names');
@@ -2523,7 +2576,7 @@ class ExprNodeVariable extends NodeVariable {
                         }
                     }
                 } else if (entry instanceof ExprNodeVariable) {
-                    values.push(await entry.getReprInternal(rtable));
+                    values.push(await entry.getReprInternal());
                 } else {
                     values.push('???');
                 }
@@ -2539,7 +2592,7 @@ class ExprNodeVariable extends NodeVariable {
                     let namedArgs: string[] | null;
                     let argNames: string[] | null;
                     try {
-                        namedArgs = await this.getListMemberElementsReprs('named_args', rtable);
+                        namedArgs = await this.getListMemberElementsReprs('named_args');
                         argNames = await getArgNameListOfStrings();
                     } catch (e) {
                         if (e instanceof EvaluationError) {
@@ -2551,7 +2604,7 @@ class ExprNodeVariable extends NodeVariable {
                     }
                     let args: string[] | null;
                     try {
-                        args = await this.getListMemberElementsReprs('args', rtable);
+                        args = await this.getListMemberElementsReprs('args');
                     } catch (e) {
                         if (e instanceof EvaluationError) {
                             args = null;
@@ -2582,7 +2635,7 @@ class ExprNodeVariable extends NodeVariable {
                     let namedArgs: string[] | null;
                     let argNames: string[] | null;
                     try {
-                        namedArgs = await this.getListMemberElementsReprs('named_args', rtable);
+                        namedArgs = await this.getListMemberElementsReprs('named_args');
                         argNames = await getArgNameListOfStrings();
                     } catch (e) {
                         if (e instanceof EvaluationError) {
@@ -2609,7 +2662,7 @@ class ExprNodeVariable extends NodeVariable {
                 {
                     let args: string[] | null;
                     try {
-                        args = await this.getListMemberElementsReprs('args', rtable);
+                        args = await this.getListMemberElementsReprs('args');
                     } catch (e) {
                         if (e instanceof EvaluationError) {
                             args = null;
@@ -2628,7 +2681,7 @@ class ExprNodeVariable extends NodeVariable {
             case 'IS_XMLPARSE':
                 {
                     const option = await this.getMemberValueEnum('xmloption');
-                    const args = await this.getListMemberElementsReprs('args', rtable);
+                    const args = await this.getListMemberElementsReprs('args');
                     if (!args) {
                         return 'XMLPARSE()';
                     }
@@ -2639,7 +2692,7 @@ class ExprNodeVariable extends NodeVariable {
             case 'IS_XMLPI':
                 {
                     const name = await this.getMemberValueCharString('name');
-                    const args = await this.getListMemberElementsReprs('args', rtable);
+                    const args = await this.getListMemberElementsReprs('args');
                     let repr = `XMLPI(NAME ${name}`;
                     if (args) {
                         repr += `, ${args.join(', ')}`;
@@ -2649,7 +2702,7 @@ class ExprNodeVariable extends NodeVariable {
                 }
             case 'IS_XMLROOT':
                 {
-                    const args = await this.getListMemberElementsReprs('args', rtable);
+                    const args = await this.getListMemberElementsReprs('args');
                     let repr = 'XMLROOT(';
                     if (1 <= args.length) {
                         repr += args[0];
@@ -2669,7 +2722,7 @@ class ExprNodeVariable extends NodeVariable {
             case 'IS_XMLSERIALIZE':
                 {
                     const option = await this.getMemberValueEnum('xmloption');
-                    const args = await this.getListMemberElementsReprs('args', rtable);
+                    const args = await this.getListMemberElementsReprs('args');
                     const indent = await this.getMemberValueBool('indent');
                     let repr = 'XMLSERIALIZE(';
                     if (args) {
@@ -2686,7 +2739,7 @@ class ExprNodeVariable extends NodeVariable {
                 break;
             case 'IS_DOCUMENT':
                 {
-                    const args = await this.getListMemberElementsReprs('args', rtable);
+                    const args = await this.getListMemberElementsReprs('args');
                     if (args) {
                         return `${args[0]} IS DOCUMENT`;
                     } else {
@@ -2697,7 +2750,7 @@ class ExprNodeVariable extends NodeVariable {
         return '???';
     }
 
-    private async formatSubLink(rtable: RangeTableContainer) {
+    private async formatSubLink() {
         const type = await this.getMemberValueEnum('subLinkType');
         if (type === 'EXISTS_SUBLINK') {
             return 'EXISTS(...)';
@@ -2728,7 +2781,7 @@ class ExprNodeVariable extends NodeVariable {
             if (elements.length) {
                 const left = elements[0];
                 if (left instanceof ExprNodeVariable) {
-                    return await left.getReprInternal(rtable);
+                    return await left.getReprInternal();
                 }
             }
 
@@ -2764,7 +2817,7 @@ class ExprNodeVariable extends NodeVariable {
             const largs = await testexpr.getListMemberElements('largs');
             const reprs = [];
             for (const arg of largs) {
-                reprs.push(await this.getReprPlaceholder(arg, rtable));
+                reprs.push(await this.getReprPlaceholder(arg));
             }
             leftReprs = reprs;
         }
@@ -2799,9 +2852,9 @@ class ExprNodeVariable extends NodeVariable {
         return `${leftRepr} ${opname} ${funcname}(...)`;
     }
 
-    private async formatRowCompareExpr(rtable: RangeTableContainer) {
+    private async formatRowCompareExpr() {
         const getReprs = async (arr: string[], member: string) => {
-            const elements = await this.getListMemberElementsReprs(member, rtable);
+            const elements = await this.getListMemberElementsReprs(member);
             for (const e of elements) {
                 arr.push(e);
             }
@@ -2842,21 +2895,21 @@ class ExprNodeVariable extends NodeVariable {
         return `ROW(${leftReprs.join(', ')}) ${opname} ROW(${rightReprs.join(', ')})`;
     }
 
-    private async delegateFormatToMember(member: string, rtable: RangeTableContainer) {
+    private async delegateFormatToMember(member: string) {
         /*
          * Repr of some exprs is same as repr of their field.
          * For such cases use this function in order not to
          * product many other functions.
          */
-        return await this.getMemberRepr(member, rtable);
+        return await this.getMemberRepr(member);
     }
 
-    private async formatParam(rtable: RangeTableContainer) {
+    private async formatParam() {
         const paramNum = await this.getMemberValueNumber('paramid');
         return `PARAM$${paramNum}`;
     }
 
-    private async formatJsonExpr(rtable: RangeTableContainer) {
+    private async formatJsonExpr() {
         const op = await this.getMemberValueEnum('op');
         switch (op) {
             case 'JSON_EXISTS_OP':
@@ -2876,9 +2929,9 @@ class ExprNodeVariable extends NodeVariable {
         }
     }
 
-    private async formatJsonConstructorExpr(rtable: RangeTableContainer) {
+    private async formatJsonConstructorExpr() {
         const ctorType = await this.getMemberValueEnum('type');
-        const args = await this.getListMemberElementsReprs('args', rtable);
+        const args = await this.getListMemberElementsReprs('args');
         if (ctorType === 'JSCTOR_JSON_OBJECTAGG' || ctorType === 'JSCTOR_JSON_ARRAYAGG') {
             /*
              * At runtime these function are rewritten and extracting
@@ -2886,7 +2939,7 @@ class ExprNodeVariable extends NodeVariable {
              * function repr "as it was meant" seems overhead.
              * So show already rewritten function - we can do it already.
              */
-            return await this.getMemberRepr('func', rtable);
+            return await this.getMemberRepr('func');
         }
 
         let funcname;
@@ -2937,8 +2990,8 @@ class ExprNodeVariable extends NodeVariable {
         return `${funcname}(${argsRepr})`;
     }
 
-    private async formatJsonIsPredicate(rtable: RangeTableContainer) {
-        const expr = await this.getMemberRepr('expr', rtable);
+    private async formatJsonIsPredicate() {
+        const expr = await this.getMemberRepr('expr');
         const jsonType = await this.getMemberValueEnum('item_type');
         switch (jsonType) {
             case 'JS_TYPE_ANY':
@@ -2954,9 +3007,9 @@ class ExprNodeVariable extends NodeVariable {
         }
     }
 
-    private async formatWindowFuncRunCondition(rtable: RangeTableContainer) {
+    private async formatWindowFuncRunCondition() {
         const wfuncLeft = await this.getMemberValueBool('wfunc_left');
-        const expr = await this.getMemberRepr('arg', rtable);
+        const expr = await this.getMemberRepr('arg');
         const opname = await this.getOpName('opno') ?? '(invalid op)';
         let left, right;
         if (wfuncLeft) {
@@ -2970,13 +3023,13 @@ class ExprNodeVariable extends NodeVariable {
         return `${left} ${opname} ${right}`;
     }
 
-    private async formatCaseWhen(rtable: RangeTableContainer) {
-        const when = await this.getMemberRepr('expr', rtable);
-        const then = await this.getMemberRepr('result', rtable);
+    private async formatCaseWhen() {
+        const when = await this.getMemberRepr('expr');
+        const then = await this.getMemberRepr('result');
         return `WHEN ${when} THEN ${then}`;
     }
 
-    private async formatFieldSelect(rtable: RangeTableContainer) {
+    private async formatFieldSelect() {
         /*
          * This is hard to determine name of field using only
          * attribute number - there are many manipulations should occur.
@@ -2985,21 +3038,21 @@ class ExprNodeVariable extends NodeVariable {
          * For now, just print container expr and '???' as field.
          * I think, in the end developers will understand which field is used.
          */
-        const expr = await this.getMemberRepr('arg', rtable);
+        const expr = await this.getMemberRepr('arg');
         return `${expr}.???`;
     }
 
-    private async formatFieldStore(rtable: RangeTableContainer) {
-        const expr = await this.getMemberRepr('arg', rtable);
+    private async formatFieldStore() {
+        const expr = await this.getMemberRepr('arg');
         return `${expr}.??? = ???`;
     }
 
-    private async formatCurrentOfExpr(rtable: RangeTableContainer) {
+    private async formatCurrentOfExpr() {
         const sval = await this.getMemberValueCharString('cursor_name');
         return `CURRENT OF ${sval === null ? 'NULL' : sval}`;
     }
 
-    private async formatExpr(rtable: RangeTableContainer): Promise<string> {
+    private async formatExpr(): Promise<string> {
         /*
          * WARN: if you add/remove something here do not forget to update
          *       src/constants.ts:getDisplayedExprs
@@ -3011,90 +3064,90 @@ class ExprNodeVariable extends NodeVariable {
              */
             switch (this.realNodeTag) {
                 case 'Var':
-                    return await this.formatVarExpr(rtable);
+                    return await this.formatVarExpr();
                 case 'Const':
-                    return await this.formatConst(rtable);
+                    return await this.formatConst();
                 case 'OpExpr':
-                    return await this.formatOpExpr(rtable);
+                    return await this.formatOpExpr();
                 case 'FuncExpr':
-                    return await this.formatFuncExpr(rtable);
+                    return await this.formatFuncExpr();
                 case 'Aggref':
-                    return await this.formatAggref(rtable);
+                    return await this.formatAggref();
                 case 'PlaceHolderVar':
-                    return await this.formatPlaceHolderVar(rtable);
+                    return await this.formatPlaceHolderVar();
                 case 'TargetEntry':
-                    return await this.formatTargetEntry(rtable);
+                    return await this.formatTargetEntry();
                 case 'ScalarArrayOpExpr':
-                    return await this.formatScalarArrayOpExpr(rtable);
+                    return await this.formatScalarArrayOpExpr();
                 case 'BoolExpr':
-                    return await this.formatBoolExpr(rtable);
+                    return await this.formatBoolExpr();
                 case 'BooleanTest':
-                    return await this.formatBooleanTest(rtable);
+                    return await this.formatBooleanTest();
                 case 'CoalesceExpr':
-                    return await this.formatCoalesceExpr(rtable);
+                    return await this.formatCoalesceExpr();
                 case 'Param':
-                    return await this.formatParam(rtable);
+                    return await this.formatParam();
                 case 'NullTest':
-                    return await this.formatNullTest(rtable);
+                    return await this.formatNullTest();
                 case 'ArrayExpr':
-                    return await this.formatArrayExpr(rtable);
+                    return await this.formatArrayExpr();
                 case 'SQLValueFunction':
-                    return await this.formatSqlValueFunction(rtable);
+                    return await this.formatSqlValueFunction();
                 case 'MinMaxExpr':
-                    return await this.formatMinMaxExpr(rtable);
+                    return await this.formatMinMaxExpr();
                 case 'RowExpr':
-                    return await this.formatRowExpr(rtable);
+                    return await this.formatRowExpr();
                 case 'DistinctExpr':
-                    return await this.formatDistinctExpr(rtable);
+                    return await this.formatDistinctExpr();
                 case 'NullIfExpr':
-                    return await this.formatNullIfExpr(rtable);
+                    return await this.formatNullIfExpr();
                 case 'NamedArgExpr':
-                    return await this.formatNamedArgExpr(rtable);
+                    return await this.formatNamedArgExpr();
                 case 'GroupingFunc':
-                    return await this.formatGroupingFunc(rtable);
+                    return await this.formatGroupingFunc();
                 case 'WindowFunc':
-                    return await this.formatWindowFunc(rtable);
+                    return await this.formatWindowFunc();
                 case 'SubscriptingRef':
                 case 'ArrayRef' /* old style 'SubscripingRef' */:
-                    return await this.formatSubscriptingRef(rtable);
+                    return await this.formatSubscriptingRef();
                 case 'XmlExpr':
-                    return await this.formatXmlExpr(rtable);
+                    return await this.formatXmlExpr();
                 case 'SubLink':
-                    return await this.formatSubLink(rtable);
+                    return await this.formatSubLink();
                 case 'RowCompareExpr':
-                    return await this.formatRowCompareExpr(rtable);
+                    return await this.formatRowCompareExpr();
                 case 'ArrayCoerceExpr':
-                    return await this.delegateFormatToMember('arg', rtable);
+                    return await this.delegateFormatToMember('arg');
                 case 'CoerseToDomain':
-                    return await this.delegateFormatToMember('arg', rtable);
+                    return await this.delegateFormatToMember('arg');
                 case 'ConvertRowtypeExpr':
-                    return await this.delegateFormatToMember('arg', rtable);
+                    return await this.delegateFormatToMember('arg');
                 case 'CollateExpr':
-                    return await this.delegateFormatToMember('arg', rtable);
+                    return await this.delegateFormatToMember('arg');
                 case 'CoerceViaIO':
-                    return await this.delegateFormatToMember('arg', rtable);
+                    return await this.delegateFormatToMember('arg');
                 case 'RelabelType':
-                    return await this.delegateFormatToMember('arg', rtable);
+                    return await this.delegateFormatToMember('arg');
                 case 'JsonExpr':
-                    return await this.formatJsonExpr(rtable);
+                    return await this.formatJsonExpr();
                 case 'JsonValueExpr':
-                    return await this.delegateFormatToMember('raw_expr', rtable);
+                    return await this.delegateFormatToMember('raw_expr');
                 case 'JsonConstructorExpr':
-                    return await this.formatJsonConstructorExpr(rtable);
+                    return await this.formatJsonConstructorExpr();
                 case 'JsonIsPredicate':
-                    return await this.formatJsonIsPredicate(rtable);
+                    return await this.formatJsonIsPredicate();
                 case 'WindowFuncRunCondition':
-                    return await this.formatWindowFuncRunCondition(rtable);
+                    return await this.formatWindowFuncRunCondition();
                 case 'CaseWhen':
-                    return await this.formatCaseWhen(rtable);
+                    return await this.formatCaseWhen();
                 case 'FieldSelect':
-                    return await this.formatFieldSelect(rtable);
+                    return await this.formatFieldSelect();
                 case 'FieldStore':
-                    return await this.formatFieldStore(rtable);
+                    return await this.formatFieldStore();
                 case 'CurrentOfExpr':
-                    return await this.formatCurrentOfExpr(rtable);
+                    return await this.formatCurrentOfExpr();
                 case 'InferenceElem':
-                    return await this.delegateFormatToMember('expr', rtable);
+                    return await this.delegateFormatToMember('expr');
 
                 /*
                  * Some Exprs i will not add, i.e.:
@@ -3120,12 +3173,12 @@ class ExprNodeVariable extends NodeVariable {
      * recursive repr evaluation.  This is speed up, because
      * of already found 'rtable' passing.
      */
-    private async getReprInternal(rtable: RangeTableContainer) {
+    private async getReprInternal() {
         if (this.repr) {
             return this.repr;
         }
 
-        const repr = await this.formatExpr(rtable);
+        const repr = await this.formatExpr();
         this.repr = repr;
         return repr;
     }
@@ -3140,8 +3193,54 @@ class ExprNodeVariable extends NodeVariable {
             return this.repr;
         }
 
-        const rtable = new RangeTableContainer();
-        return await this.getReprInternal(rtable);
+        return await this.getReprInternal();
+    }
+
+    private async getRtable() {
+        if (this.context.step.rtable.exists) {
+            return this.context.step.rtable.rtable;
+        }
+
+        /* 
+         * For convenience some expressions are rendered instead of description
+         * field, i.e. TargetEntry or EquivalenceMember. But when this happens
+         * 'getChildren' is called for each TreeItem and we get concurrency issue.
+         * 
+         * NodeJS has event loop which stops when encounters 'await' (in simple
+         * words), but in situation described above each element will have the
+         * same call stack and as a result they all end up in this function.
+         * So, for all of them 'exists === false', so they all will call
+         * 'findRtable', but when they will call it execution flow will be
+         * passed to another function which also will get to here with same
+         * 'exists === false'. In the end, when someone will return from
+         * 'findRtable' - 'rtable' and 'exists' might be already set, so we have
+         * done extra work.
+         * 
+         * This can affect UX significantly especially when working with large
+         * queries in complex scenarios.
+         * 
+         * So, 'waiter' - is a simple lock implementation on top of Promise.
+         * We know that NodeJS is single-threaded so it is safe to update
+         * 'waiter' member without any locks.
+         */
+        if (this.context.step.rtable.waiter) {
+            await this.context.step.rtable.waiter;
+        } else {
+            const waiter = new Promise<void>(async (resolve, reject) => {
+                try {
+                    const rtable = await this.findRtable() as NodeVariable[] | undefined;
+                    this.context.step.rtable.rtable = rtable;
+                    this.context.step.rtable.exists = true;
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+            });
+            this.context.step.rtable.waiter = waiter;
+            await waiter;
+        }
+
+        return this.context.step.rtable.rtable;
     }
 
     private async findRtable() {
@@ -3577,7 +3676,7 @@ export class ListNodeVariable extends NodeVariable {
 
         /* Check only 1 case - they are mutually exclusive */
         if (this.parent instanceof VariablesRoot) {
-            const func = await this.debug.getCurrentFunctionName();
+            const func = await this.context.getCurrentFunctionName();
             if (func) {
                 const info = map.get(func);
                 if (info) {
@@ -4515,7 +4614,7 @@ class HTABSpecialMember extends RealVariable {
 
         let parent;
         if (this.parent instanceof VariablesRoot) {
-            parent = await this.debug.getCurrentFunctionName();
+            parent = await this.context.getCurrentFunctionName();
             if (!parent) {
                 return;
             }

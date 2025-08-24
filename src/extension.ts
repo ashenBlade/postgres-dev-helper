@@ -73,6 +73,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
     private _onDidChangeTreeData = new vscode.EventEmitter<vars.Variable | undefined | null | void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
     refresh(): void {
+        this.execContext?.step.reset();
         this._onDidChangeTreeData.fire();
     }
 
