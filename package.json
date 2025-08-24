@@ -234,5 +234,11 @@
         "mocha": "^11.6.0",
         "pg": "^8.16.0",
         "typescript": "^5.4.5"
+    },
+    "__metadata": {
+        "id": "b6652a2a-d4bf-422a-aa38-7d10ab2cdb63",
+        "publisherDisplayName": "Ash Blade",
+        "publisherId": "0abecf4b-5505-4d69-932b-c40a0985dcf0",
+        "isPreReleaseVersion": false
     }
 }
