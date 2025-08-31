@@ -4,6 +4,7 @@ import * as util from 'util';
 import * as fs from 'fs';
 import * as child_process from 'child_process';
 import { Configuration } from './extension';
+import * as https from 'https';
 
 const identifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
@@ -438,6 +439,45 @@ export function writeFile(path: vscode.Uri, data: string): Thenable<void> {
     }
 }
 
+/**
+ * Download file and return it's content.
+ * 
+ * @param url Url of file to download
+ * @returns Contents of file
+ */
+export async function downloadFile(url: string) {
+    return new Promise<string>((resolve, reject) => {
+        const request = https.get(url, (res) => {
+            if (res.statusCode !== 200) {
+                reject(new Error(`could not download file from ${url}: ` +
+                                 `unsuccessful status code ${res.statusCode}`));
+                res.resume();
+                return;
+            }
+
+            const chunks: string[] = [];
+
+            /* For now expect only utf8 content */
+            res.setEncoding('utf8');
+            res.on('data', (chunk) => {
+                chunks.push(chunk);
+            });
+
+            res.on('end', () => {
+                resolve(chunks.join(''));
+            })
+
+            res.on('error', (err) => {
+                reject(err);
+            });
+            
+        });
+
+        request.on('error', (err) => {
+            reject(err);
+        });
+    });
+}
 export function getWorkspacePgSrcFile(workspace: vscode.Uri, ...paths: string[]) {
     const customDir = Configuration.getSrcPath();
     if (customDir) {

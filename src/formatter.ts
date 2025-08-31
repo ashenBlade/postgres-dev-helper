@@ -411,9 +411,8 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          * This data did not change since PG 10 and i don't think
          * it will change in near future.
          */
-        const rawTypedef = await this.getTypedefs(pg_bsd_indent);
-        const contents = await utils.readFile(rawTypedef);
-        const entries = new Set(contents.split('\n'));
+        const rawTypedefs = await this.getDefaultTypedefs(pg_bsd_indent);
+        const entries = new Set(rawTypedefs.split('\n'));
 
         [
             'ANY', 'FD_SET', 'U', 'abs', 'allocfunc', 'boolean', 'date',
@@ -562,21 +561,34 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         return stdout;
     }
 
-    private async getTypedefs(pg_bsd_indent: vscode.Uri) {
+    private async getDefaultTypedefs(pg_bsd_indent: vscode.Uri) {
+        /* 
+         * Default typedefs.list file located in 'src/tools/pgindent',
+         * but for now I use 'pg_bsd_indent' - will be fixed soon.
+         */
+        const typedefsFile = utils.joinPath(pg_bsd_indent, '..', 'typedefs.list');
+
+        if (await utils.fileExists(typedefsFile)) {
+            return utils.readFile(typedefsFile);
+        }
+
+        const url = 'https://buildfarm.postgresql.org/cgi-bin/typedefs.pl';
+        this.logger.info('downloading typedefs file from %s', url);
+        let content;
         try {
-            const typedefsFile = utils.joinPath(pg_bsd_indent, '..', 'typedefs.list');
-            if (await utils.fileExists(typedefsFile)) {
-                return typedefsFile;    
-            }
-
-            const url = 'https://buildfarm.postgresql.org/cgi-bin/typedefs.pl';
-            this.logger.info('downloading typedefs file from %s', url);
-            await utils.execShell('wget', ['-O', typedefsFile.fsPath, url]);
-
-            return typedefsFile;
+            content = await utils.downloadFile(url);
         } catch (err) {
             throw new Error(`failed to download typedefs: ${err}`);
         }
+
+        this.logger.info('saving typedefs to file %s', typedefsFile.fsPath);
+        try {
+            await utils.writeFile(typedefsFile, content);
+        } catch (err) {
+            throw new Error(`could not save typedef file: ${err}`);
+        }
+
+        return content;
     }
 
     async provideDocumentFormattingEdits(document: vscode.TextDocument, 
