@@ -5,6 +5,22 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0]
+
+### Added
+
+Add some more array special members (from `execnodes.h`).
+
+Add command `Find custom typedefs.list in repository` to quickly find `typedefs.list` files in repository (just creates terminal and executes simple shell command).
+
+### Changed
+
+Cached `typedefs.list` file now stored in `.vscode` directory instead of global `/tmp`. This fixes issue with multiple PG versions with different set of typedefs used - can lead to incorrect formatting.
+
+`typedefs` setting now accepts additional custom `typedefs.list` files which will be just added to result. This is more convenient, because you don't have to create final file manually anymore.
+
+If `pg_bsd_indent` must be build, then `pg_config` path is searched in `src/tools/pgindent` instead of directly asking user to enter full path to it.
+
 ## [1.12.1]
 
 ### Add

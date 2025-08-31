@@ -288,6 +288,18 @@ Known issues:
 
 ## Release Notes
 
+## 1.13.0
+
+Add some more array special members.
+
+`typedefs` setting now accepts additional custom `typedefs.list` files which will be just added to result (it's not final `typedefs.list` file anymore).
+
+If `pg_bsd_indent` must be build, then `pg_config` path is searched in `src/tools/pgindent` instead of asking user to enter full path to it.
+
+Cached `typedefs.list` file now stored in `.vscode` directory instead of global `/tmp`.
+
+Add command `Find custom typedefs.list in repository` to quickly find `typedefs.list` files in repository.
+
 ## 1.12.1
 
 Improve performance by caching current context properties, i.e. if it is safe to call `palloc`, etc...
