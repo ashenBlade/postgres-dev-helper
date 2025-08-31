@@ -381,7 +381,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         }
     }
     
-    private getProcessedTypedefFilePath() {
+    private getProcessedTypedefFilePath(workspace: vscode.WorkspaceFolder) {
         /* 
          * Formatter module supports custom typedef.lists which are added
          * to builtin in 'src/tools/pgindent'.  But formatter tool does not
@@ -394,9 +394,43 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          *      different set of custom typedef.lists, so this can mess
          *      everything up, so it would be more nice to store it i.e. in
          *      '.vscode' directory.
+         *
+         * XXX: if you change location - do not forget to update try/catch block
+         *      where file is saved (catch block creates .vscode directory and
+         *      perform second attempt to save file).
          */
-        return utils.joinPath(vscode.Uri.file(os.tmpdir()),
-                              'pg-hacker-helper.typedefs.list');
+
+        return utils.joinPath(
+                    workspace.uri, '.vscode', 'pg-hacker-helper.typedefs.list');
+    }
+
+    private async saveCachedTypedefFile(content: string, typedefsFile: vscode.Uri,
+                                        workspace: vscode.WorkspaceFolder) {
+        /*
+         * It's unlikely that '.vscode' directory missing, so omit checking
+         * and create if necessary.
+         */
+        let vscodeDir;
+        this.logger.info('caching result typedefs.list in %s', typedefsFile.fsPath);
+        try {
+            await utils.writeFile(typedefsFile, content);
+            return;
+        } catch (err) {
+            /*
+             * During testing I deleted .vscode directory, but could not
+             * when writing to file - may be it's smart enough to create
+             * this folder for me, but nevertheless attempt to create it.
+             */
+            vscodeDir = utils.joinPath(workspace.uri, '.vscode');
+            if (await utils.directoryExists(vscodeDir)) {
+                throw err;
+            }
+        }
+
+        this.logger.info('.vscode directory missing - creating one');
+        await utils.createDirectory(vscodeDir);
+        this.logger.info('trying to cache typedefs.list file again: %s', typedefsFile.fsPath);
+        await utils.writeFile(typedefsFile, content);
     }
 
     private async getProcessedTypedefs(workspace: vscode.WorkspaceFolder) {
@@ -414,16 +448,16 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             this.savedProcessedTypedef = undefined;
         }
 
-        const processedTypedef = this.getProcessedTypedefFilePath();
+        const processedTypedef = this.getProcessedTypedefFilePath(workspace);
         if (await utils.fileExists(processedTypedef)) {
             /* 
              * This file is cache in /tmp, so may be created from another
              * workspace which can have different content - delete it
              * to prevent formatting errors.
              */
-            this.logger.info('found existing typedefs.list - removing to' +
-                             'prevent formatting errors');
-            await utils.deleteFile(processedTypedef);
+            this.logger.info('found existing typedefs.list in .vscode directory');
+            this.savedProcessedTypedef = processedTypedef;
+            return processedTypedef;
         }
 
         /* 
@@ -441,13 +475,13 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             'digit', 'ilist', 'interval', 'iterator', 'other', 'pointer',
             'printfunc', 'reference', 'string', 'timestamp', 'type', 'wrap'
         ].forEach(e => entries.delete(e));
-
         entries.add('bool');
         entries.delete('');
         const arr = Array.from(entries.values());
         arr.sort();
 
-        await utils.writeFile(processedTypedef, arr.join('\n'));
+        await this.saveCachedTypedefFile(arr.join('\n'), processedTypedef, workspace);
+
         this.savedProcessedTypedef = processedTypedef;
         return processedTypedef;
     }
@@ -461,7 +495,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         if (userPgbsdindent) {
             return path.isAbsolute(userPgbsdindent) 
                             ? vscode.Uri.file(userPgbsdindent)
-                            : utils.joinPath(workspace.uri, userPgbsdindent)
+                            : utils.joinPath(workspace.uri, userPgbsdindent);
         }
 
         return await this.findExistingPgbsdindent(workspace);
