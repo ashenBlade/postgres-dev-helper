@@ -285,58 +285,13 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
     private savedProcessedTypedef?: vscode.Uri;
     constructor(private logger: utils.ILogger) {}
 
-    private async findExistingPgbsdindent(workspace: vscode.WorkspaceFolder) {
-        /* 
-         * For pg_bsd_indent search 2 locations:
-         * 
-         *  - src/tools/pg_psd_indent: (PG >=16)
-         *      - not exist: build
-         *  - src/tools/pgindent/pg_bsd_indent (PG <16)
-         *      - not exist: download + build
-         */
-        let pg_bsd_indent_dir = utils.getWorkspacePgSrcFile(workspace.uri, 'src', 'tools', 'pg_bsd_indent');
-        if (await utils.directoryExists(pg_bsd_indent_dir)) {
-            /* src/tools/pg_bsd_indent */
-            let pg_bsd_indent = utils.joinPath(pg_bsd_indent_dir, 'pg_bsd_indent');
-            if (await utils.fileExists(pg_bsd_indent)) {
-                return pg_bsd_indent;
-            }
-
-            /* Try to build it */
-            const response = await vscode.window.showWarningMessage(
-                            'Seems like pg_bsd_indent is not build yet. ' +
-                            'Formatting is not supported without it. ' + 
-                            'Build?', 
-                            'Yes', 'No');
-            if (!response || response === 'No') {
-                throw new Error('pg_bsd_indent not found and user do not want to build it');
-            }
-            
-            this.logger.info('building pg_bsd_indent in %s', pg_bsd_indent_dir.fsPath);
-            await utils.execShell(
-                'make', ['-C', pg_bsd_indent_dir.fsPath],
-                {cwd: workspace.uri.fsPath});
-
-            return pg_bsd_indent;
+    private async getPgConfigPath(workspace: vscode.WorkspaceFolder) {
+        const possiblePgConfigPath = utils.getWorkspacePgSrcFile(
+                        workspace.uri, 'src', 'bin', 'pg_config', 'pg_config');
+        if (await utils.fileExists(possiblePgConfigPath)) {
+            return possiblePgConfigPath;
         }
 
-        /* src/tools/pgindent/pg_bsd_indent */
-        pg_bsd_indent_dir = utils.getWorkspacePgSrcFile(workspace.uri, 
-                                               'src', 'tools', 'pgindent', 'pg_bsd_indent');
-        const pg_bsd_indent = utils.joinPath(pg_bsd_indent_dir, 'pg_bsd_indent');
-        if (await utils.fileExists(pg_bsd_indent)) {
-            return pg_bsd_indent;
-        }
-
-        const shouldClone = (!await utils.directoryExists(pg_bsd_indent_dir) || 
-                                await utils.directoryEmpty(pg_bsd_indent_dir));
-
-        vscode.window.showWarningMessage(
-                                'pg_bsd_indent is not found in pgindent. ' + 
-                                'pg_config is required to build it. ' + 
-                                'Enter path to pg_config');
-
-        /* TODO: search pg_config in workspace - src/bin/pg_config */
         const userInput = await vscode.window.showInputBox({
             prompt: 'pg_config is required to build pg_bsd_indent',
             password: false,
@@ -357,14 +312,58 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         const pg_configPath = path.isAbsolute(userInput) 
                                     ? vscode.Uri.file(userInput) 
                                     : utils.joinPath(workspace.uri, userInput);
-        
+        return pg_configPath;
+    }
+
+    private async findExistingPgbsdindent(workspace: vscode.WorkspaceFolder) {
+        /* 
+         * For pg_bsd_indent search 2 locations:
+         * 
+         *  - src/tools/pg_psd_indent: (PG >=16)
+         *      - not exist: build
+         *  - src/tools/pgindent/pg_bsd_indent (PG <16)
+         *      - not exist: download + build
+         */
+        let pg_bsd_indent_dir = utils.getWorkspacePgSrcFile(
+                                workspace.uri, 'src', 'tools', 'pg_bsd_indent');
+        if (await utils.directoryExists(pg_bsd_indent_dir)) {
+            /* src/tools/pg_bsd_indent */
+            let pg_bsd_indent = utils.joinPath(pg_bsd_indent_dir, 'pg_bsd_indent');
+            if (await utils.fileExists(pg_bsd_indent)) {
+                return pg_bsd_indent;
+            }
+
+            /* Try to build it */
+            this.logger.info('building pg_bsd_indent in %s', pg_bsd_indent_dir.fsPath);
+            await utils.execShell(
+                'make', ['-C', pg_bsd_indent_dir.fsPath],
+                {cwd: workspace.uri.fsPath});
+
+            return pg_bsd_indent;
+        }
+
+        /* src/tools/pgindent/pg_bsd_indent */
+        pg_bsd_indent_dir = utils.getWorkspacePgSrcFile(
+                        workspace.uri, 'src', 'tools', 'pgindent', 'pg_bsd_indent');
+        const pg_bsd_indent = utils.joinPath(pg_bsd_indent_dir, 'pg_bsd_indent');
+        if (await utils.fileExists(pg_bsd_indent)) {
+            return pg_bsd_indent;
+        }
+
+        const shouldClone = (!await utils.directoryExists(pg_bsd_indent_dir) || 
+                                await utils.directoryEmpty(pg_bsd_indent_dir));
+
+        const pg_configPath = await this.getPgConfigPath(workspace);
+
         /* Clone and build pg_bsd_indent */
         if (shouldClone) {
+            const pgindentDir = utils.getWorkspacePgSrcFile(
+                                    workspace.uri, 'src', 'tools', 'pgindent');
             try {
                 this.logger.info('cloning pg_bsd_indent repository');
                 await utils.execShell(
                     'git', ['clone', 'https://git.postgresql.org/git/pg_bsd_indent.git'],
-                    {cwd: utils.getWorkspacePgSrcFile(workspace.uri, 'src', 'tools', 'pgindent').fsPath});
+                    {cwd: pgindentDir.fsPath});
             } catch (error) {
                 throw new Error(`failed to git clone pg_bsd_indent repository: ${error}`);
             }
@@ -503,7 +502,11 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
 
     private async getPgbsdindent(workspace: vscode.WorkspaceFolder) {
         if (this.savedPgbsdPath) {
-            return this.savedPgbsdPath;
+            if (await utils.fileExists(this.savedPgbsdPath)) {
+                return this.savedPgbsdPath;
+            }
+
+            this.savedPgbsdPath = undefined;
         }
 
         const userPgbsdindent = Configuration.getCustomPgbsdindentPath();
