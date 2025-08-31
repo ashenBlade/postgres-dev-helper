@@ -79,8 +79,20 @@
             }
         },
         "typedefs": {
-            "type": "string",
-            "description": "Path to file with custom typdefs processed file"
+            "oneOf": [
+                {
+                    "type": "string",
+                    "description": "Path to custom typedefs.list file which will be added to default"
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Array of paths to custom typedefs.list files which will be added to default"
+                }
+            ],
+            "description": "Path or array of paths to custom typedefs.list files which will be added to default"
         },
         "version": {
             "type": "integer",

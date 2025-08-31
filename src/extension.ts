@@ -269,7 +269,7 @@ class ConfigFileParseResult {
     /* Information about type aliases */
     aliasInfos?: vars.AliasInfo[];
     /* Path to custom typedef's file */
-    typedefs?: string;
+    typedefs?: string[];
     /* Custom List types */
     customListTypes?: vars.ListPtrSpecialMemberInfo[];   
     /* Types stored in HTABs */
@@ -441,17 +441,16 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
         }
     }
 
-    const parseTypedefs = (obj: any): string | undefined => {
+    const parseTypedefs = (obj: any): string[] | undefined => {
         if (!obj) {
             return;
         }
-        
-        if (typeof obj !== 'string') {
-            vscode.window.showErrorMessage('"typedefs" field must be a string');
-            return;
-        }
 
-        return obj.trim();
+        if (typeof obj === 'string') {
+            return [obj.trim()];
+        } else if (Array.isArray(obj)) {
+            return obj.map(x => x.toString());
+        }
     }
 
     const parseListTypes = (obj: any): vars.ListPtrSpecialMemberInfo[] | undefined => {
@@ -988,23 +987,30 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
             }
 
             if (parseResult.typedefs) {
-                let typedefs: vscode.Uri;
-                if (path.isAbsolute(parseResult.typedefs)) {
-                    typedefs = vscode.Uri.file(parseResult.typedefs);
-                } else {
-                    const workspace = vscode.workspace.getWorkspaceFolder(pathToFile);
-                    if (!workspace) {
-                        logger.error('failed to determine workspace folder for configuration file %s', pathToFile.fsPath);
-                        return;
+                const typedefs = [];
+                for (const typedef of parseResult.typedefs) {
+                    let p;
+                    if (path.isAbsolute(typedef)) {
+                        p = vscode.Uri.file(typedef);
+                    } else {
+                        const workspace = vscode.workspace.getWorkspaceFolder(pathToFile);
+                        if (!workspace) {
+                            logger.warn('could not determine workspace for file %s to add typedef file', typedef);
+                            continue;
+                        }
+
+                        p = utils.joinPath(workspace.uri, typedef);
                     }
 
-                    typedefs = utils.getWorkspacePgSrcFile(workspace.uri, parseResult.typedefs);
+                    if (await utils.fileExists(p)) {
+                        typedefs.push(p);
+                    } else {
+                        logger.warn('typedef file %s does not exist', p.fsPath);
+                    }
                 }
 
-                if (await utils.fileExists(typedefs)) {
-                    Configuration.CustomTypedefsFile = typedefs;
-                } else {
-                    vscode.window.showErrorMessage(`typedefs file ${parseResult.typedefs} does not exist`);
+                if (typedefs.length > 0) {
+                    Configuration.CustomTypedefsFiles = typedefs;
                 }
             }
 
@@ -1393,8 +1399,9 @@ export class Configuration {
         NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`,
     };
     static ExtensionSettingsFileName = 'pgsql_hacker_helper.json';
-    /* Path to custom typedefs file in pgsql_hacker_helper.json file */
-    static CustomTypedefsFile: vscode.Uri | undefined = undefined;
+
+    /* Paths to custom typedefs.list files in pgsql_hacker_helper.json file */
+    static CustomTypedefsFiles: vscode.Uri[] | undefined = undefined;
 
     static getLogLevel() {
         return this.getConfig<string>(this.ConfigSections.LogLevel);

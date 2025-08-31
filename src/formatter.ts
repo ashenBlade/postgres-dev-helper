@@ -433,13 +433,26 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         await utils.writeFile(typedefsFile, content);
     }
 
-    private async getProcessedTypedefs(workspace: vscode.WorkspaceFolder) {
-        if (Configuration.CustomTypedefsFile) {
-            /* TODO: check exists */
-            this.logger.info('custom typedefs file is specified - using this');
-            return Configuration.CustomTypedefsFile;
+    private async enrichTypedefs(typedefs: Set<string>) {
+        const customTypedefFiles = Configuration.CustomTypedefsFiles;
+        if (!customTypedefFiles || customTypedefFiles.length === 0) {
+            return;
         }
 
+        for (const typedef of customTypedefFiles) {
+            let content;
+            try {
+                content = await utils.readFile(typedef);
+            } catch (err) {
+                this.logger.warn('failed to read custom typedefs.list file %s', typedef.fsPath);
+                continue;
+            }
+
+            content.split('\n').forEach(x => typedefs.add(x.trim()));
+        }
+    }
+
+    private async getProcessedTypedefs(workspace: vscode.WorkspaceFolder) {
         if (this.savedProcessedTypedef) {
             if (await utils.fileExists(this.savedProcessedTypedef)) {
                 return this.savedProcessedTypedef;
@@ -477,6 +490,8 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         ].forEach(e => entries.delete(e));
         entries.add('bool');
         entries.delete('');
+        await this.enrichTypedefs(entries);
+
         const arr = Array.from(entries.values());
         arr.sort();
 
