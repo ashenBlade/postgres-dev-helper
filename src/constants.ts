@@ -1516,6 +1516,10 @@ export function getArraySpecialMembers(): ArraySpecialMember[] {
         _('AggStatePerPhaseData', 'grouped_cols', 'numsets'),
         _('AggStatePerPhaseData', 'eqfunctions', 'numsets'),
 
+        _('ExprState', 'steps', 'steps_len'),
+
+        _('AppendState', 'as_pstate', 'pstate_len'),
+
         /* src/include/nodes/plannodes.h */
         _('MergeAppend', 'sortColIdx', 'numCols'),
         _('MergeAppend', 'sortOperators', 'numCols'),
