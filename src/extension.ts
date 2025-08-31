@@ -7,7 +7,6 @@ import * as dap from './dap';
 import path from 'path';
 
 
-
 function createDebuggerFacade(type: string, provider: NodePreviewTreeViewProvider): dbg.GenericDebuggerFacade | undefined {
     let debug;
     switch (type) {
@@ -1241,6 +1240,13 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
             }
         });
     }
+    
+    const findCustomTypedefsListCmd = async (args: any) => {
+        const cmd = "find . -name '*typedefs.list' | grep -vE '^\\./(src|\\.vscode)'";
+        const terminal = vscode.window.createTerminal();
+        terminal.sendText(cmd, true /* shouldExecute */);
+        terminal.show();
+    }
 
     /* Used for testing only */
     const getVariablesCmd = async () => {
@@ -1264,6 +1270,7 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
     registerCommand(Configuration.Commands.AddToWatchView, addVariableToWatchCmd);
     registerCommand(Configuration.Commands.GetVariables, getVariablesCmd);
     registerCommand(Configuration.Commands.GetTreeViewProvider, getNodeTreeProviderCmd);
+    registerCommand(Configuration.Commands.FindCustomTypedefsLists, findCustomTypedefsListCmd);
 
     /* Process config files immediately */
     if (vscode.workspace.workspaceFolders) {
@@ -1394,6 +1401,7 @@ export class Configuration {
         AddToWatchView: `${this.ExtensionName}.addVariableToWatch`,
         GetVariables: `${this.ExtensionName}.getVariables`,
         GetTreeViewProvider: `${this.ExtensionName}.getTreeViewProvider`,
+        FindCustomTypedefsLists: `${this.ExtensionName}.formatterFindTypedefsList`,
     };
     static Views = {
         NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`,

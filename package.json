@@ -74,6 +74,12 @@
                 "category": "PgSQL"
             },
             {
+                "command": "postgresql-hacker-helper.formatterFindTypedefsList",
+                "title": "Find custom typedefs.list in repository",
+                "shortTitle": "Find typedefs.list",
+                "category": "PgSQL"
+            },
+            {
                 "command": "postgresql-hacker-helper.bootstrapExtension",
                 "title": "Bootstrap extension",
                 "shortTitle": "Bootstrap extension",
