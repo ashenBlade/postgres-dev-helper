@@ -378,15 +378,30 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             throw new Error(`failed to build pg_bsd_indent after clone: ${error}`);
         }
     }
+    
+    private getProcessedTypedefFilePath() {
+        /* 
+         * Formatter module supports custom typedef.lists which are added
+         * to builtin in 'src/tools/pgindent'.  But formatter tool does not
+         * allow specifying list of typedef.lists, so I have to merge all
+         * files and for performance reasons this file is cached.
+         * 
+         * Currently, it's located in '/tmp/pg-hacker-helper.typedefs.list'.
+         * 
+         * XXX: when you are working with multiple pg versions you may have
+         *      different set of custom typedef.lists, so this can mess
+         *      everything up, so it would be more nice to store it i.e. in
+         *      '.vscode' directory.
+         */
+        return utils.joinPath(vscode.Uri.file(os.tmpdir()),
+                              'pg-hacker-helper.typedefs.list');
+    }
 
     private async getProcessedTypedefs(pg_bsd_indent: vscode.Uri) {
         if (Configuration.CustomTypedefsFile) {
             this.logger.debug('custom typedefs file is specified - using this');
             return Configuration.CustomTypedefsFile;
         }
-    
-        const processedTypedef = utils.joinPath(vscode.Uri.file(os.tmpdir()),
-                                                'pg-hacker-helper.typedefs.list');
 
         if (this.savedProcessedTypedef) {
             if (await utils.fileExists(this.savedProcessedTypedef)) {
@@ -394,16 +409,20 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             }
 
             this.savedProcessedTypedef = undefined;
-        } else if (await utils.fileExists(processedTypedef)) {
-            /* 
-             * This file is cache in /tmp, so may be created
-             * in another VS Code session
-             */
-            this.logger.debug('found cached typedefs file in tmp');
-            this.savedProcessedTypedef = processedTypedef;
-            return processedTypedef;
         }
-        
+    
+        const processedTypedef = this.getProcessedTypedefFilePath();
+        if (await utils.fileExists(processedTypedef)) {
+            /* 
+             * This file is cache in /tmp, so may be created from another
+             * workspace which can have different content - delete it
+             * to prevent formatting errors.
+             */
+            this.logger.info('found existing typedefs.list - removing to' +
+                             'prevent formatting errors');
+            await utils.deleteFile(processedTypedef);
+        }
+
         /* 
          * Add and remove some entries from `typedefs.list` file
          * downloaded from buildfarm.
