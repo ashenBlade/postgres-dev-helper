@@ -335,6 +335,8 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
                                 'pg_bsd_indent is not found in pgindent. ' + 
                                 'pg_config is required to build it. ' + 
                                 'Enter path to pg_config');
+
+        /* TODO: search pg_config in workspace - src/bin/pg_config */
         const userInput = await vscode.window.showInputBox({
             prompt: 'pg_config is required to build pg_bsd_indent',
             password: false,
@@ -397,9 +399,10 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
                               'pg-hacker-helper.typedefs.list');
     }
 
-    private async getProcessedTypedefs(pg_bsd_indent: vscode.Uri) {
+    private async getProcessedTypedefs(workspace: vscode.WorkspaceFolder) {
         if (Configuration.CustomTypedefsFile) {
-            this.logger.debug('custom typedefs file is specified - using this');
+            /* TODO: check exists */
+            this.logger.info('custom typedefs file is specified - using this');
             return Configuration.CustomTypedefsFile;
         }
 
@@ -410,7 +413,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
 
             this.savedProcessedTypedef = undefined;
         }
-    
+
         const processedTypedef = this.getProcessedTypedefFilePath();
         if (await utils.fileExists(processedTypedef)) {
             /* 
@@ -430,7 +433,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          * This data did not change since PG 10 and i don't think
          * it will change in near future.
          */
-        const rawTypedefs = await this.getDefaultTypedefs(pg_bsd_indent);
+        const rawTypedefs = await this.getDefaultTypedefs(workspace);
         const entries = new Set(rawTypedefs.split('\n'));
 
         [
@@ -513,7 +516,8 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
     }
 
     private async runPgindentInternal(document: string, 
-                                      pg_bsd_indent: vscode.Uri) {
+                                      pg_bsd_indent: vscode.Uri,
+                                      workspace: vscode.WorkspaceFolder) {
         /* 
          * We use pg_bsd_indent directly instead of pgindent because:
          *  - different pgindent versions behaves differently
@@ -521,8 +525,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          *  - pgindent creates temp files which are not removed if error
          *    happens - we can not track these files (main reason)
          */
-
-        let typedefs = await this.getProcessedTypedefs(pg_bsd_indent);
+        let typedefs = await this.getProcessedTypedefs(workspace);
         const preProcessed = this.runPreIndent(document);
         const {stdout: processed} = await utils.execShell(
             pg_bsd_indent.fsPath, [
@@ -550,7 +553,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         const content = document.getText();
  
         try {
-            return await this.runPgindentInternal(content, pg_bsd_indent);
+            return await this.runPgindentInternal(content, pg_bsd_indent, workspace);
         } catch (err) {
             if (await utils.fileExists(pg_bsd_indent)) {
                 throw err;
@@ -560,7 +563,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         this.logger.info('pg_bsd_indent seems not installed. trying to install');
         this.savedPgbsdPath = undefined;
         pg_bsd_indent = await this.findExistingPgbsdindent(workspace);
-        return await this.runPgindentInternal(content, pg_bsd_indent);
+        return await this.runPgindentInternal(content, pg_bsd_indent, workspace);
     }
 
     private async runDiff(originalFile: vscode.Uri, indented: string) {
@@ -580,17 +583,24 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         return stdout;
     }
 
-    private async getDefaultTypedefs(pg_bsd_indent: vscode.Uri) {
+    private async getDefaultTypedefs(workspace: vscode.WorkspaceFolder) {
         /* 
-         * Default typedefs.list file located in 'src/tools/pgindent',
-         * but for now I use 'pg_bsd_indent' - will be fixed soon.
+         * Newer pg versions have 'src/tools/pgindent/typedefs.list' already
+         * present in repository, so just read it. But older versions does not
+         * have it installed, so we must download it manually.
+         * 
+         * NOTE: extension's supported pg versions start from 9.6 which have
+         *       it installed - logic for downloading it is not tested, so I
+         *       expect that it is working (tested only once, manually on my PC)
          */
-        const typedefsFile = utils.joinPath(pg_bsd_indent, '..', 'typedefs.list');
-
+        const typedefsFile = utils.getWorkspacePgSrcFile(
+                    workspace.uri, 'src', 'tools', 'pgindent', 'typedefs.list');
         if (await utils.fileExists(typedefsFile)) {
-            return utils.readFile(typedefsFile);
+            this.logger.info('found default typedefs.list in %s', typedefsFile.fsPath);
+            return await utils.readFile(typedefsFile);
         }
 
+        /* Version is not known, so just download latest */
         const url = 'https://buildfarm.postgresql.org/cgi-bin/typedefs.pl';
         this.logger.info('downloading typedefs file from %s', url);
         let content;
@@ -600,7 +610,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             throw new Error(`failed to download typedefs: ${err}`);
         }
 
-        this.logger.info('saving typedefs to file %s', typedefsFile.fsPath);
+        this.logger.info('saving typedefs.list to file %s', typedefsFile.fsPath);
         try {
             await utils.writeFile(typedefsFile, content);
         } catch (err) {
