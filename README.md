@@ -112,13 +112,15 @@ Feature supported for PostgreSQL starting from 10 version.
 > This feature using tools from `src/tools`. If they are unavailable extension
 > will try to build or download them.
 >
-> Primary tool required is `pg_bsd_indent`. If PostgreSQL version lower than
-> 16 extension will ask you for `pg_config` path - it is required to build
-> `pg_bsd_indent`.
-> Look for warning message from extension in left bottom corner.
+> Primary tool required is `pg_bsd_indent` - extension will try to build it.
+> For this `pg_config` is used, but if extension fails to find it you will be
+> prompted to enter path to it.
 
 Using command `PgSQL: Show diff preview for PostgreSQL formatter` you can
 preview changes made by formatter.
+
+Also, you can add your custom `typedefs.list` files and extension will use it
+during formatting. For more info check [documentation](docs/config_file.md#custom-typedefslist-files).
 
 ### Extension bootstrapping
 
@@ -244,7 +246,7 @@ There are 4 settings:
 
   - If not specified, it will be searched in `*SrcPath*/src/tools` directory.
   - If specified, and failed to run extension will try to build it.
-  NOTE: If required, it will be downloaded (`wget` is required) and built.
+  NOTE: If required, it will be downloaded and built.
 
 ## Compatibility
 

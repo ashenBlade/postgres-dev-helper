@@ -146,13 +146,22 @@ Example:
 }
 ```
 
-### Custom typedef file
+### Custom `typedefs.list` files
 
-typedef file is required for correct `pg_bsd_indent` work. It contains list of types that treated by formatter differently. Usually, it does not change, but sometimes you may want to change it manually. I.e. when creating new patches or testing new features.
+`typedefs.list` file is required for correct `pg_bsd_indent` work. It contains list of types that treated by formatter differently. Usually, it does not change, but sometimes you may want to change it manually. i.e. when creating new patches or writing contribs with `typedef` types.
 
-By default, extension manages to create this file and cache for later you (optimization). But when this file should be changed it is not very handy to edit global file. So this setting is created for such cases - you just create own copy of typedefs file, edit it and use for specific workspace.
+Extension creates it's own copy of `typedefs.list` in `.vscode` directory (`.vscode/pg-hacker-helper.typedefs.list`):
 
-Path to this file can be in 2 forms:
+1. Take builtin `src/tools/pgindent/typedefs.list` file
+2. Add all custom `typedefs.list` files from `typedefs` setting
+3. Store into `.vscode/pg-hacker-helper.typedefs.list` file
+
+After that this file will be used for all formattings.
+
+> If `pg_bsd_indent` is not available extension will try to build it.
+> For this `pg_config` is required, but if it is missing, then extension will ask you to enter path to it manually.
+
+`typedefs` setting can be either plain string or array of strings - each string is a path which can be in 2 forms:
 
 - Absolute - specified file is used
 - Relative - file with base folder as [postgresql-hacker-helper.srcPath](../README.md#extension-settings) is used
@@ -176,6 +185,20 @@ Read global typedefs file stored in temporary directory.
     "typedefs": "/tmp/cached.custom.typedefs.list"
 }
 ```
+
+You have created 2 extensions `pgext1` and `pgext2` which have custom `typedefs.list`:
+
+```json
+{
+    "version": 3,
+    "typedefs": [
+        "contrib/pgext1/first.typedefs.list",
+        "contrib/pgext2/second.typedefs.list"
+    ]
+}
+```
+
+> There is handy command `Find custom typedefs.list in repository` that will execute shell command to find all `*typedefs.list` files in repository.
 
 ### Custom `List` types
 
