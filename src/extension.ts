@@ -275,6 +275,8 @@ class ConfigFileParseResult {
     htabTypes?: vars.HtabEntryInfo[];
     /* Types for simple hash */
     simpleHashTableTypes?: vars.SimplehashEntryInfo[];
+    /* Enum values for integer fields */
+    bitmaskEnumMembers?: vars.BitmaskMemberInfo[];
 }
 
 function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefined {
@@ -608,6 +610,99 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
         
         return elements;
     }
+    
+    const parseEnumBitmasks = (obj: any): vars.BitmaskMemberInfo[] | undefined => {
+        /* 
+         * "enums": [
+         *      {
+         *          "type": "ParentType",
+         *          "member": "MemberName",
+         *          "flags": [
+         *              ["FIRST_MACRO", "0x01"],
+         *              ["SECOND_MACRO", "0x02"],
+         *          ],
+         *          "fields": [
+         *              {
+         *                  "name": "Field Name",
+         *                  "mask": "FIELD_MASK_MACRO",
+         *                  "numeric": "0xF0"
+         *              }
+         *          ]
+         *      }
+         * ]
+         */
+        
+        if (!Array.isArray(obj)) {
+            return;
+        }
+        
+        const members: vars.BitmaskMemberInfo[] = [];
+        for (const o of obj) {
+            const type = o.type;
+            const member = o.member;
+            if (typeof type !== 'string') {
+                continue;
+            }
+            
+            if (typeof member !== 'string') {
+                continue;
+            }
+            
+            const flags: vars.FlagMemberInfo[] = [];
+            if (Array.isArray(o.flags)) {
+                for (const flag of o.flags) {
+                    if (!Array.isArray(flag)) {
+                        continue;
+                    }
+
+                    if (!(flag.length === 1 || flag.length === 2)) {
+                        continue;
+                    }
+
+                    if (typeof flag[0] !== 'string') {
+                        continue;
+                    }
+                    
+                    if (flag.length === 2 && typeof flag[1] !== 'string') {
+                        continue;
+                    }
+
+                    flags.push({
+                        flag: flag[0],
+                        numeric: flag[1],
+                    });
+                }
+            }
+            
+            const fields: vars.FieldMemberInfo[] = [];
+            if (Array.isArray(o.fields)) {
+                for (const f of o.fields) {
+                    const name = f.name;
+                    const mask = f.mask;
+                    const numeric = f.numeric;
+                    if (typeof name !== 'string') {
+                        continue;
+                    }
+                    
+                    if (typeof mask !== 'string') {
+                        continue;
+                    }
+                    
+                    if (numeric && typeof numeric !== 'string') {
+                        continue;
+                    }
+
+                    fields.push({name, mask, numeric});
+                }
+            }
+            
+            if (fields || flags) {
+                members.push({type, member, fields, flags});
+            }
+        }
+        
+        return members;
+    }
 
     if (!(typeof configFile === 'object' && configFile)) {
         return;
@@ -649,6 +744,10 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
     const simpleHashTableTypes = configVersion >= 5
                 ? parseSimplehashTypes(configFile.simplehash)
                 : undefined;
+                
+    const bitmaskEnumMembers = configVersion >= 5
+                ? parseEnumBitmasks(configFile.enums)
+                : undefined;
 
     return {
         arrayInfos,
@@ -657,6 +756,7 @@ function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefi
         customListTypes,
         htabTypes,
         simpleHashTableTypes,
+        bitmaskEnumMembers,
     }
 }
 
@@ -1040,6 +1140,16 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
                 } catch (e) {
                     vscode.window.showErrorMessage('failed to add custom simple hash table types');
                     logger.error('error occurred during adding custom simple hash table types', e);
+                }
+            }
+            
+            if (parseResult.bitmaskEnumMembers) {
+                logger.debug('adding %i enum bitmask types', parseResult.bitmaskEnumMembers.length);
+                try {
+                    specialMembers.addFlagsMembers(parseResult.bitmaskEnumMembers);
+                } catch (e) {
+                    vscode.window.showErrorMessage('could not add custom enum bitmask types');
+                    logger.error('error occurred during adding enum bitmask types', e);
                 }
             }
         }

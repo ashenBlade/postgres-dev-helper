@@ -177,6 +177,56 @@
                 "prefix",
                 "type"
             ]
+        },
+        "enumBitmask": {
+            "type": "object",
+            "description": "Enum/bitmask stored as integer type with values defined by macros",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "description": "Name of parent type to which member belongs"
+                },
+                "member": {
+                    "type": "string",
+                    "description": "Name of member in parent type which holds this bitmask member"
+                },
+                "flags": {
+                    "type": "array",
+                    "description": "Flags defined for this bitmask member: first - is macro name of enum, second - numeric value assigned to enum",
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "description": "Pair of macro enum name and value of it's enum in case macros are not available",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "fields": {
+                    "type": "array",
+                    "description": "Array of bit fields used in specified member",
+                    "items": {
+                        "type": "object",
+                        "description": "Description of a single field inside integer member",
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "description": "Rendered name of field"
+                            },
+                            "mask": {
+                                "type": "string",
+                                "description": "Macro used as mask to get value of this field"
+                            },
+                            "numeric": {
+                                "type": "string",
+                                "description": "Numeric value of mask to use when macro are not available in debugger"
+                            }
+                        }
+                    }
+                }
+            },
+            "required": ["type", "member"]
         }
     },
     "oneOf": [
@@ -335,6 +385,13 @@
                     "description": "Array of definitions of types in simple hash tables",
                     "items": {
                         "$ref": "#/definitions/simplehash"
+                    }
+                },
+                "enums": {
+                    "type": "array",
+                    "description": "Array of definitions of enum types defined as integers and with MACROs used to access them",
+                    "items": {
+                        "$ref": "#/definitions/enumBitmask"
                     }
                 }
             }
