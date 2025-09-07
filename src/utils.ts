@@ -42,6 +42,8 @@ export function getStructNameFromType(type: string) {
  */
 export function getPointersCount(type: string) {
     /* All pointers go sequentially from end without spaces */
+
+    /* TODO: replace with specialized versions for 0 and 1 pointers (only used) */
     let count = 0;
     for (let index = type.length - 1; index > -1; --index) {
         if (type[index] === '*') {
@@ -51,6 +53,27 @@ export function getPointersCount(type: string) {
         }
     }
     return count;
+}
+
+/**
+ * Check that type represent either value struct or pointer type, i.e.
+ * it is not array type. Roughly speaking, type contains at most 1 pointer.
+ * 
+ * @param type Type specifier
+ * @returns Type represents plain value struct or pointer type
+ */
+export function isValueStructOrPointerType(type: string) {
+    const firstPointerPos = type.indexOf('*');
+    if (firstPointerPos === -1) {
+        return true;
+    }
+    
+    const secondPointerPos = type.indexOf('*', firstPointerPos + 1);
+    if (secondPointerPos === -1) {
+        return true;
+    }
+    
+    return false;
 }
 
 /**

@@ -161,6 +161,38 @@ export interface ListPtrSpecialMemberInfo {
     variable?: [string, string];
 }
 
+/* 
+ * One enum macro flag information.
+ */
+export interface FlagMemberInfo {
+    /* Macro/flag name */
+    flag: string;
+    /* Numeric value of this enum */
+    numeric?: string;
+}
+
+/* Name of a field inside integer variable */
+export interface FieldMemberInfo {
+    /* User-friendly name of this field */
+    name: string;
+    /* Macro name acting as mask */
+    mask: string;
+    /* Numeric value of this mask */
+    numeric?: string;
+}
+
+/* Information of integer variable/member acting as enum/bitmask value */
+export interface BitmaskMemberInfo {
+    /* Parent type which this member belongs to */
+    type: string;
+    /* Name of parent member */
+    member: string;
+    /* All flags for this member */
+    flags: FlagMemberInfo[];
+    /* All fields stored in this member */
+    fields: FieldMemberInfo[];
+}
+
 export class SpecialMemberRegistry {
     /**
      * Double map: Type name -> (Member Name -> Info Object).
@@ -175,12 +207,21 @@ export class SpecialMemberRegistry {
      * respectively).
      */
     listCustomPtrs: Map<string, Map<string, ListPtrSpecialMemberInfo>>;
+    
+    /* 
+     * Various bitmask integer members used in source code.
+     * They act like values of [bitmask] enums or store another
+     * fields inside (apply bitmask to part of bits).
+     */
+    bitmasks: Map<string, Map<string, BitmaskMemberInfo>>;
 
     constructor() {
         this.arraySpecialMembers = new Map();
         this.listCustomPtrs = new Map();
+        this.bitmasks = new Map();
         this.addArraySpecialMembers(constants.getArraySpecialMembers());
         this.addListCustomPtrSpecialMembers(constants.getKnownCustomListPtrs());
+        this.addFlagsMembers(constants.getWellKnownFlagsMembers());
     }
 
     addArraySpecialMembers(elements: ArraySpecialMemberInfo[]) {
@@ -221,6 +262,18 @@ export class SpecialMemberRegistry {
             }
         }
     }
+    
+    addFlagsMembers(members: BitmaskMemberInfo[]) {
+        for (const member of members) {
+            let memberMap = this.bitmasks.get(member.type);
+            if (memberMap === undefined) {
+                memberMap = new Map();
+                this.bitmasks.set(member.type, memberMap);
+            }
+            
+            memberMap.set(member.member, member);
+        }
+    }
 
     getArraySpecialMember(parentType: string, memberName: string) {
         const parentTypeName = utils.getStructNameFromType(parentType);
@@ -235,6 +288,15 @@ export class SpecialMemberRegistry {
         }
 
         return info;
+    }
+    
+    getFlagsMember(type: string, member: string) {
+        const typeMap = this.bitmasks.get(type);
+        if (!typeMap) {
+            return;
+        }
+        
+        return typeMap.get(member);
     }
 }
 
@@ -531,6 +593,13 @@ export class ExecContext {
      * then do everything by ourselves.
      */
     hasOidOutputFunctionCall = true;
+    
+    /**
+     * Current debugger can understand macros and use their actual values.
+     * 
+     * In example, to show enum values defined by macros in `t_infomask`
+     */
+    canUseMacros = true;
 
     constructor(nodeVarRegistry: NodeVarRegistry, specialMemberRegistry: SpecialMemberRegistry,
                 debug: dbg.IDebuggerFacade, hashTableTypes: HashTableTypes) {
@@ -766,14 +835,14 @@ export abstract class Variable {
      * cast we get subtle error because we cast to type `AllocSetContext'
      * (without pointer).
      */
-    private static getRealType(debugVariable: dap.DebugVariable, context: ExecContext) {
-        const structName = utils.getStructNameFromType(debugVariable.type);
+    private static getRealType(type: string, context: ExecContext) {
+        const structName = utils.getStructNameFromType(type);
         const alias = context.nodeVarRegistry.aliases.get(structName);
         if (!alias) {
-            return debugVariable.type;
+            return type;
         }
 
-        const resultType = utils.substituteStructName(debugVariable.type, alias);
+        const resultType = utils.substituteStructName(type, alias);
         return resultType;
     }
 
@@ -793,9 +862,10 @@ export abstract class Variable {
             logger,
         };
 
-        const realType = Variable.getRealType(debugVariable, context);
-        if (context.debug.isValueStruct(debugVariable, realType) ||
-            !context.debug.isValidPointerType(debugVariable)) {
+        const realType = Variable.getRealType(debugVariable.type, context);
+        if (   context.debug.isValueStruct(debugVariable, realType)
+            || !context.debug.isValidPointerType(debugVariable)) {
+
             if (context.debug.isNull(debugVariable) && 
                 debugVariable.type.endsWith('List *')) {
                 /* 
@@ -815,6 +885,18 @@ export abstract class Variable {
             if (realType === 'bitmapword') {
                 /* Show bitmapword as bitmask, not integer */
                 return new BitmapwordVariable(args);
+            }
+
+            if (parent && context.canUseMacros) {
+                let parentType = Variable.getRealType(parent.type, context);
+                if (utils.isValueStructOrPointerType(parentType)) {
+                    const flagsMember = context.specialMemberRegistry.getFlagsMember(
+                                        utils.getStructNameFromType(parentType),
+                                        debugVariable.name);
+                    if (flagsMember) {
+                        return new FlagsMemberVariable(flagsMember, args);
+                    }
+                }
             }
 
             return new RealVariable(args);
@@ -5063,6 +5145,174 @@ class SimplehashElementsMember extends Variable {
 
         await this.pfree(iterator);
         return variables;
+    }
+}
+
+/* 
+ * Represents scalar integer field, that acts like value of enumeration
+ * (maybe bitmask), but defined using macros instead of enum values.
+ * Also, in such integer fields some parts stores some value, i.e. length.
+ * Example is 't_infomask2' which stores both flags and number of attributes.
+ * 
+ * NOTE: it extends RealVariable (not ScalarVariable), because this member
+ * can be used in 'watch' window, otherwise we can not get reference to it.
+ */
+class FlagsMemberVariable extends RealVariable {
+    /* 
+     * In a good way, we should use macros in expressions, but default debug
+     * symbols (at least compiled with '-g') do not include this information,
+     * so we get 'undeclared symbol' error. For this you should enable extra
+     * debug symbols (i.e. for gdb use '-g3' level).
+     * 
+     * But even if we know numeric value of enum member and have the same
+     * endianess we still have to evaluate all expressions in debugger, because
+     * 1) due to another major pg version numeric values can change
+     * 2) we can debug coredump collected from another machine, so we should not
+     *    assume this PC is binary compatible with one that is debugged  
+     */
+
+    constructor(public bitmaskInfo: BitmaskMemberInfo, args: RealVariableArgs) {
+        super(args);
+    }
+
+    protected isExpandable(): boolean {
+        /* 
+         * Mask values are shown in description, but for fields it is
+         * more convinient to show as children elements.
+         */
+        return this.bitmaskInfo.fields.length > 0;
+    }
+
+    private async collectFlagValuesInternal(exprFormatter: (m: FlagMemberInfo) => string) {
+        const flags = [];
+        
+        for (const f of this.bitmaskInfo.flags) {
+            const expr = exprFormatter(f);
+            const result = await this.evaluate(expr);
+            if (result.result === '1') {
+                flags.push(f.flag);
+            }
+        }
+
+        return flags;
+    }
+
+    private async collectFlagValues() {
+        const flagStrategy = (f: FlagMemberInfo) => {
+            return `((${this.value}) & (${f.flag})) == (${f.flag})
+                        ? 1
+                        : 0`;
+        }
+
+        const valueStrategy = (f: FlagMemberInfo) => {
+            if (f.numeric === undefined) {
+                throw new EvaluationError(`no numeric value for enum member ${f.flag}`);
+            }
+
+            return `((${this.value}) & (${f.numeric})) == (${f.numeric})
+                        ? 1
+                        : 0`;
+        }
+
+        if (this.context.canUseMacros) {
+            try {
+                return await this.collectFlagValuesInternal(flagStrategy);
+            } catch (err) {
+                if (!(err instanceof EvaluationError)) {
+                    throw err;
+                }
+                
+                this.context.canUseMacros = false;
+            }
+        }
+
+        return await this.collectFlagValuesInternal(valueStrategy);
+    }
+    
+    private async collectFieldValuesInternal(exprFormatter: (m: FieldMemberInfo) => string) {
+        const fields: [string, string][] = [];
+        
+        for (const f of this.bitmaskInfo.fields) {
+            const expr = exprFormatter(f);
+            const result = await this.evaluate(expr);
+
+            /*
+             * Fields can contain '0' and it's OK, but if there is an error
+             * occurred we will get Error, so 'value' must contain only valid
+             * value.
+             */
+            fields.push([f.name, result.result]);
+        }
+        
+        return fields;
+    }
+    
+    private async collectFieldsValues() {
+        const flagStrategy = (f: FieldMemberInfo) => {
+            return `(${this.value}) & (${f.mask})`;
+        }
+
+        const valueStrategy = (f: FieldMemberInfo) => {
+            if (f.numeric === undefined) {
+                throw new EvaluationError(
+                    `no numeric value for enum field ${f.name} of ${this.name}`);
+            }
+
+            return `(${this.value}) & (${f.numeric})`;
+        }
+
+        if (this.context.canUseMacros) {
+            try {
+                return await this.collectFieldValuesInternal(flagStrategy);
+            } catch (err) {
+                if (!(err instanceof EvaluationError)) {
+                    throw err;
+                }
+
+                this.context.canUseMacros = false;
+            }
+        }
+        
+        return await this.collectFieldValuesInternal(valueStrategy);
+    }
+    
+    async getDescription(): Promise<string> {
+        if (this.bitmaskInfo.flags.length === 0) {
+            return this.value;
+        }
+
+        try {
+            const flagValues = await this.collectFlagValues();
+            /* 
+             * XXX: for large amount of flags it is better to show
+             * as child elements, otherwise desciption will be too long
+             */
+            return flagValues.join(' | ');
+        } catch (err) {
+            if (!(err instanceof EvaluationError)) {
+                throw err;
+            }
+
+            this.logger.error('failed to evaluate flags for %s', this.name, err);
+            this.context.canUseMacros = false;
+            return this.value;
+        }
+    }
+    
+    async doGetChildren() {
+        if (this.bitmaskInfo.fields.length === 0) {
+            return [];
+        }
+        
+        try {
+            const fields = await this.collectFieldsValues();
+            return fields.map(([name, value]) => 
+                    new ScalarVariable(name, value, '', this.context, this.logger, this));
+        } catch (err) {
+            this.logger.error('failed to evaluate fields for %s', this.name, err);
+            this.context.canUseMacros = false;
+            return [];
+        }
     }
 }
 
