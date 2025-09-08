@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as utils from './utils';
 import { Features } from './utils';
 import * as vars from './variables';
+import * as constants from './constants';
 import * as dbg from './debugger';
 import * as dap from './dap';
 import path from 'path';
@@ -35,17 +36,20 @@ function createDebuggerFacade(type: string, provider: NodePreviewTreeViewProvide
 export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars.Variable>, vscode.Disposable {
     subscriptions: vscode.Disposable[] = [];
 
+    /* 
+     * Representation of parsed configuration file.
+     * Used to seed ExecContext during initialization.
+     */
+    configFile?: ConfigFile;
+
     /**
      * ExecContext used to pass to all members.
      * Updated on each debug session start/end.
      */
     execContext?: vars.ExecContext;
 
-    constructor(
-        public log: utils.ILogger,
-        private nodeVars: vars.NodeVarRegistry,
-        private specialMembers: vars.SpecialMemberRegistry,
-        private hashTableTypes: vars.HashTableTypes) { 
+    constructor(public log: utils.ILogger,
+                private nodeVars: vars.NodeVarRegistry) { 
         this.subscriptions = [
             vscode.debug.onDidStartDebugSession(s => {
                 if (!this.execContext) {
@@ -53,8 +57,8 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
                     if (!debug) {
                         return;
                     }
-                    this.execContext = new vars.ExecContext(this.nodeVars, this.specialMembers,
-                                                            debug, this.hashTableTypes);
+
+                    this.execContext = new vars.ExecContext(this.nodeVars, debug);
                 }
             }),
             vscode.debug.onDidTerminateDebugSession(s => {
@@ -76,16 +80,87 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
         this._onDidChangeTreeData.fire();
     }
 
-    getSpecialMember(variable: vars.Variable): vars.ArraySpecialMemberInfo | undefined {
-        if (!variable.parent) {
-            return;
-        }
-
-        return this.specialMembers.getArraySpecialMember(variable.parent.type, variable.name)
-    }
-
     async getTreeItem(variable: vars.Variable) {
         return variable.getTreeItem();
+    }
+    
+    initializeExecContextFromConfig(context: vars.ExecContext) {
+        if (!this.configFile) {
+            return;
+        }
+        
+        const config = this.configFile;
+        
+        if (config.arrayInfos?.length) {
+            this.log.debug('adding %i array special members from config file', config.arrayInfos.length);
+            try {
+                context.specialMemberRegistry.addArraySpecialMembers(config.arrayInfos);
+            } catch (err) {
+                this.log.error('could not add custom array special members', err);
+            }
+        }
+
+        if (config.aliasInfos?.length) {
+            this.log.debug('adding %i aliases from config file', config.aliasInfos.length);
+            try {
+                context.nodeVarRegistry.addAliases(config.aliasInfos);
+            } catch (err) {
+                this.log.error('could not add aliases from configuration', err);
+            }
+        }
+
+        if (config.customListTypes?.length) {
+            this.log.debug('adding %i custom list types', config.customListTypes.length);
+            try {
+                context.specialMemberRegistry.addListCustomPtrSpecialMembers(config.customListTypes);
+            } catch (e) {
+                this.log.error('error occurred during adding custom List types', e);
+            }
+        }
+
+        if (config.htabTypes?.length) {
+            this.log.debug('adding %i htab types', config.htabTypes.length);
+            try {
+                context.hashTableTypes.addHTABTypes(config.htabTypes);
+            } catch (e) {
+                this.log.error('error occurred during adding custom HTAB types', e);
+            }
+        }
+
+        if (config.simpleHashTableTypes?.length) {
+            this.log.debug('adding %i simplehash types', config.simpleHashTableTypes.length);
+            try {
+                context.hashTableTypes.addSimplehashTypes(config.simpleHashTableTypes);
+            } catch (e) {
+                this.log.error('error occurred during adding custom simple hash table types', e);
+            }
+        }
+        
+        if (config.bitmaskEnumMembers?.length) {
+            this.log.debug('adding %i enum bitmask types', config.bitmaskEnumMembers.length);
+            try {
+                context.specialMemberRegistry.addFlagsMembers(config.bitmaskEnumMembers);
+            } catch (e) {
+                this.log.error('error occurred during adding enum bitmask types', e);
+            }
+        }
+    }
+
+    initializeExecContext() {
+        const context = this.execContext!;
+
+        /* Initialize using default builtin values */
+        const sm = context.specialMemberRegistry;
+        sm.addArraySpecialMembers(constants.getArraySpecialMembers());
+        sm.addListCustomPtrSpecialMembers(constants.getKnownCustomListPtrs());
+        sm.addFlagsMembers(constants.getWellKnownFlagsMembers());
+
+        const hash = context.hashTableTypes;
+        hash.addHTABTypes(constants.getWellKnownHTABTypes());
+        hash.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
+        
+        /* Initialize using configuration file */
+        this.initializeExecContextFromConfig(context);   
     }
 
     async getChildren(element?: vars.Variable | undefined) {
@@ -102,13 +177,15 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
                     return;
                 }
 
-                const exec = this.execContext;
-                const topLevel = await this.getTopLevelVariables(exec, frameId);
+                this.initializeExecContext();
+
+                const context = this.execContext;
+                const topLevel = await this.getTopLevelVariables(context, frameId);
                 if (!topLevel) {
                     return;
                 }
 
-                const topLevelVariable = new vars.VariablesRoot(topLevel, exec, this.log);
+                const topLevelVariable = new vars.VariablesRoot(topLevel, context, this.log);
                 topLevel.forEach(v => v.parent = topLevelVariable);
                 return topLevel;
             }
@@ -262,7 +339,7 @@ export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable,
     vscode.window.showTextDocument(document);
 }
 
-class ConfigFileParseResult {
+export class ConfigFile {
     /* Array special members */
     arrayInfos?: vars.ArraySpecialMemberInfo[];
     /* Information about type aliases */
@@ -279,7 +356,7 @@ class ConfigFileParseResult {
     bitmaskEnumMembers?: vars.BitmaskMemberInfo[];
 }
 
-function parseConfigurationFile(configFile: any): ConfigFileParseResult | undefined {
+function parseConfigurationFile(configFile: any): ConfigFile | undefined {
     const parseArraySm1 = (obj: any): vars.ArraySpecialMemberInfo | undefined => {
         if (!(obj && typeof obj === 'object' && obj !== null)) {
             return;
@@ -1026,9 +1103,9 @@ async function bootstrapExtensionCommand() {
     await vscode.window.showTextDocument(td);
 }
 
-export function setupExtension(context: vscode.ExtensionContext, specialMembers: vars.SpecialMemberRegistry,
-                               nodeVars: vars.NodeVarRegistry, hashTableTypes: vars.HashTableTypes,
-                               logger: utils.ILogger, nodesView: NodePreviewTreeViewProvider) {
+export function setupExtension(context: vscode.ExtensionContext,
+                               nodeVars: vars.NodeVarRegistry,  logger: utils.ILogger,
+                               nodesView: NodePreviewTreeViewProvider) {
 
     function registerCommand(name: string, command: (...args: any[]) => void) {
         const disposable = vscode.commands.registerCommand(name, command);
@@ -1066,91 +1143,45 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
             return;
         }
 
-        let parseResult: ConfigFileParseResult | undefined;
+        let parsedConfigFile: ConfigFile | undefined;
         try {
-            parseResult = parseConfigurationFile(data);
+            parsedConfigFile = parseConfigurationFile(data);
         } catch (err: any) {
             logger.error('failed to parse JSON settings file %s', doc.uri.fsPath, err);
             return;
         }
-
-        if (parseResult) {
-            if (parseResult.arrayInfos?.length) {
-                logger.debug('adding %i array special members from config file', parseResult.arrayInfos.length);
-                specialMembers.addArraySpecialMembers(parseResult.arrayInfos);
-            }
-
-            if (parseResult.aliasInfos?.length) {
-                logger.debug('adding %i aliases from config file', parseResult.aliasInfos.length);
-                nodeVars.addAliases(parseResult.aliasInfos);
-            }
-
-            if (parseResult.typedefs) {
-                const typedefs = [];
-                for (const typedef of parseResult.typedefs) {
-                    let p;
-                    if (path.isAbsolute(typedef)) {
-                        p = vscode.Uri.file(typedef);
-                    } else {
-                        const workspace = vscode.workspace.getWorkspaceFolder(pathToFile);
-                        if (!workspace) {
-                            logger.warn('could not determine workspace for file %s to add typedef file', typedef);
-                            continue;
-                        }
-
-                        p = utils.joinPath(workspace.uri, typedef);
+        
+        if (parsedConfigFile) {
+            nodesView.configFile = parsedConfigFile;
+        }
+        
+        if (parsedConfigFile?.typedefs?.length) {
+            const typedefs = [];
+            for (const typedef of parsedConfigFile.typedefs) {
+                let p;
+                if (path.isAbsolute(typedef)) {
+                    p = vscode.Uri.file(typedef);
+                } else {
+                    const workspace = vscode.workspace.workspaceFolders?.length
+                                ? vscode.workspace.workspaceFolders[0]
+                                : undefined;
+                    if (!workspace) {
+                        logger.warn('could not determine workspace for file %s to add typedef file', typedef);
+                        continue;
                     }
 
-                    if (await utils.fileExists(p)) {
-                        typedefs.push(p);
-                    } else {
-                        logger.warn('typedef file %s does not exist', p.fsPath);
-                    }
+                    p = utils.joinPath(workspace.uri, typedef);
                 }
 
-                if (typedefs.length > 0) {
-                    Configuration.CustomTypedefsFiles = typedefs;
+                if (await utils.fileExists(p)) {
+                    typedefs.push(p);
+                } else {
+                    logger.warn('typedef file %s does not exist', p.fsPath);
                 }
             }
 
-            if (parseResult.customListTypes) {
-                logger.debug('adding %i custom list types', parseResult.customListTypes.length);
-                try {
-                    specialMembers.addListCustomPtrSpecialMembers(parseResult.customListTypes);
-                } catch (e) {
-                    vscode.window.showErrorMessage('failed to add custom List types');
-                    logger.error('error occurred during adding custom List types', e);
-                }
-            }
-
-            if (parseResult.htabTypes) {
-                logger.debug('adding %i htab types', parseResult.htabTypes.length);
-                try {
-                    hashTableTypes.addHTABTypes(parseResult.htabTypes);
-                } catch (e) {
-                    vscode.window.showErrorMessage('failed to add custom htab types');
-                    logger.error('error occurred during adding custom HTAB types', e);
-                }
-            }
-
-            if (parseResult.simpleHashTableTypes) {
-                logger.debug('adding %i simplehash types', parseResult.simpleHashTableTypes.length);
-                try {
-                    hashTableTypes.addSimplehashTypes(parseResult.simpleHashTableTypes);
-                } catch (e) {
-                    vscode.window.showErrorMessage('failed to add custom simple hash table types');
-                    logger.error('error occurred during adding custom simple hash table types', e);
-                }
-            }
-            
-            if (parseResult.bitmaskEnumMembers) {
-                logger.debug('adding %i enum bitmask types', parseResult.bitmaskEnumMembers.length);
-                try {
-                    specialMembers.addFlagsMembers(parseResult.bitmaskEnumMembers);
-                } catch (e) {
-                    vscode.window.showErrorMessage('could not add custom enum bitmask types');
-                    logger.error('error occurred during adding enum bitmask types', e);
-                }
+            if (typedefs.length) {
+                Configuration.CustomTypedefsFiles = typedefs;
             }
         }
     }
@@ -1158,13 +1189,10 @@ export function setupExtension(context: vscode.ExtensionContext, specialMembers:
     const refreshConfigurationFromFolders = async (folders: readonly vscode.WorkspaceFolder[]) => {
         for (const folder of folders) {
             const pathToFile = utils.joinPath(
-                folder.uri,
-                '.vscode',
-                Configuration.ExtensionSettingsFileName);
+                folder.uri, '.vscode', Configuration.ExtensionSettingsFileName);
+
             if (await utils.fileExists(pathToFile)) {
                 await processSingleConfigFile(pathToFile);
-            } else {
-                logger.debug('config file %s does not exist', pathToFile.fsPath);
             }
         }
     }

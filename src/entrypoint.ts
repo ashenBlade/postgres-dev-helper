@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as vars from './variables';
 import * as utils from './utils';
 import * as formatter from './formatter';
+import { ConfigFile } from './extension';
 import { setupDebugger } from './debugger';
 
 import {
@@ -45,11 +46,8 @@ function createLogger(context: vscode.ExtensionContext): utils.ILogger {
 
 function createPostgresVariablesView(context: vscode.ExtensionContext,
                                      logger: utils.ILogger,
-                                     nodeVars: vars.NodeVarRegistry,
-                                     specialMembers: vars.SpecialMemberRegistry,
-                                     hashTableTypes: vars.HashTableTypes) {
-    const nodesView = new PgVariablesView(logger, nodeVars, 
-                                          specialMembers, hashTableTypes);
+                                     nodeVars: vars.NodeVarRegistry) {
+    const nodesView = new PgVariablesView(logger, nodeVars);
     const nodesViewName = config.Views.NodePreviewTreeView;
     const treeDisposable = vscode.window.registerTreeDataProvider(nodesViewName,
                                                                   nodesView);
@@ -62,13 +60,9 @@ export function activate(context: vscode.ExtensionContext) {
     try {
         logger.info('Extension is activating');
         const nodeVars = new vars.NodeVarRegistry();
-        const specialMembers = new vars.SpecialMemberRegistry();
-        const hashTableTypes = new vars.HashTableTypes();
+        const nodesView = createPostgresVariablesView(context, logger, nodeVars);
 
-        const nodesView = createPostgresVariablesView(context, logger, nodeVars, 
-                                                      specialMembers, hashTableTypes);
-
-        setupExtension(context, specialMembers, nodeVars, hashTableTypes, logger, nodesView);
+        setupExtension(context, nodeVars, logger, nodesView);
         setupDebugger(nodesView, context);
 
         formatter.registerFormatting(logger);

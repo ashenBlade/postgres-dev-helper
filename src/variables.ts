@@ -4,6 +4,7 @@ import * as dap from "./dap";
 import * as constants from './constants';
 import * as dbg from './debugger';
 import { PghhError, EvaluationError } from './error';
+import { Hash } from 'crypto';
 
 export interface AliasInfo {
     /* Declared type */
@@ -197,7 +198,7 @@ export class SpecialMemberRegistry {
     /**
      * Double map: Type name -> (Member Name -> Info Object).
      */
-    arraySpecialMembers: Map<string, Map<string, ArraySpecialMemberInfo>>;
+    arraySpecialMembers: Map<string, Map<string, ArraySpecialMemberInfo>> = new Map();
 
     /**
      * Double map: Member/variable name -> (Struct/Function name -> Info object).
@@ -206,23 +207,14 @@ export class SpecialMemberRegistry {
      * Inner key is name of structure or function (containing this member/variable
      * respectively).
      */
-    listCustomPtrs: Map<string, Map<string, ListPtrSpecialMemberInfo>>;
+    listCustomPtrs: Map<string, Map<string, ListPtrSpecialMemberInfo>> = new Map();
     
     /* 
      * Various bitmask integer members used in source code.
      * They act like values of [bitmask] enums or store another
      * fields inside (apply bitmask to part of bits).
      */
-    bitmasks: Map<string, Map<string, BitmaskMemberInfo>>;
-
-    constructor() {
-        this.arraySpecialMembers = new Map();
-        this.listCustomPtrs = new Map();
-        this.bitmasks = new Map();
-        this.addArraySpecialMembers(constants.getArraySpecialMembers());
-        this.addListCustomPtrSpecialMembers(constants.getKnownCustomListPtrs());
-        this.addFlagsMembers(constants.getWellKnownFlagsMembers());
-    }
+    bitmasks: Map<string, Map<string, BitmaskMemberInfo>> = new Map();
 
     addArraySpecialMembers(elements: ArraySpecialMemberInfo[]) {
         for (const element of elements) {
@@ -369,19 +361,12 @@ export class HashTableTypes {
     /**
      * Map (member name -> (parent struct name -> type info structure))
      */
-    htab: Map<string, Map<string, HtabEntryInfo>>;
+    htab: Map<string, Map<string, HtabEntryInfo>> = new Map();
 
     /**
      * Map (prefix -> entry type).
      */
-    simplehash: Map<string, SimplehashEntryInfo>;
-
-    constructor() {
-        this.htab = new Map();
-        this.simplehash = new Map();
-        this.addHTABTypes(constants.getWellKnownHTABTypes());
-        this.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
-    }
+    simplehash: Map<string, SimplehashEntryInfo> = new Map();
 
     addHTABTypes(elements: HtabEntryInfo[]) {
         for (const element of elements) {
@@ -601,12 +586,11 @@ export class ExecContext {
      */
     canUseMacros = true;
 
-    constructor(nodeVarRegistry: NodeVarRegistry, specialMemberRegistry: SpecialMemberRegistry,
-                debug: dbg.IDebuggerFacade, hashTableTypes: HashTableTypes) {
+    constructor(nodeVarRegistry: NodeVarRegistry, debug: dbg.IDebuggerFacade) {
         this.nodeVarRegistry = nodeVarRegistry;
-        this.specialMemberRegistry = specialMemberRegistry;
-        this.hashTableTypes = hashTableTypes;
         this.debug = debug;
+        this.specialMemberRegistry = new SpecialMemberRegistry();
+        this.hashTableTypes = new HashTableTypes();
         this.step = new StepContext();
     }
 
