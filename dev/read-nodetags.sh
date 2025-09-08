@@ -22,7 +22,7 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
 fi
 
 awk '{
-    if (index($1, "T_") != 0) {
+    if (match($1, /\s?T_/)) {
         $1 = gensub(/T_/, "", "g", $1)
         $1 = gensub(/,/, "", "g", $1)
         if (index($1, " ") == 0) {
