@@ -1,0 +1,25 @@
+{
+    "version": 5,
+    "htab": [
+        {
+            "type": "TestHtabEntry *",
+            "variable": ["vscode_test_helper", "htab"]
+        }
+    ],
+    "simplehash": [
+        {
+            "type": "SimpleHashEntry *",
+            "prefix": "testhash"
+        }
+    ],
+    "customListTypes": [
+        {
+            "type": "CustomListElement *",
+            "variable": ["vscode_test_helper", "custom_list"]
+        },
+        {
+            "type": "CustomListElement *",
+            "member": ["CustomListVariable", "custom_list"]
+        }
+    ]
+}

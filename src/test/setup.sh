@@ -13,6 +13,7 @@ Options:
     --pg-version            Major version of PostgreSQL to install.
     --threads               Number of threads to use during build
     --force                 Remove old installation if it exists.
+    --get-supported         Return list of all supported versions to initialize
 
 Supported PG versions from 17 to 9.6 inclusive.
 
@@ -43,6 +44,10 @@ while [ "$1" ]; do
         ;;
     --help|-h)
         print_help
+        exit 0
+        ;;
+    --get-supported)
+        echo "17 16 15 14 13 12 11 10 9.6"
         exit 0
         ;;
     *)
@@ -102,6 +107,7 @@ cd "$(dirname ${BASH_SOURCE[0]:-$0})/../.."
 EXT_ROOT_DIR="$PWD"
 
 PATCH_FILE="$EXT_ROOT_DIR/src/test/patches/pg${PG_VERSION}.patch"
+EXT_CONFIG_FILE="$EXT_ROOT_DIR/src/test/patches/pgsql_hacker_helper.json"
 PG_SRC_DOWNLOAD_URL="https://ftp.postgresql.org/pub/source/v${PG_VERSION}/postgresql-${PG_VERSION}.tar.gz"
 CACHEDIR="$EXT_ROOT_DIR/src/test/cache"
 TARFILE="$CACHEDIR/postgresql-${PG_VERSION}.tar.gz"
@@ -195,4 +201,8 @@ pg_ctl stop -w
 
 # Copy test function
 cp "$EXT_ROOT_DIR/src/test/run.sh" "$SRC_PATH"
+
+# Copy extension configuration
+mkdir -p "$SRC_PATH/.vscode"
+cp "$EXT_CONFIG_FILE" "$SRC_PATH/.vscode"
 } 2>&1 | tee "$LOGFILE"

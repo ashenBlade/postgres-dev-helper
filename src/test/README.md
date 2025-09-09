@@ -28,6 +28,12 @@ Example usage:
 ./src/test/setup.sh --pg-version=17.4
 ```
 
+> To initialize all versions at once use:
+>
+> ```bash
+> for VERSION in $(./src/test/setup.sh --get-supported); do ./src/test/setup.sh --pg-version="$VERSION"; done
+> ```
+
 After that, source code, binaries and database will be installed in `./pgsrc/VERSION`, `./pgsrc/VERSION/build` and `./pgsrc/VERSION/data` accordingly (starting from extension directory root), where `VERSION` - is a major version of PostgreSQL.
 UNIX socket is used for connection - `EXT_ROOT/pgsrc/VERSION/data/.s.PGSQL.5432`.
 

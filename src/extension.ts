@@ -44,29 +44,37 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
 
     /**
      * ExecContext used to pass to all members.
-     * Updated on each debug session start/end.
+     * 
+     * Field is set on first 'getChildren' invocation.
      */
-    execContext?: vars.ExecContext;
+    context?: vars.ExecContext;
+
+    /* 
+     * Interface to access extension-specific debugger features.
+     * 
+     * Set during debug-session, and 'undefined' when there is no debugging.
+     */
+    debug?: dbg.GenericDebuggerFacade;
 
     constructor(public log: utils.ILogger,
                 private nodeVars: vars.NodeVarRegistry) { 
         this.subscriptions = [
             vscode.debug.onDidStartDebugSession(s => {
-                if (!this.execContext) {
+                if (!this.debug) {
                     const debug = createDebuggerFacade(s.type, this);
                     if (!debug) {
                         return;
                     }
 
-                    this.execContext = new vars.ExecContext(this.nodeVars, debug);
+                    this.debug = debug;
                 }
             }),
             vscode.debug.onDidTerminateDebugSession(s => {
-                if (this.execContext) {
-                    /* I know the hierarchy for sure - no surprises */
-                    const debug = <dbg.GenericDebuggerFacade>this.execContext.debug;
-                    debug.dispose();
-                    this.execContext = undefined;
+                if (this.debug) {
+                    this.context = undefined;
+
+                    this.debug.dispose();
+                    this.debug = undefined;
                 }
             }),
         ];
@@ -76,7 +84,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
     private _onDidChangeTreeData = new vscode.EventEmitter<vars.Variable | undefined | null | void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
     refresh(): void {
-        this.execContext?.step.reset();
+        this.context?.step.reset();
         this._onDidChangeTreeData.fire();
     }
 
@@ -146,50 +154,96 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
         }
     }
 
-    initializeExecContext() {
-        const context = this.execContext!;
+    async tryGetPgVersion(frameId: number) {
+        try {
+            const result = await this.debug!.evaluate('server_version_num', frameId);
+            const version = Number(result.result);
+            if (!Number.isInteger(version) || !(0 <= version && version <= 999999)) {
+                this.log.warn('server_version_num has unexpected result: %s', result.result);
+                return undefined;
+            }
+
+            return version;
+        } catch (err) {
+            this.log.warn('could not get value of "server_version_num"', err);
+            return undefined;
+        }
+    }
+
+    async createExecContext(frameId: number) {
+        const context = new vars.ExecContext(this.nodeVars, this.debug!);
 
         /* Initialize using default builtin values */
         const sm = context.specialMemberRegistry;
         sm.addArraySpecialMembers(constants.getArraySpecialMembers());
         sm.addListCustomPtrSpecialMembers(constants.getKnownCustomListPtrs());
-        sm.addFlagsMembers(constants.getWellKnownFlagsMembers());
 
         const hash = context.hashTableTypes;
         hash.addHTABTypes(constants.getWellKnownHTABTypes());
-        hash.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
         
-        /* Initialize using configuration file */
-        this.initializeExecContextFromConfig(context);   
+        /* Version specific initialization */
+        const pgversion = await this.tryGetPgVersion(frameId);
+        if (pgversion) {
+            this.log.info('detected PostgreSQL version: %i', pgversion);
+            context.adjustProperties(pgversion);
+            
+            if (10_00_00 <= pgversion) {
+                hash.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
+            }
+            
+            /* 
+             * Initialize flags only if we know PostgreSQL version for sure,
+             * otherwise we will lead developer in the wrong way - this is
+             * even worse.
+             */
+            sm.addFlagsMembers(constants.getWellKnownFlagsMembers(pgversion));
+        } else {
+            this.log.info('could not detect PostgreSQL version');
+            hash.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
+        }
+        
+        /* Initialize using configuration file - last, so user can override */
+        this.initializeExecContextFromConfig(context);  
+        
+        return context;
+    }
+
+    private async getChildrenInternal(element?: vars.Variable | undefined) {
+        if (element) {
+            return await element.getChildren();
+        }
+
+        const frameId = await this.debug!.getCurrentFrameId();
+        if (frameId == undefined) {
+            return;
+        }
+
+        if (!this.context) {
+            this.context = await this.createExecContext(frameId);
+        }
+
+        const variables = await this.getTopLevelVariables(this.context, frameId);
+        if (!variables) {
+            return variables;
+        }
+
+        const root = new vars.VariablesRoot(variables, this.context, this.log);
+        variables.forEach(v => v.parent = root);
+        return variables;
     }
 
     async getChildren(element?: vars.Variable | undefined) {
-        if (!this.execContext) {
+        if (!this.debug) {
             return;
         }
 
         try {
-            if (element) {
-                return await element.getChildren();
-            } else {
-                const frameId = await this.execContext.debug.getCurrentFrameId();
-                if (!frameId) {
-                    return;
-                }
-
-                this.initializeExecContext();
-
-                const context = this.execContext;
-                const topLevel = await this.getTopLevelVariables(context, frameId);
-                if (!topLevel) {
-                    return;
-                }
-
-                const topLevelVariable = new vars.VariablesRoot(topLevel, context, this.log);
-                topLevel.forEach(v => v.parent = topLevelVariable);
-                return topLevel;
-            }
+            return await this.getChildrenInternal(element);
         } catch (err) {
+            if (!(err instanceof Error)) {
+                throw err;
+            }
+
             /* 
              * There may be race condition when our state of debugger 
              * is 'ready', but real debugger is not. Such cases include
@@ -199,10 +253,18 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
              * In this cases we must return empty array - this will 
              * clear our tree view.
              */
-            if (err instanceof Error &&
-                err.message.indexOf('No debugger available') !== -1) {
+            if (err.message.indexOf('No debugger available') !== -1 ||
+                err.message.indexOf('process is running') !== -1) {
                 return;
             }
+
+            /* 
+             * It would be better to just log error, otherwise if we re-throw
+             * then user will see error popup and just freeze without
+             * understanding where this error comes from.
+             */
+            this.log.error('error occurred during obtaining children', err);
+            return;
         }
     }
 
@@ -1208,11 +1270,11 @@ export function setupExtension(context: vscode.ExtensionContext,
     /* Register command to dump variable to log */
     const pprintVarToLogCmd = async (args: any) => {
         try {
-            if (!nodesView.execContext) {
+            if (!nodesView.context) {
                 return;
             }
 
-            await dumpVariableToLogCommand(args, logger, nodesView.execContext.debug);
+            await dumpVariableToLogCommand(args, logger, nodesView.context.debug);
         } catch (err: any) {
             logger.error('error while dumping node to log', err);
         }
@@ -1220,7 +1282,7 @@ export function setupExtension(context: vscode.ExtensionContext,
 
     const dumpNodeToDocCmd = async (args: any) => {
         try {
-            if (!nodesView.execContext) {
+            if (!nodesView.context) {
                 return;
             }
 
@@ -1244,7 +1306,7 @@ export function setupExtension(context: vscode.ExtensionContext,
                 variable = args.variable;
             }
 
-            await dumpVariableToDocumentCommand(variable, logger, nodesView.execContext.debug);
+            await dumpVariableToDocumentCommand(variable, logger, nodesView.context.debug);
         } catch (err: any) {
             logger.error('error while dumping node to log', err);
         }

@@ -1,6 +1,4 @@
 import { BitmaskMemberInfo,
-         FlagMemberInfo,
-         FieldMemberInfo,
          HtabEntryInfo,
          ListPtrSpecialMemberInfo,
          SimplehashEntryInfo,
@@ -1922,224 +1920,521 @@ export function getWellKnownSimpleHashTableTypes(): SimplehashEntryInfo[] {
     ];
 }
 
-export function getWellKnownFlagsMembers(): BitmaskMemberInfo[] {
-    const _ = (type: string, member: string, flags: [string, string?][],
-                                             fields?: [string, [string, string?]][])
-        : BitmaskMemberInfo => ({
-            type, member,
-            flags: flags.map(x => ({
-                flag: x[0],
-                numeric: x[1]
-            } as FlagMemberInfo)),
-            fields: fields?.map(x => ({
-                name: x[0],
-                mask: x[1][0],
-                numeric: x[1][1]
-            } as FieldMemberInfo)) ?? [],
-        });
+/* Range of supported versions: [start; end) */
+export class VersionInterval {
+    constructor(public start: number, public end: number) { }
+    
+    satisfies(version: number) {
+        return this.start <= version && version < this.end;
+    }
 
-    const infomaskFlags: [string, string?][] = [
+    static Min =          0;
+    static Max = 1_00_00_00;
+    static Unbounded = new VersionInterval(this.Min, this.Max);
+}
+
+function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
+    type FlagInfo = [string, string];
+    type FieldInfo = [string, [string, string]];
+    type VersionedFlagFieldRow = [VersionInterval, FlagInfo[]?, FieldInfo[]?];
+    
+    /* shortcuts */
+    const interval = (start: number, end: number, flags: FlagInfo[], fields?: FieldInfo[]): VersionedFlagFieldRow =>
+            [new VersionInterval(start, end), flags, fields];
+    const to = (end: number, flags: FlagInfo[], fields?: FieldInfo[]): VersionedFlagFieldRow =>
+            [new VersionInterval(VersionInterval.Min, end), flags, fields];
+    const from = (start: number, flags: FlagInfo[], fields?: FieldInfo[]): VersionedFlagFieldRow =>
+            [new VersionInterval(start, VersionInterval.Max), flags, fields];
+    const unbounded = (flags: FlagInfo[], fields?: FieldInfo[]): VersionedFlagFieldRow => 
+            [VersionInterval.Unbounded, flags, fields];
+
+    /* Main function to create one bitmask member entry with all verisons */
+    const _ = (type: string, member: string,
+               entries: [VersionInterval, FlagInfo[]?, FieldInfo[]?][]): [VersionInterval, BitmaskMemberInfo][] => 
+            entries.map(([ver, flags, fields]) => [ver, {
+                type, member,
+                flags: flags?.map(([flag, numeric]) => ({flag, numeric})) ?? [],
+                fields: fields?.map(([name, [mask, numeric]]) => ({name, mask, numeric})) ?? [],
+            }]);
+
+    /* most commonly used flags are for heap tuple */
+    const createInfomaskFlags = (type: string, member: string) => _(type, member, [
+        to(8_01_00, [
             ['HEAP_HASNULL', '0x0001'],
             ['HEAP_HASVARWIDTH', '0x0002'],
             ['HEAP_HASEXTERNAL', '0x0004'],
-            ['HEAP_HASOID_OLD', '0x0008'],
-            ['HEAP_XMAX_KEYSHR_LOCK', '0x0010'],
-            ['HEAP_COMBOCID', '0x0020'],
-            ['HEAP_XMAX_EXCL_LOCK', '0x0040'],
-            ['HEAP_XMAX_LOCK_ONLY', '0x0080'],
+            ['HEAP_HASCOMPRESSED', '0x0008'],
+            ['HEAP_HASEXTENDED', '0x000C'],
+            ['HEAP_HASOID', '0x0010'],
+            ['HEAP_XMAX_UNLOGGED', '0x0080'],
             ['HEAP_XMIN_COMMITTED', '0x0100'],
             ['HEAP_XMIN_INVALID', '0x0200'],
-            ['HEAP_XMAX_COMMITTED', '0x400'],
+            ['HEAP_XMAX_COMMITTED', '0x0400'],
+            ['HEAP_XMAX_INVALID', '0x0800'],
+            ['HEAP_UPDATED', '0x2000'],
+            ['HEAP_MOVED_OFF', '0x4000'],
+            ['HEAP_MOVED_IN', '0x8000'],
+            ['HEAP_MARKED_FOR_UPDATE', '0x1000'],
+        ]),
+        interval(8_01_00, 8_03_00, [
+            ['HEAP_HASNULL', '0x0001'],
+            ['HEAP_HASVARWIDTH', '0x0002'],
+            ['HEAP_HASEXTERNAL', '0x0004'],
+            ['HEAP_HASCOMPRESSED', '0x0008'],
+            ['HEAP_HASEXTENDED', '0x000C'],
+            ['HEAP_HASOID', '0x0010'],
+            ['HEAP_XMAX_EXCL_LOCK', '0x0040'],
+            ['HEAP_XMAX_SHARED_LOCK', '0x0080'],
+            ['HEAP_XMIN_COMMITTED', '0x0100'],
+            ['HEAP_XMIN_INVALID', '0x0200'],
+            ['HEAP_XMAX_COMMITTED', '0x0400'],
             ['HEAP_XMAX_INVALID', '0x0800'],
             ['HEAP_XMAX_IS_MULTI', '0x1000'],
             ['HEAP_UPDATED', '0x2000'],
             ['HEAP_MOVED_OFF', '0x4000'],
             ['HEAP_MOVED_IN', '0x8000'],
-        ];
-    const infomask2Flags: [string, string?][] = [
-            ['HEAP_KEYS_UPDATED', '0x2000'],
-            ['HEAP_HOT_UPDATED', '0x4000'],
-            ['HEAP_ONLY_TUPLE', '0x8000']
-        ];
-    const infobitsFlags: [string, string?][] = [
+        ]),
+        interval(8_03_00, 9_00_00, [
+            ['HEAP_HASNULL',			'0x0001'],
+            ['HEAP_HASVARWIDTH',		'0x0002'],
+            ['HEAP_HASEXTERNAL',		'0x0004'],
+            ['HEAP_HASOID',				'0x0008'],
+            ['HEAP_COMBOCID',			'0x0020'],
+            ['HEAP_XMAX_EXCL_LOCK',		'0x0040'],
+            ['HEAP_XMAX_SHARED_LOCK',	'0x0080'],
+            ['HEAP_XMIN_COMMITTED',		'0x0100'],
+            ['HEAP_XMIN_INVALID',		'0x0200'],
+            ['HEAP_XMAX_COMMITTED',		'0x0400'],
+            ['HEAP_XMAX_INVALID',		'0x0800'],
+            ['HEAP_XMAX_IS_MULTI',		'0x1000'],
+            ['HEAP_UPDATED',			'0x2000'],
+            ['HEAP_MOVED_OFF',			'0x4000'],
+            ['HEAP_MOVED_IN',			'0x8000'],
+        ]),
+        from(9_00_00, [
+            ['HEAP_HASNULL',			'0x0001'],
+            ['HEAP_HASVARWIDTH',		'0x0002'],
+            ['HEAP_HASEXTERNAL',		'0x0004'],
+            ['HEAP_HASOID',				'0x0008'],
+            ['HEAP_XMAX_KEYSHR_LOCK',	'0x0010'],
+            ['HEAP_COMBOCID',			'0x0020'],
+            ['HEAP_XMAX_EXCL_LOCK',		'0x0040'],
+            ['HEAP_XMAX_LOCK_ONLY',		'0x0080'],
+            ['HEAP_XMIN_COMMITTED',		'0x0100'],
+            ['HEAP_XMIN_INVALID',		'0x0200'],
+            ['HEAP_XMAX_COMMITTED',		'0x0400'],
+            ['HEAP_XMAX_INVALID',		'0x0800'],
+            ['HEAP_XMAX_IS_MULTI',		'0x1000'],
+            ['HEAP_UPDATED',			'0x2000'],
+            ['HEAP_MOVED_OFF',			'0x4000'],
+            ['HEAP_MOVED_IN',			'0x8000'],
+        ]),
+    ]);
+    
+    const createInfomask2Flags = (type: string, member: string) => _(type, member, [
+        interval(8_03_00, 9_00_00, [
+            ['HEAP_HOT_UPDATED',		'0x4000'],
+            ['HEAP_ONLY_TUPLE',			'0x8000'],
+        ], [
+            ['natts', ['HEAP_NATTS_MASK', '0x07FF']]
+        ]),
+        from(9_00_00, [
+            ['HEAP_KEYS_UPDATED',		'0x2000'],
+            ['HEAP_HOT_UPDATED',		'0x4000'],
+            ['HEAP_ONLY_TUPLE',			'0x8000'],
+        ], [
+            ['natts', ['HEAP_NATTS_MASK', '0x07FF']]
+        ])
+    ]);
+    
+    const createInfobitsFlags = (type: string, member: string) => _(type, member, [
+        from(9_00_00, [
             ['XLHL_XMAX_IS_MULTI', '0x01'],
             ['XLHL_XMAX_LOCK_ONLY', '0x02'],
             ['XLHL_XMAX_EXCL_LOCK', '0x04'],
             ['XLHL_XMAX_KEYSHR_LOCK', '0x08'],
             ['XLHL_KEYS_UPDATED', '0x10'],
-    ];
+        ])
+    ]);
 
-    return [
+    /* 
+     * In contrast to other features this one actually requires from us
+     * to know which version of PostgreSQL we are running: different set
+     * of flags and (possible) flag values.
+     * 
+     * This is too sensitive, because if flags are shown incorrect, than
+     * developer will make the wrong decisions/actions and this is even
+     * worse than not displaying flags.
+     */
+    const bitmasks: [VersionInterval, BitmaskMemberInfo][][] = [
         /* src/include/access/htup_details.h */
-        _('HeapTupleHeaderData', 't_infomask', infomaskFlags),
-        _('HeapTupleHeaderData', 't_infomask2', infomask2Flags, [
-            ['natts', ['HEAP_NATTS_MASK', '0x07FF']]
-        ]),
+        createInfomaskFlags('HeapTupleHeaderData', 't_infomask'),
+        createInfomask2Flags('HeapTupleHeaderData', 't_infomask2'),
 
-        _('MinimalTupleData', 't_infomask', infomaskFlags),
-        _('MinimalTupleData', 't_infomask2', infomask2Flags),
+        createInfomaskFlags('MinimalTupleData', 't_infomask'),
+        createInfomask2Flags('MinimalTupleData', 't_infomask2'),
 
         /* src/include/access/heapam.h */
-        _('HeapTupleFreeze', 't_infomask', infomaskFlags),
-        _('HeapTupleFreeze', 't_infomask2', infomask2Flags),
+        createInfomaskFlags('HeapTupleFreeze', 't_infomask'),
+        createInfomask2Flags('HeapTupleFreeze', 't_infomask2'),
 
         /* src/include/access/xlog_internal.h */
         _('XLogPageHeaderData', 'xlp_info', [
-            ['XLP_FIRST_IS_CONTRECORD', '0x0001'],
-            ['XLP_LONG_HEADER', '0x0002'],
-            ['XLP_BKP_REMOVABLE', '0x0004'],
-            ['XLP_FIRST_IS_OVERWRITE_CONTRECORD', '0x0008'],
+            to(9_00_00, [
+                ['XLP_FIRST_IS_CONTRECORD', '0x0001'],
+                ['XLP_LONG_HEADER', '0x0002'],
+            ]),
+            interval(9_00_00, 9_06_00, [
+                ['XLP_FIRST_IS_CONTRECORD', '0x0001'],
+                ['XLP_LONG_HEADER', '0x0002'],
+                ['XLP_BKP_REMOVABLE', '0x0004']
+            ]),
+            from(9_06_00, [
+                ['XLP_FIRST_IS_CONTRECORD', '0x0001'],
+                ['XLP_LONG_HEADER', '0x0002'],
+                ['XLP_BKP_REMOVABLE', '0x0004'],
+                ['XLP_FIRST_IS_OVERWRITE_CONTRECORD', '0x0008'],
+            ])
         ]),
 
         /* src/include/storage/bufpage.h */
         _('PageHeaderData', 'pd_flags', [
-            ['PD_HAS_FREE_LINES', '0x0001'],
-            ['PD_PAGE_FULL', '0x0002'],
-            ['PD_ALL_VISIBLE', '0x0004'],
+            interval(8_03_00, 8_04_00, [
+                ['PD_HAS_FREE_LINES',   '0x0001'],
+                ['PD_PAGE_FULL',        '0x0002'],
+            ]),
+            from(8_04_00, [
+                ['PD_HAS_FREE_LINES',   '0x0001'],
+                ['PD_PAGE_FULL',        '0x0002'],
+                ['PD_ALL_VISIBLE',      '0x0004'],
+            ]),
         ]),
 
         /* src/backend/access/transam/generic_xlog.c */
         _('PageData', 'flags', [
-            ['GENERIC_XLOG_FULL_IMAGE', '0x0001'],
+            from(9_00_00, [
+                ['GENERIC_XLOG_FULL_IMAGE', '0x0001']
+            ]),
         ]),
 
         /* src/include/access/skey.h */
         _('ScanKeyData', 'sk_flags', [
-            ['SK_ISNULL', '0x0001'],
-            ['SK_UNARY', '0x0002'],
-            ['SK_ROW_HEADER', '0x0004'],
-            ['SK_ROW_MEMBER', '0x0008'],
-            ['SK_ROW_END', '0x0010'],
-            ['SK_SEARCHARRAY', '0x0020'],
-            ['SK_SEARCHNULL', '0x0040'],
-            ['SK_SEARCHNOTNULL', '0x0080'],
-            ['SK_ORDER_BY', '0x0100'],
+            to(8_01_00, [
+                ['SK_ISNULL',		'0x0001'],
+                ['SK_UNARY',		'0x0002'],
+            ]),
+            interval(8_01_00, 8_02_00, [
+                ['SK_ISNULL',		'0x0001'],
+                ['SK_UNARY',		'0x0002'],
+                ['SK_NEGATE',		'0x0004'],
+            ]),
+            interval(8_02_00, 8_03_00, [
+                ['SK_ISNULL',		'0x0001'],
+                ['SK_UNARY',		'0x0002'],
+                ['SK_ROW_HEADER',	'0x0004'],
+                ['SK_ROW_MEMBER',	'0x0008'],
+                ['SK_ROW_END',		'0x0010'],
+            ]),
+            interval(8_03_00, 9_00_00, [
+                ['SK_ISNULL',		'0x0001'],
+                ['SK_UNARY',		'0x0002'],
+                ['SK_ROW_HEADER',	'0x0004'],
+                ['SK_ROW_MEMBER',	'0x0008'],
+                ['SK_ROW_END',		'0x0010'],
+                ['SK_SEARCHNULL',	'0x0020'],
+            ]),
+            interval(9_00_00, 9_01_00, [
+                ['SK_ISNULL',			'0x0001'],
+                ['SK_UNARY',			'0x0002'],
+                ['SK_ROW_HEADER',		'0x0004'],
+                ['SK_ROW_MEMBER',		'0x0008'],
+                ['SK_ROW_END',			'0x0010'],
+                ['SK_SEARCHNULL',		'0x0020'],
+                ['SK_SEARCHNOTNULL',	'0x0040'],
+            ]),
+            from(9_01_00, [
+                ['SK_ISNULL',			'0x0001'],
+                ['SK_UNARY',			'0x0002'],
+                ['SK_ROW_HEADER',		'0x0004'],
+                ['SK_ROW_MEMBER',		'0x0008'],
+                ['SK_ROW_END',			'0x0010'],
+                ['SK_SEARCHNULL',		'0x0020'],
+                ['SK_SEARCHNOTNULL',	'0x0040'],
+                ['SK_ORDER_BY',			'0x0100'],
+            ])
         ]),
 
         /* src/include/access/gist.h */
         _('GISTPageOpaqueData', 'flags', [
-            ['F_LEAF', '(1 << 0)'],
-            ['F_DELETED', '(1 << 1)'],
-            ['F_TUPLES_DELETED', '(1 << 2)'],
-            ['F_FOLLOW_RIGHT', '(1 << 3)'],
-            ['F_HAS_GARBAGE', '(1 << 4)'],
+            to(8_02_00, [
+                ['F_LEAF', '(1 << 0)'],
+            ]),
+            interval(8_02_00, 9_00_00, [
+                ['F_LEAF',			'(1 << 0)'],
+                ['F_DELETED',		'(1 << 1)'],
+                ['F_TUPLES_DELETED',	'(1 << 2)'],
+            ]),
+            interval(9_00_00, 9_01_00, [
+                ['F_LEAF',				'(1 << 0)'],
+                ['F_DELETED',			'(1 << 1)'],
+                ['F_TUPLES_DELETED',	'(1 << 2)'],
+                ['F_FOLLOW_RIGHT',		'(1 << 3)'],
+            ]),
+            from(9_01_00, [
+                ['F_LEAF',				'(1 << 0)'],
+                ['F_DELETED',			'(1 << 1)'],
+                ['F_TUPLES_DELETED',	'(1 << 2)'],
+                ['F_FOLLOW_RIGHT',		'(1 << 3)'],
+                ['F_HAS_GARBAGE',		'(1 << 4)'],
+            ])
         ]),
 
         /* src/include/access/spgist_private.h */
         _('SpGistPageOpaqueData', 'flags', [
-            ['SPGIST_META', '(1<<0)'],
-            ['SPGIST_DELETED', '(1<<1)'],
-            ['SPGIST_LEAF', '(1<<2)'],
-            ['SPGIST_NULLS', '(1<<3)'],
+            from(9_00_00, [
+                ['SPGIST_META', '(1<<0)'],
+                ['SPGIST_DELETED', '(1<<1)'],
+                ['SPGIST_LEAF', '(1<<2)'],
+                ['SPGIST_NULLS', '(1<<3)'],
+            ]),
         ]),
 
         /* src/include/access/ginblock.h */
         _('GinPageOpaqueData', 'flags', [
-            ['GIN_DATA', '(1<<0)'],
-            ['GIN_LEAF', '(1<<1)'],
-            ['GIN_DELETED', '(1 << 2)'],
-            ['GIN_META', '(1 << 3)'],
-            ['GIN_LIST', '(1 << 4)'],
-            ['GIN_LIST_FULLROW', '(1 << 5)'],
-            ['GIN_INCOMPLETE_SPLIT', '(1 << 6)'],
-            ['GIN_COMPRESSED', '(1 << 7)'],
+            to(8_04_00, [
+                ['GIN_DATA',		  '(1 << 0)'],
+                ['GIN_LEAF',		  '(1 << 1)'],
+                ['GIN_DELETED',		  '(1 << 2)'],
+            ]),
+            interval(8_04_00, 9_02_00, [
+                ['GIN_DATA',		  '(1 << 0)'],
+                ['GIN_LEAF',		  '(1 << 1)'],
+                ['GIN_DELETED',		  '(1 << 2)'],
+                ['GIN_META',		  '(1 << 3)'],
+                ['GIN_LIST',		  '(1 << 4)'],
+                ['GIN_LIST_FULLROW',  '(1 << 5)'],
+            ]),
+            from(9_02_00, [
+                ['GIN_DATA', '(1<<0)'],
+                ['GIN_LEAF', '(1<<1)'],
+                ['GIN_DELETED', '(1 << 2)'],
+                ['GIN_META', '(1 << 3)'],
+                ['GIN_LIST', '(1 << 4)'],
+                ['GIN_LIST_FULLROW', '(1 << 5)'],
+                ['GIN_INCOMPLETE_SPLIT', '(1 << 6)'],
+                ['GIN_COMPRESSED', '(1 << 7)'],
+            ]),
         ]),
 
         /* src/include/access/ginxlog.h */
         _('ginxlogSplit', 'flags', [
-            ['GIN_INSERT_ISDATA', '0x01'],
-            ['GIN_INSERT_ISLEAF', '0x02'],
-            ['GIN_SPLIT_ROOT', '0x04'],
+            from(9_00_00, [
+                ['GIN_INSERT_ISDATA', '0x01'],
+                ['GIN_INSERT_ISLEAF', '0x02'],
+                ['GIN_SPLIT_ROOT', '0x04'],
+            ]),
         ]),
 
         /* src/include/access/itup.h */
         _('IndexTupleData', 't_info', [
-            ['INDEX_VAR_MASK', '0x4000'],
-            ['INDEX_NULL_MASK', '0x8000'],
-        ], [
-            ['size', ['INDEX_SIZE_MASK', '0x1FFF']]
+            unbounded([
+                ['INDEX_VAR_MASK', '0x4000'],
+                ['INDEX_NULL_MASK', '0x8000'],
+            ], [
+                ['size', ['INDEX_SIZE_MASK', '0x1FFF']],
+            ])
         ]),
 
         /* src/include/access/hash.h */
         _('HashPageOpaqueData', 'hasho_flag', [
-            ['LH_UNUSED_PAGE', '(0)'],
-            ['LH_OVERFLOW_PAGE', '(1 << 0)'],
-            ['LH_BUCKET_PAGE', '(1 << 1)'],
-            ['LH_BITMAP_PAGE', '(1 << 2)'],
-            ['LH_META_PAGE', '(1 << 3)'],
-            ['LH_BUCKET_BEING_POPULATED', '(1 << 4)'],
-            ['LH_BUCKET_BEING_SPLIT', '(1 << 5)'],
-            ['LH_BUCKET_NEEDS_SPLIT_CLEANUP', '(1 << 6)'],
-            ['LH_PAGE_HAS_DEAD_TUPLES', '(1 << 7)'],
+            to(10_00_00, [
+                ['LH_UNUSED_PAGE',          '(0)'],
+                ['LH_OVERFLOW_PAGE',		'(1 << 0)'],
+                ['LH_BUCKET_PAGE',			'(1 << 1)'],
+                ['LH_BITMAP_PAGE',			'(1 << 2)'],
+                ['LH_META_PAGE',			'(1 << 3)'],
+            ]),
+            from(10_00_00, [
+                ['LH_UNUSED_PAGE',          '(0)'],
+                ['LH_OVERFLOW_PAGE', '(1 << 0)'],
+                ['LH_BUCKET_PAGE', '(1 << 1)'],
+                ['LH_BITMAP_PAGE', '(1 << 2)'],
+                ['LH_META_PAGE', '(1 << 3)'],
+                ['LH_BUCKET_BEING_POPULATED', '(1 << 4)'],
+                ['LH_BUCKET_BEING_SPLIT', '(1 << 5)'],
+                ['LH_BUCKET_NEEDS_SPLIT_CLEANUP', '(1 << 6)'],
+                ['LH_PAGE_HAS_DEAD_TUPLES', '(1 << 7)'],
+            ]),
         ]),
 
         /* src/include/access/nbtree.h */
         _('BTPageOpaqueData', 'btop_flags', [
-            ['BTP_LEAF', '(1 << 0)'],
-            ['BTP_ROOT', '(1 << 1)'],
-            ['BTP_DELETED', '(1 << 2)'],
-            ['BTP_META', '(1 << 3)'],
-            ['BTP_HALF_DEAD', '(1 << 4)'],
-            ['BTP_SPLIT_END', '(1 << 5)'],
-            ['BTP_HAS_GARBAGE', '(1 << 6)'],
-            ['BTP_INCOMPLETE_SPLIT', '(1 << 7)'],
-            ['BTP_HAS_FULLXID', '(1 << 8)'],
+            to(8_02_00, [
+                ['BTP_LEAF',		'(1 << 0)'],
+                ['BTP_ROOT',		'(1 << 1)'],
+                ['BTP_DELETED',		'(1 << 2)'],
+                ['BTP_META',		'(1 << 3)'],
+                ['BTP_HALF_DEAD',	'(1 << 4)'],
+            ]),
+            interval(8_02_00, 9_00_00, [
+                ['BTP_LEAF',		'(1 << 0)'],
+                ['BTP_ROOT',		'(1 << 1)'],
+                ['BTP_DELETED',		'(1 << 2)'],
+                ['BTP_META',		'(1 << 3)'],
+                ['BTP_HALF_DEAD',	'(1 << 4)'],
+                ['BTP_SPLIT_END',	'(1 << 5)'],
+                ['BTP_HAS_GARBAGE', '(1 << 6)'],
+            ]),
+            interval(9_00_00, 14_00_00, [
+                ['BTP_LEAF', '(1 << 0)'],
+                ['BTP_ROOT', '(1 << 1)'],
+                ['BTP_DELETED', '(1 << 2)'],
+                ['BTP_META', '(1 << 3)'],
+                ['BTP_HALF_DEAD', '(1 << 4)'],
+                ['BTP_SPLIT_END', '(1 << 5)'],
+                ['BTP_HAS_GARBAGE', '(1 << 6)'],
+                ['BTP_INCOMPLETE_SPLIT', '(1 << 7)'],
+            ]),
+            from(14_00_00, [
+                ['BTP_LEAF', '(1 << 0)'],
+                ['BTP_ROOT', '(1 << 1)'],
+                ['BTP_DELETED', '(1 << 2)'],
+                ['BTP_META', '(1 << 3)'],
+                ['BTP_HALF_DEAD', '(1 << 4)'],
+                ['BTP_SPLIT_END', '(1 << 5)'],
+                ['BTP_HAS_GARBAGE', '(1 << 6)'],
+                ['BTP_INCOMPLETE_SPLIT', '(1 << 7)'],
+                ['BTP_HAS_FULLXID', '(1 << 8)'],
+            ]),
         ]),
 
         /* src/include/catalog/pg_trigger_d.h */
         _('FormData_pg_trigger', 'tgtype', [
-            ['TRIGGER_TYPE_ROW', '(1 << 0)'],
-            ['TRIGGER_TYPE_BEFORE', '(1 << 1)'],
-            ['TRIGGER_TYPE_INSERT', '(1 << 2)'],
-            ['TRIGGER_TYPE_DELETE', '(1 << 3)'],
-            ['TRIGGER_TYPE_UPDATE', '(1 << 4)'],
-            ['TRIGGER_TYPE_TRUNCATE', '(1 << 5)'],
-            ['TRIGGER_TYPE_INSTEAD', '(1 << 6)'],
+            to(8_04_00, [
+                ['TRIGGER_TYPE_ROW', '(1 << 0)'],
+                ['TRIGGER_TYPE_BEFORE', '(1 << 1)'],
+                ['TRIGGER_TYPE_INSERT', '(1 << 2)'],
+                ['TRIGGER_TYPE_DELETE', '(1 << 3)'],
+                ['TRIGGER_TYPE_UPDATE', '(1 << 4)'],
+            ]),
+            interval(8_04_00, 9_00_00, [
+                ['TRIGGER_TYPE_ROW',				'(1 << 0)'],
+                ['TRIGGER_TYPE_BEFORE',				'(1 << 1)'],
+                ['TRIGGER_TYPE_INSERT',				'(1 << 2)'],
+                ['TRIGGER_TYPE_DELETE',				'(1 << 3)'],
+                ['TRIGGER_TYPE_UPDATE',				'(1 << 4)'],
+                ['TRIGGER_TYPE_TRUNCATE',			'(1 << 5)'],
+            ]),
+            from(9_00_00, [
+                ['TRIGGER_TYPE_ROW',				'(1 << 0)'],
+                ['TRIGGER_TYPE_BEFORE',				'(1 << 1)'],
+                ['TRIGGER_TYPE_INSERT',				'(1 << 2)'],
+                ['TRIGGER_TYPE_DELETE',				'(1 << 3)'],
+                ['TRIGGER_TYPE_UPDATE',				'(1 << 4)'],
+                ['TRIGGER_TYPE_TRUNCATE',			'(1 << 5)'],
+                ['TRIGGER_TYPE_INSTEAD',			'(1 << 6)'],
+            ]),
         ]),
 
         /* src/include/replication/reorderbuffer.h */
         _('ReorderBufferTXN', 'txn_flags', [
-            ['RBTXN_HAS_CATALOG_CHANGES', '0x0001'],
-            ['RBTXN_IS_SUBXACT', '0x0002'],
-            ['RBTXN_IS_SERIALIZED', '0x0004'],
-            ['RBTXN_IS_SERIALIZED_CLEAR', '0x0008'],
-            ['RBTXN_IS_STREAMED', '0x0010'],
-            ['RBTXN_HAS_PARTIAL_CHANGE', '0x0020'],
-            ['RBTXN_PREPARE', '0x0040'],
-            ['RBTXN_SKIPPED_PREPARE', '0x0080'],
-            ['RBTXN_HAS_STREAMABLE_CHANGE', '0x0100'],
+            interval(13_00_00, 14_00_00,  [
+                ['RBTXN_HAS_CATALOG_CHANGES', '0x0001'],
+                ['RBTXN_IS_SUBXACT',          '0x0002'],
+                ['RBTXN_IS_SERIALIZED',       '0x0004'],
+            ]),
+            interval(14_00_00, 16_00_00, [
+                ['RBTXN_HAS_CATALOG_CHANGES', '0x0001'],
+                ['RBTXN_IS_SUBXACT',          '0x0002'],
+                ['RBTXN_IS_SERIALIZED',       '0x0004'],
+                ['RBTXN_IS_SERIALIZED_CLEAR', '0x0008'],
+                ['RBTXN_IS_STREAMED',         '0x0010'],
+                ['RBTXN_HAS_PARTIAL_CHANGE',  '0x0020'],
+                ['RBTXN_PREPARE',             '0x0040'],
+                ['RBTXN_SKIPPED_PREPARE',	  '0x0080'],
+            ]),
+            from(16_00_00, [
+                ['RBTXN_HAS_CATALOG_CHANGES', '0x0001'],
+                ['RBTXN_IS_SUBXACT', '0x0002'],
+                ['RBTXN_IS_SERIALIZED', '0x0004'],
+                ['RBTXN_IS_SERIALIZED_CLEAR', '0x0008'],
+                ['RBTXN_IS_STREAMED', '0x0010'],
+                ['RBTXN_HAS_PARTIAL_CHANGE', '0x0020'],
+                ['RBTXN_PREPARE', '0x0040'],
+                ['RBTXN_SKIPPED_PREPARE', '0x0080'],
+                ['RBTXN_HAS_STREAMABLE_CHANGE', '0x0100'],
+            ]),
         ]),
 
         /* src/include/access/xlogreader.h */
         _('DecodedBkpBlock', 'flags', [
-            ['BKPBLOCK_HAS_IMAGE', '0x10'],
-            ['BKPBLOCK_HAS_DATA', '0x20'],
-            ['BKPBLOCK_WILL_INIT', '0x40'],
-            ['BKPBLOCK_SAME_REL', '0x80'],
-        ], [
-            ['fork', ['BKPBLOCK_FORK_MASK', '0x0F']]
+            from(9_00_00, [
+                ['BKPBLOCK_HAS_IMAGE', '0x10'],
+                ['BKPBLOCK_HAS_DATA', '0x20'],
+                ['BKPBLOCK_WILL_INIT', '0x40'],
+                ['BKPBLOCK_SAME_REL', '0x80'],
+            ], [
+                ['fork', ['BKPBLOCK_FORK_MASK', '0x0F']]
+            ]),
         ]),
-
         _('DecodedBkpBlock', 'bimg_info', [
-            ['BKPIMAGE_HAS_HOLE', '0x01'],
-            ['BKPIMAGE_APPLY', '0x02'],
-            ['BKPIMAGE_COMPRESS_PGLZ', '0x04'],
-            ['BKPIMAGE_COMPRESS_LZ4', '0x08'],
-            ['BKPIMAGE_COMPRESS_ZSTD', '0x10'],
+            interval(9_00_00, 10_00_00, [
+                ['BKPIMAGE_HAS_HOLE', '0x01'],
+                ['BKPIMAGE_APPLY', '0x02'],
+            ]),
+            interval(10_00_00, 15_00_00, [
+                ['BKPIMAGE_HAS_HOLE',		    '0x01'],
+                ['BKPIMAGE_IS_COMPRESSED',		'0x02'],
+                ['BKPIMAGE_APPLY',		        '0x04'],
+            ]),
+            from(15_00_00, [
+                ['BKPIMAGE_HAS_HOLE', '0x01'],
+                ['BKPIMAGE_APPLY', '0x02'],
+                ['BKPIMAGE_COMPRESS_PGLZ', '0x04'],
+                ['BKPIMAGE_COMPRESS_LZ4', '0x08'],
+                ['BKPIMAGE_COMPRESS_ZSTD', '0x10'],
+            ]),
         ]),
 
         /* src/include/storage/latch.h */
         _('WaitEvent', 'events', [
-            ['WL_LATCH_SET', '(1 << 0)'],
-            ['WL_SOCKET_READABLE', '(1 << 1)'],
-            ['WL_SOCKET_WRITEABLE', '(1 << 2)'],
-            ['WL_TIMEOUT', '(1 << 3)'],
-            ['WL_POSTMASTER_DEATH', '(1 << 4)'],
-            ['WL_EXIT_ON_PM_DEATH', '(1 << 5)'],
-            /* these are platform dependet, but target on non-Windows */
-            ['WL_SOCKET_CONNECTED', '(1 << 2)'],
-            ['WL_SOCKET_CLOSED', '(1 << 7)'],
-            ['WL_SOCKET_ACCEPT', '(1 << 1)'],
+            interval(9_00_00, 10_00_00,[
+                ['WL_LATCH_SET',		 '(1 << 0)'],
+                ['WL_SOCKET_READABLE',	 '(1 << 1)'],
+                ['WL_SOCKET_WRITEABLE',  '(1 << 2)'],
+                ['WL_TIMEOUT',			 '(1 << 3)'],
+                ['WL_POSTMASTER_DEATH',  '(1 << 4)'],
+            ]),
+            interval(10_00_00, 15_00_00, [
+                ['WL_LATCH_SET',		 '(1 << 0)'],
+                ['WL_SOCKET_READABLE',	 '(1 << 1)'],
+                ['WL_SOCKET_WRITEABLE',  '(1 << 2)'],
+                ['WL_TIMEOUT',			 '(1 << 3)'],
+                ['WL_POSTMASTER_DEATH',  '(1 << 4)'],
+                ['WL_SOCKET_CONNECTED',  '(1 << 2)'],
+            ]),
+            interval(15_00_00, 16_00_00, [
+                ['WL_LATCH_SET',		 '(1 << 0)'],
+                ['WL_SOCKET_READABLE',	 '(1 << 1)'],
+                ['WL_SOCKET_WRITEABLE',  '(1 << 2)'],
+                ['WL_TIMEOUT',			 '(1 << 3)'],
+                ['WL_POSTMASTER_DEATH',  '(1 << 4)'],
+                ['WL_SOCKET_CONNECTED',  '(1 << 2)'],
+                ['WL_SOCKET_CLOSED',     '(1 << 7)'],
+            ]),
+            from(16_00_00, [
+                ['WL_LATCH_SET', '(1 << 0)'],
+                ['WL_SOCKET_READABLE', '(1 << 1)'],
+                ['WL_SOCKET_WRITEABLE', '(1 << 2)'],
+                ['WL_TIMEOUT', '(1 << 3)'],
+                ['WL_POSTMASTER_DEATH', '(1 << 4)'],
+                ['WL_EXIT_ON_PM_DEATH', '(1 << 5)'],
+
+                /* these are platform-dependent, but I target on non-Windows */
+                ['WL_SOCKET_CONNECTED', '(1 << 2)'],
+                ['WL_SOCKET_CLOSED', '(1 << 7)'],
+                ['WL_SOCKET_ACCEPT', '(1 << 1)'],
+            ]),
         ]),
 
         ...[
@@ -2149,30 +2444,77 @@ export function getWellKnownFlagsMembers(): BitmaskMemberInfo[] {
             /* src/include/nodes/parsenodes.h */
             ['RTEPermissionInfo', 'requiredPerms'],
         ].map(([type, member]) => _(type, member, [
-            ['ACL_INSERT', '(1<<0)'],
-            ['ACL_SELECT', '(1<<1)'],
-            ['ACL_UPDATE', '(1<<2)'],
-            ['ACL_DELETE', '(1<<3)'],
-            ['ACL_TRUNCATE', '(1<<4)'],
-            ['ACL_REFERENCES', '(1<<5)'],
-            ['ACL_TRIGGER', '(1<<6)'],
-            ['ACL_EXECUTE', '(1<<7)'],
-            ['ACL_USAGE', '(1<<8)'],
-            ['ACL_CREATE', '(1<<9)'],
-            ['ACL_CREATE_TEMP', '(1<<10)'],
-            ['ACL_CONNECT', '(1<<11)'],
-            ['ACL_SET', '(1<<12)'],
-            ['ACL_ALTER_SYSTEM', '(1<<13)'],
-            ['ACL_MAINTAIN', '(1<<14)'],
+            to(8_01_00, [
+                ['ACL_INSERT',		'(1<<0)'],
+                ['ACL_SELECT',		'(1<<1)'],
+                ['ACL_UPDATE',		'(1<<2)'],
+                ['ACL_DELETE',		'(1<<3)'],
+                ['ACL_RULE',		'(1<<4)'],
+                ['ACL_REFERENCES',	'(1<<5)'],
+                ['ACL_TRIGGER',		'(1<<6)'],
+                ['ACL_EXECUTE',		'(1<<7)'],
+                ['ACL_USAGE',		'(1<<8)'],
+                ['ACL_CREATE',		'(1<<9)'],
+                ['ACL_CREATE_TEMP', '(1<<10)'],
+            ]),
+            interval(8_01_00, 15_00_00, [
+                ['ACL_INSERT',		'(1<<0)'],
+                ['ACL_SELECT',		'(1<<1)'],
+                ['ACL_UPDATE',		'(1<<2)'],
+                ['ACL_DELETE',		'(1<<3)'],
+                ['ACL_RULE',		'(1<<4)'],
+                ['ACL_REFERENCES',	'(1<<5)'],
+                ['ACL_TRIGGER',		'(1<<6)'],
+                ['ACL_EXECUTE',		'(1<<7)'],
+                ['ACL_USAGE',		'(1<<8)'],
+                ['ACL_CREATE',		'(1<<9)'],
+                ['ACL_CREATE_TEMP', '(1<<10)'],
+                ['ACL_CONNECT', '(1<<11)'],
+            ]),
+            interval(15_00_00, 17_00_00, [
+                ['ACL_INSERT', '(1<<0)'],
+                ['ACL_SELECT', '(1<<1)'],
+                ['ACL_UPDATE', '(1<<2)'],
+                ['ACL_DELETE', '(1<<3)'],
+                ['ACL_TRUNCATE', '(1<<4)'],
+                ['ACL_REFERENCES', '(1<<5)'],
+                ['ACL_TRIGGER', '(1<<6)'],
+                ['ACL_EXECUTE', '(1<<7)'],
+                ['ACL_USAGE', '(1<<8)'],
+                ['ACL_CREATE', '(1<<9)'],
+                ['ACL_CREATE_TEMP', '(1<<10)'],
+                ['ACL_CONNECT', '(1<<11)'],
+                ['ACL_SET', '(1<<12)'],
+                ['ACL_ALTER_SYSTEM', '(1<<13)'],
+            ]),
+            from(17_00_00, [
+                ['ACL_INSERT', '(1<<0)'],
+                ['ACL_SELECT', '(1<<1)'],
+                ['ACL_UPDATE', '(1<<2)'],
+                ['ACL_DELETE', '(1<<3)'],
+                ['ACL_TRUNCATE', '(1<<4)'],
+                ['ACL_REFERENCES', '(1<<5)'],
+                ['ACL_TRIGGER', '(1<<6)'],
+                ['ACL_EXECUTE', '(1<<7)'],
+                ['ACL_USAGE', '(1<<8)'],
+                ['ACL_CREATE', '(1<<9)'],
+                ['ACL_CREATE_TEMP', '(1<<10)'],
+                ['ACL_CONNECT', '(1<<11)'],
+                ['ACL_SET', '(1<<12)'],
+                ['ACL_ALTER_SYSTEM', '(1<<13)'],
+                ['ACL_MAINTAIN', '(1<<14)'],
+            ]),
         ])),
 
         /* src/include/access/brin_tuple.h */
         _('BrinTuple', 'bt_info', [
-            ['BRIN_EMPTY_RANGE_MASK', '0x20'],
-            ['BRIN_PLACEHOLDER_MASK', '0x40'],
-            ['BRIN_NULLS_MASK', '0x80'],
-        ], [
-            ['offset', ['BRIN_OFFSET_MASK', '0x1F']]
+            from(11_00_00, [
+                ['BRIN_EMPTY_RANGE_MASK', '0x20'],
+                ['BRIN_PLACEHOLDER_MASK', '0x40'],
+                ['BRIN_NULLS_MASK', '0x80'],
+            ], [
+                ['offset', ['BRIN_OFFSET_MASK', '0x1F']]
+            ]),
         ]),
 
         /* src/include/nodes/execnodes.h */
@@ -2182,160 +2524,295 @@ export function getWellKnownFlagsMembers(): BitmaskMemberInfo[] {
             /* src/include/nodes/parsenodes.h */
             ['WindowDef', 'frameOptions'],
         ].map(([type, member]) => _(type, member, [
-            ['FRAMEOPTION_NONDEFAULT', '0x00001'],
-            ['FRAMEOPTION_RANGE', '0x00002'],
-            ['FRAMEOPTION_ROWS', '0x00004'],
-            ['FRAMEOPTION_GROUPS', '0x00008'],
-            ['FRAMEOPTION_BETWEEN', '0x00010'],
-            ['FRAMEOPTION_START_UNBOUNDED_PRECEDING', '0x00020'],
-            ['FRAMEOPTION_END_UNBOUNDED_PRECEDING', '0x00040'],
-            ['FRAMEOPTION_START_UNBOUNDED_FOLLOWING', '0x00080'],
-            ['FRAMEOPTION_END_UNBOUNDED_FOLLOWING', '0x00100'],
-            ['FRAMEOPTION_START_CURRENT_ROW', '0x00200'],
-            ['FRAMEOPTION_END_CURRENT_ROW', '0x00400'],
-            ['FRAMEOPTION_START_OFFSET_PRECEDING', '0x00800'],
-            ['FRAMEOPTION_END_OFFSET_PRECEDING', '0x01000'],
-            ['FRAMEOPTION_START_OFFSET_FOLLOWING', '0x02000'],
-            ['FRAMEOPTION_END_OFFSET_FOLLOWING', '0x04000'],
-            ['FRAMEOPTION_EXCLUDE_CURRENT_ROW', '0x08000'],
-            ['FRAMEOPTION_EXCLUDE_GROUP', '0x10000'],
-            ['FRAMEOPTION_EXCLUDE_TIES', '0x20000'],
+            interval(8_04_00, 9_00_00, [
+                ['FRAMEOPTION_NONDEFAULT',					'0x00001'],
+                ['FRAMEOPTION_RANGE',						'0x00002'],
+                ['FRAMEOPTION_ROWS',						'0x00004'],
+                ['FRAMEOPTION_BETWEEN',						'0x00008'],
+                ['FRAMEOPTION_START_UNBOUNDED_PRECEDING',	'0x00010'],
+                ['FRAMEOPTION_END_UNBOUNDED_PRECEDING',		'0x00020'],
+                ['FRAMEOPTION_START_UNBOUNDED_FOLLOWING',	'0x00040'],
+                ['FRAMEOPTION_END_UNBOUNDED_FOLLOWING',		'0x00080'],
+                ['FRAMEOPTION_START_CURRENT_ROW',			'0x00100'],
+                ['FRAMEOPTION_END_CURRENT_ROW',				'0x00200'],
+            ]),
+            interval(9_00_00, 11_00_00, [
+                ['FRAMEOPTION_NONDEFAULT',					'0x00001'],
+                ['FRAMEOPTION_RANGE',						'0x00002'],
+                ['FRAMEOPTION_ROWS',						'0x00004'],
+                ['FRAMEOPTION_BETWEEN',						'0x00008'],
+                ['FRAMEOPTION_START_UNBOUNDED_PRECEDING',	'0x00010'],
+                ['FRAMEOPTION_END_UNBOUNDED_PRECEDING',		'0x00020'],
+                ['FRAMEOPTION_START_UNBOUNDED_FOLLOWING',	'0x00040'],
+                ['FRAMEOPTION_END_UNBOUNDED_FOLLOWING',		'0x00080'],
+                ['FRAMEOPTION_START_CURRENT_ROW',			'0x00100'],
+                ['FRAMEOPTION_END_CURRENT_ROW',				'0x00200'],
+                ['FRAMEOPTION_START_VALUE_PRECEDING',		'0x00400'],
+                ['FRAMEOPTION_END_VALUE_PRECEDING',			'0x00800'],
+                ['FRAMEOPTION_START_VALUE_FOLLOWING',		'0x01000'],
+                ['FRAMEOPTION_END_VALUE_FOLLOWING',			'0x02000'],
+            ]),
+            from(11_00_00, [
+                ['FRAMEOPTION_NONDEFAULT', '0x00001'],
+                ['FRAMEOPTION_RANGE', '0x00002'],
+                ['FRAMEOPTION_ROWS', '0x00004'],
+                ['FRAMEOPTION_GROUPS', '0x00008'],
+                ['FRAMEOPTION_BETWEEN', '0x00010'],
+                ['FRAMEOPTION_START_UNBOUNDED_PRECEDING', '0x00020'],
+                ['FRAMEOPTION_END_UNBOUNDED_PRECEDING', '0x00040'],
+                ['FRAMEOPTION_START_UNBOUNDED_FOLLOWING', '0x00080'],
+                ['FRAMEOPTION_END_UNBOUNDED_FOLLOWING', '0x00100'],
+                ['FRAMEOPTION_START_CURRENT_ROW', '0x00200'],
+                ['FRAMEOPTION_END_CURRENT_ROW', '0x00400'],
+                ['FRAMEOPTION_START_OFFSET_PRECEDING', '0x00800'],
+                ['FRAMEOPTION_END_OFFSET_PRECEDING', '0x01000'],
+                ['FRAMEOPTION_START_OFFSET_FOLLOWING', '0x02000'],
+                ['FRAMEOPTION_END_OFFSET_FOLLOWING', '0x04000'],
+                ['FRAMEOPTION_EXCLUDE_CURRENT_ROW', '0x08000'],
+                ['FRAMEOPTION_EXCLUDE_GROUP', '0x10000'],
+                ['FRAMEOPTION_EXCLUDE_TIES', '0x20000'],
+            ])
         ])),
 
         _('ExprState', 'flags', [
-            ['EEO_FLAG_IS_QUAL', '(1 << 0)'],
-            ['EEO_FLAG_INTERPRETER_INITIALIZED', '(1 << 1)'],
-            ['EEO_FLAG_DIRECT_THREADED', '(1 << 2)'],
+            from(10_00_00, [
+                ['EEO_FLAG_IS_QUAL', '(1 << 0)'],
+                ['EEO_FLAG_INTERPRETER_INITIALIZED', '(1 << 1)'],
+                ['EEO_FLAG_DIRECT_THREADED', '(1 << 2)'],
+            ]),
         ]),
 
-        _('EState', 'es_top_eflags', [
-            ['EXEC_FLAG_EXPLAIN_ONLY', '0x0001'],
-            ['EXEC_FLAG_EXPLAIN_GENERIC', '0x0002'],
-            ['EXEC_FLAG_REWIND', '0x0004'],
-            ['EXEC_FLAG_BACKWARD', '0x0008'],
-            ['EXEC_FLAG_MARK', '0x0010'],
-            ['EXEC_FLAG_SKIP_TRIGGERS', '0x0020'],
-            ['EXEC_FLAG_WITH_NO_DATA', '0x0040'],
+        ...[
+            ['FunctionScanState', 'eflags'],
+            ['EState', 'es_top_eflags'],
+        ].map(([type, member]) => _(type, member, [
+            interval(8_02_00, 9_02_00,[
+                ['EXEC_FLAG_EXPLAIN_ONLY',	'0x0001'],
+                ['EXEC_FLAG_REWIND',		'0x0002'],
+                ['EXEC_FLAG_BACKWARD',		'0x0004'],
+                ['EXEC_FLAG_MARK',			'0x0008'],
+            ]),
+            interval(9_02_00, 12_00_00, [
+                ['EXEC_FLAG_EXPLAIN_ONLY',	'0x0001'],
+                ['EXEC_FLAG_REWIND',		'0x0002'],
+                ['EXEC_FLAG_BACKWARD',		'0x0004'],
+                ['EXEC_FLAG_MARK',			'0x0008'],
+                ['EXEC_FLAG_SKIP_TRIGGERS', '0x0010'],
+                ['EXEC_FLAG_WITH_OIDS',		'0x0020'],
+                ['EXEC_FLAG_WITHOUT_OIDS',	'0x0040'],
+                ['EXEC_FLAG_WITH_NO_DATA',	'0x0080'],
+            ]),
+            interval(12_00_00, 16_00_00, [
+                ['EXEC_FLAG_EXPLAIN_ONLY',	'0x0001'],
+                ['EXEC_FLAG_REWIND',		'0x0002'],
+                ['EXEC_FLAG_BACKWARD',		'0x0004'],
+                ['EXEC_FLAG_MARK',			'0x0008'],
+                ['EXEC_FLAG_SKIP_TRIGGERS', '0x0010'],
+                ['EXEC_FLAG_WITH_NO_DATA',	'0x0020'],
+            ]),
+            from(16_00_00, [
+                ['EXEC_FLAG_EXPLAIN_ONLY', '0x0001'],
+                ['EXEC_FLAG_EXPLAIN_GENERIC', '0x0002'],
+                ['EXEC_FLAG_REWIND', '0x0004'],
+                ['EXEC_FLAG_BACKWARD', '0x0008'],
+                ['EXEC_FLAG_MARK', '0x0010'],
+                ['EXEC_FLAG_SKIP_TRIGGERS', '0x0020'],
+                ['EXEC_FLAG_WITH_NO_DATA', '0x0040'],
+            ]),
         ]),
 
         _('EState', 'es_jit_flags', [
-            ['PGJIT_NONE', '0'],
-            ['PGJIT_PERFORM', '(1 << 0)'],
-            ['PGJIT_OPT3', '(1 << 1)'],
-            ['PGJIT_INLINE', '(1 << 2)'],
-            ['PGJIT_EXPR', '(1 << 3)'],
-            ['PGJIT_DEFORM', '(1 << 4)'],
-        ]),
-
-        _('FunctionScanState', 'eflags', [
-            ['EXEC_FLAG_EXPLAIN_ONLY', '0x0001'],
-            ['EXEC_FLAG_EXPLAIN_GENERIC', '0x0002'],
-            ['EXEC_FLAG_REWIND', '0x0004'],
-            ['EXEC_FLAG_BACKWARD', '0x0008'],
-            ['EXEC_FLAG_MARK', '0x0010'],
-            ['EXEC_FLAG_SKIP_TRIGGERS', '0x0020'],
-            ['EXEC_FLAG_WITH_NO_DATA', '0x0040'],
-        ]),
+            from(11_00_00, [
+                ['PGJIT_NONE', '0'],
+                ['PGJIT_PERFORM', '(1 << 0)'],
+                ['PGJIT_OPT3', '(1 << 1)'],
+                ['PGJIT_INLINE', '(1 << 2)'],
+                ['PGJIT_EXPR', '(1 << 3)'],
+                ['PGJIT_DEFORM', '(1 << 4)'],
+            ]),
+        ])),
 
         _('ModifyTableState', 'mt_merge_subcommands', [
-            ['MERGE_INSERT', '0x01'],
-            ['MERGE_UPDATE', '0x02'],
-            ['MERGE_DELETE', '0x04'],
+            from(15_00_00, [
+                ['MERGE_INSERT', '0x01'],
+                ['MERGE_UPDATE', '0x02'],
+                ['MERGE_DELETE', '0x04'],
+            ]),
         ]),
 
         /* src/include/nodes/pathnodes.h */
         _('GroupPathExtraData', 'flags', [
-            ['GROUPING_CAN_USE_SORT', '0x0001'],
-            ['GROUPING_CAN_USE_HASH', '0x0002'],
-            ['GROUPING_CAN_PARTIAL_AGG', '0x0004'],
+            from(11_00_00, [
+                ['GROUPING_CAN_USE_SORT', '0x0001'],
+                ['GROUPING_CAN_USE_HASH', '0x0002'],
+                ['GROUPING_CAN_PARTIAL_AGG', '0x0004'],
+            ]),
         ]),
 
         /* src/include/executor/tuptable.h */
         _('TupleTableSlot', 'tts_flags', [
-            ['TTS_FLAG_EMPTY', '(1 << 1)'],
-            ['TTS_FLAG_SHOULDFREE', '(1 << 2)'],
-            ['TTS_FLAG_SLOW', '(1 << 3)'],
-            ['TTS_FLAG_FIXED', '(1 << 4)'],
+            from(12_00_00, [
+                ['TTS_FLAG_EMPTY', '(1 << 1)'],
+                ['TTS_FLAG_SHOULDFREE', '(1 << 2)'],
+                ['TTS_FLAG_SLOW', '(1 << 3)'],
+                ['TTS_FLAG_FIXED', '(1 << 4)'],
+            ]),
         ]),
 
         /* src/include/access/toast_helper.h */
         _('ToastTupleContext', 'ttc_flags', [
-            ['TOAST_NEEDS_DELETE_OLD', '0x0001'],
-            ['TOAST_NEEDS_FREE', '0x0002'],
-            ['TOAST_HAS_NULLS', '0x0004'],
-            ['TOAST_NEEDS_CHANGE', '0x0008'],
+            from(13_00_00, [
+                ['TOAST_NEEDS_DELETE_OLD', '0x0001'],
+                ['TOAST_NEEDS_FREE', '0x0002'],
+                ['TOAST_HAS_NULLS', '0x0004'],
+                ['TOAST_NEEDS_CHANGE', '0x0008'],
+            ]),
         ]),
 
         _('ToastAttrInfo', 'tai_colflags', [
-            ['TOASTCOL_NEEDS_DELETE_OLD', '0x0001'],
-            ['TOASTCOL_NEEDS_FREE', '0x0002'],
-            ['TOASTCOL_IGNORE', '0x0010'],
-            ['TOASTCOL_INCOMPRESSIBLE', '0x0020'],
+            from(13_00_00, [
+                ['TOASTCOL_NEEDS_DELETE_OLD', '0x0001'],
+                ['TOASTCOL_NEEDS_FREE', '0x0002'],
+                ['TOASTCOL_IGNORE', '0x0010'],
+                ['TOASTCOL_INCOMPRESSIBLE', '0x0020'],
+            ]),
         ]),
 
         /* src/include/storatge/proc.h */
         _('PGPROC', 'delayChkptFlags', [
-            ['DELAY_CHKPT_START', '(1<<0)'],
-            ['DELAY_CHKPT_COMPLETE', '(1<<1)'],
+            from(10_00_00, [
+                ['DELAY_CHKPT_START', '(1<<0)'],
+                ['DELAY_CHKPT_COMPLETE', '(1<<1)'],
+            ]),
+        ]),
+        
+        _('PGXACT', 'vacuumFlags', [
+            interval(8_03_00, 9_04_00, [
+                ['PROC_IS_AUTOVACUUM',	'0x01'],
+                ['PROC_IN_VACUUM',		'0x02'],
+                ['PROC_IN_ANALYZE',		'0x04'],
+                ['PROC_VACUUM_FOR_WRAPAROUND', '0x08'],
+            ]),
+            interval(9_04_00, 14_00_00, [
+                ['PROC_IS_AUTOVACUUM',	'0x01'],
+                ['PROC_IN_VACUUM',		'0x02'],
+                ['PROC_IN_ANALYZE',		'0x04'],
+                ['PROC_VACUUM_FOR_WRAPAROUND',	'0x08'],
+                ['PROC_IN_LOGICAL_DECODING',	'0x10'],
+            ]),
         ]),
 
         _('PGPROC', 'statusFlags', [
-            ['PROC_IS_AUTOVACUUM', '0x01'],
-            ['PROC_IN_VACUUM', '0x02'],
-            ['PROC_IN_SAFE_IC', '0x04'],
-            ['PROC_VACUUM_FOR_WRAPAROUND', '0x08'],
-            ['PROC_IN_LOGICAL_DECODING', '0x10'],
-            ['PROC_AFFECTS_ALL_HORIZONS', '0x20'],
+            interval(14_00_00, 15_00_00, [
+                ['PROC_IS_AUTOVACUUM', '0x01'],
+                ['PROC_IN_VACUUM', '0x02'],
+                ['PROC_IN_SAFE_IC', '0x04'],
+                ['PROC_VACUUM_FOR_WRAPAROUND', '0x08'],
+                ['PROC_IN_LOGICAL_DECODING', '0x10'],
+            ]),
+            from(15_00_00, [
+                ['PROC_IS_AUTOVACUUM', '0x01'],
+                ['PROC_IN_VACUUM', '0x02'],
+                ['PROC_IN_SAFE_IC', '0x04'],
+                ['PROC_VACUUM_FOR_WRAPAROUND', '0x08'],
+                ['PROC_IN_LOGICAL_DECODING', '0x10'],
+                ['PROC_AFFECTS_ALL_HORIZONS', '0x20'],
+            ])
         ]),
 
         /* src/backend/catalog/dependency.c */
         _('ObjectAddressExtra', 'flags', [
-            ['DEPFLAG_ORIGINAL', '0x0001'],
-            ['DEPFLAG_NORMAL', '0x0002'],
-            ['DEPFLAG_AUTO', '0x0004'],
-            ['DEPFLAG_INTERNAL', '0x0008'],
-            ['DEPFLAG_PARTITION', '0x0010'],
-            ['DEPFLAG_EXTENSION', '0x0020'],
-            ['DEPFLAG_REVERSE', '0x0040'],
-            ['DEPFLAG_IS_PART', '0x0080'],
-            ['DEPFLAG_SUBOBJECT', '0x0100'],
+            interval(8_04_00, 9_02_00, [
+                ['DEPFLAG_ORIGINAL',	'0x0001'],
+                ['DEPFLAG_NORMAL',		'0x0002'],
+                ['DEPFLAG_AUTO',		'0x0004'],
+                ['DEPFLAG_INTERNAL',	'0x0008'],
+            ]),
+            interval(9_02_00, 12_00_00, [
+                ['DEPFLAG_ORIGINAL',	'0x0001'],
+                ['DEPFLAG_NORMAL',		'0x0002'],
+                ['DEPFLAG_AUTO',		'0x0004'],
+                ['DEPFLAG_INTERNAL',	'0x0008'],
+                ['DEPFLAG_EXTENSION',	'0x0010'],
+                ['DEPFLAG_REVERSE',		'0x0020'],
+            ]),
+            from(12_00_00, [
+                ['DEPFLAG_ORIGINAL',	'0x0001'],
+                ['DEPFLAG_NORMAL',		'0x0002'],
+                ['DEPFLAG_AUTO',		'0x0004'],
+                ['DEPFLAG_INTERNAL',	'0x0008'],
+                ['DEPFLAG_PARTITION',	'0x0010'],
+                ['DEPFLAG_EXTENSION',	'0x0020'],
+                ['DEPFLAG_REVERSE',		'0x0040'],
+                ['DEPFLAG_IS_PART',		'0x0080'],
+                ['DEPFLAG_SUBOBJECT',	'0x0100'],
+            ]),
         ]),
 
         /* src/include/catalog/storage_xlog.h */
         _('xl_smgr_truncate', 'flags', [
-            ['SMGR_TRUNCATE_HEAP', '0x0001'],
-            ['SMGR_TRUNCATE_VM', '0x0002'],
-            ['SMGR_TRUNCATE_FSM', '0x0004'],
+            from(9_06_00, [
+                ['SMGR_TRUNCATE_HEAP', '0x0001'],
+                ['SMGR_TRUNCATE_VM', '0x0002'],
+                ['SMGR_TRUNCATE_FSM', '0x0004'],
+            ]),
         ]),
 
         /* src/include/commands/vacuum.h */
         _('VacuumParams', 'options', [
-            ['VACOPT_VACUUM', '0x01'],
-            ['VACOPT_ANALYZE', '0x02'], 
-            ['VACOPT_VERBOSE', '0x04'],
-            ['VACOPT_FREEZE', '0x08'],
-            ['VACOPT_FULL', '0x10'],
-            ['VACOPT_SKIP_LOCKED', '0x20'],
-            ['VACOPT_PROCESS_MAIN', '0x40'],
-            ['VACOPT_PROCESS_TOAST', '0x80'],
-            ['VACOPT_DISABLE_PAGE_SKIPPING', '0x100'],
-            ['VACOPT_SKIP_DATABASE_STATS', '0x200'],
-            ['VACOPT_ONLY_DATABASE_STATS', '0x400'],
+            interval(14_00_00, 16_00_00, [
+                ['VACOPT_VACUUM', '0x01'],
+                ['VACOPT_ANALYZE', '0x02'],
+                ['VACOPT_VERBOSE', '0x04'],
+                ['VACOPT_FREEZE', '0x08'],
+                ['VACOPT_FULL', '0x10'],
+                ['VACOPT_SKIP_LOCKED', '0x20'],
+                ['VACOPT_PROCESS_TOAST', '0x40'],
+                ['VACOPT_DISABLE_PAGE_SKIPPING', '0x80'],
+            ]),
+            from(16_00_00, [
+                ['VACOPT_VACUUM', '0x01'],
+                ['VACOPT_ANALYZE', '0x02'], 
+                ['VACOPT_VERBOSE', '0x04'],
+                ['VACOPT_FREEZE', '0x08'],
+                ['VACOPT_FULL', '0x10'],
+                ['VACOPT_SKIP_LOCKED', '0x20'],
+                ['VACOPT_PROCESS_MAIN', '0x40'],
+                ['VACOPT_PROCESS_TOAST', '0x80'],
+                ['VACOPT_DISABLE_PAGE_SKIPPING', '0x100'],
+                ['VACOPT_SKIP_DATABASE_STATS', '0x200'],
+                ['VACOPT_ONLY_DATABASE_STATS', '0x400'],
+            ]),
         ]),
 
         /* src/include/commands/cluster.h */
         _('ClusterParams', 'options', [
-            ['CLUOPT_VERBOSE', '0x01'],
-            ['CLUOPT_RECHECK', '0x02'],
-            ['CLUOPT_RECHECK_ISCLUSTERED', '0x04'],
+            interval(14_00_00, 15_00_00, [
+                ['CLUOPT_VERBOSE', '0x01'],
+                ['CLUOPT_RECHECK', '0x02'],
+            ]),
+            from(15_00_00, [
+                ['CLUOPT_VERBOSE`', '0x01'],
+                ['CLUOPT_RECHECK', '0x02'],
+                ['CLUOPT_RECHECK`_ISCLUSTERED', '0x04'],
+            ]),
         ]),
 
         /* src/include/catalog/index.h */
         _('ReindexParams', 'options', [
-            ['REINDEXOPT_VERBOSE', '0x01'],
-            ['REINDEXOPT_REPORT_PROGRESS', '0x02'],
-            ['REINDEXOPT_MISSING_OK', '0x04'],
-            ['REINDEXOPT_CONCURRENTLY', '0x08'],
+            interval(9_05_00, 12_00_00, [
+                ['REINDEXOPT_VERBOSE', '0x01'],
+            ]),
+            interval(12_00_00, 14_00_00, [
+                ['REINDEXOPT_VERBOSE', '0x01'],
+                ['REINDEXOPT_REPORT_PROGRESS', '0x02'],
+            ]),
+            from(14_00_00, [
+                ['REINDEXOPT_VERBOSE', '0x01'],
+                ['REINDEXOPT_REPORT_PROGRESS', '0x02'],
+                ['REINDEXOPT_MISSING_OK', '0x04'],
+                ['REINDEXOPT_CONCURRENTLY', '0x08'],
+            ]),
         ]),
 
         /* src/include/utils/portal.h */
@@ -2346,193 +2823,561 @@ export function getWellKnownFlagsMembers(): BitmaskMemberInfo[] {
             /* src/include/utils/plancache.h */
             ['CachedPlanSource', 'cursor_options'],
         ].map(([type, member]) => _(type, member, [
-            ['CURSOR_OPT_BINARY', '0x0001'],
-            ['CURSOR_OPT_SCROLL', '0x0002'],
-            ['CURSOR_OPT_NO_SCROLL', '0x0004'],
-            ['CURSOR_OPT_INSENSITIVE', '0x0008'],
-            ['CURSOR_OPT_ASENSITIVE', '0x0010'],
-            ['CURSOR_OPT_HOLD', '0x0020'],
-            ['CURSOR_OPT_FAST_PLAN', '0x0100'],
-            ['CURSOR_OPT_GENERIC_PLAN', '0x0200'],
-            ['CURSOR_OPT_CUSTOM_PLAN', '0x0400'],
-            ['CURSOR_OPT_PARALLEL_OK', '0x0800'],
+            to(8_03_00, [
+                ['CURSOR_OPT_BINARY',		'0x0001'],
+                ['CURSOR_OPT_SCROLL',		'0x0002'],
+                ['CURSOR_OPT_NO_SCROLL',	'0x0004'],
+                ['CURSOR_OPT_INSENSITIVE',	'0x0008'],
+                ['CURSOR_OPT_HOLD',			'0x0010'],
+            ]),
+            interval(8_03_00, 9_02_00, [
+                ['CURSOR_OPT_BINARY',		'0x0001'],
+                ['CURSOR_OPT_SCROLL',		'0x0002'],
+                ['CURSOR_OPT_NO_SCROLL',	'0x0004'],
+                ['CURSOR_OPT_INSENSITIVE',	'0x0008'],
+                ['CURSOR_OPT_HOLD',			'0x0010'],
+                ['CURSOR_OPT_FAST_PLAN',	'0x0020'],
+            ]),
+            interval(9_02_00, 9_06_00, [
+                ['CURSOR_OPT_BINARY', '0x0001'],
+                ['CURSOR_OPT_SCROLL', '0x0002'],
+                ['CURSOR_OPT_NO_SCROLL', '0x0004'],
+                ['CURSOR_OPT_INSENSITIVE', '0x0008'],
+                ['CURSOR_OPT_ASENSITIVE', '0x0010'],
+                ['CURSOR_OPT_HOLD', '0x0020'],
+                ['CURSOR_OPT_FAST_PLAN', '0x0100'],
+                ['CURSOR_OPT_GENERIC_PLAN', '0x0200'],
+                ['CURSOR_OPT_CUSTOM_PLAN', '0x0400'],
+            ]),
+            from(9_06_00, [
+                ['CURSOR_OPT_BINARY', '0x0001'],
+                ['CURSOR_OPT_SCROLL', '0x0002'],
+                ['CURSOR_OPT_NO_SCROLL', '0x0004'],
+                ['CURSOR_OPT_INSENSITIVE', '0x0008'],
+                ['CURSOR_OPT_ASENSITIVE', '0x0010'],
+                ['CURSOR_OPT_HOLD', '0x0020'],
+                ['CURSOR_OPT_FAST_PLAN', '0x0100'],
+                ['CURSOR_OPT_GENERIC_PLAN', '0x0200'],
+                ['CURSOR_OPT_CUSTOM_PLAN', '0x0400'],
+                ['CURSOR_OPT_PARALLEL_OK', '0x0800'],
+            ]),
         ])),
 
         /* src/include/commands/trigger.h */
-        _('TriggerData', 'tg_event', [
-            ['AFTER_TRIGGER_DEFERRABLE', '0x00000020'],
-            ['AFTER_TRIGGER_INITDEFERRED', '0x00000040'],
-        ]),
-
-        _('AfterTriggerSharedData', 'ats_event', [
-            ['TRIGGER_EVENT_INSERT', '0x00000000'],
-            ['TRIGGER_EVENT_DELETE', '0x00000001'],
-            ['TRIGGER_EVENT_UPDATE', '0x00000002'],
-            ['TRIGGER_EVENT_TRUNCATE', '0x00000003'],
-            ['TRIGGER_EVENT_ROW', '0x00000004'],
-            ['TRIGGER_EVENT_BEFORE', '0x00000008'],
-            ['TRIGGER_EVENT_AFTER', '0x00000000'],
-            ['TRIGGER_EVENT_INSTEAD', '0x00000010'],
-            ['TRIGGER_EVENT_TIMINGMASK', '0x00000018'],
-        ]),
+        ...[
+            ['TriggerData', 'tg_event'],
+            ['AfterTriggerEventData', 'ate_event'],
+            ['AfterTriggerSharedData', 'ats_event'],
+        ].map(([type, member]) =>
+            _(type, member, [
+                to(8_04_00, [
+                    ['TRIGGER_EVENT_INSERT',			'0x00000000'],
+                    ['TRIGGER_EVENT_DELETE',			'0x00000001'],
+                    ['TRIGGER_EVENT_UPDATE',			'0x00000002'],
+                    ['TRIGGER_EVENT_ROW',				'0x00000004'],
+                    ['TRIGGER_EVENT_BEFORE',			'0x00000008'],
+                    ['AFTER_TRIGGER_DONE',				'0x00000010'],
+                    ['AFTER_TRIGGER_IN_PROGRESS',		'0x00000020'],
+                    ['AFTER_TRIGGER_DEFERRABLE',		'0x00000040'],
+                    ['AFTER_TRIGGER_INITDEFERRED',		'0x00000080'],
+                ]),
+                interval(8_04_00, 9_01_00, [
+                    ['TRIGGER_EVENT_INSERT',			'0x00000000'],
+                    ['TRIGGER_EVENT_DELETE',			'0x00000001'],
+                    ['TRIGGER_EVENT_UPDATE',			'0x00000002'],
+                    ['TRIGGER_EVENT_TRUNCATE',			'0x00000003'],
+                    ['TRIGGER_EVENT_ROW',				'0x00000004'],
+                    ['TRIGGER_EVENT_BEFORE',			'0x00000008'],
+                    ['AFTER_TRIGGER_DEFERRABLE',		'0x00000010'],
+                    ['AFTER_TRIGGER_INITDEFERRED',		'0x00000020'],
+                ]),
+                from(9_01_00, [
+                    ['TRIGGER_EVENT_INSERT', '0x00000000'],
+                    ['TRIGGER_EVENT_DELETE', '0x00000001'],
+                    ['TRIGGER_EVENT_UPDATE', '0x00000002'],
+                    ['TRIGGER_EVENT_TRUNCATE', '0x00000003'],
+                    ['TRIGGER_EVENT_ROW', '0x00000004'],
+                    ['TRIGGER_EVENT_BEFORE', '0x00000008'],
+                    ['TRIGGER_EVENT_AFTER', '0x00000000'],
+                    ['TRIGGER_EVENT_INSTEAD', '0x00000010'],
+                    ['AFTER_TRIGGER_DEFERRABLE',		'0x00000020'],
+                    ['AFTER_TRIGGER_INITDEFERRED',		'0x00000040'],
+                ]),
+            ]),
+        ),
 
         /* src/backend/commands/trigger.c */
+
         ...[
-         'AfterTriggerEventData',
-         'AfterTriggerEventDataNoOids',
-         'AfterTriggerEventDataOneCtid',
-         'AfterTriggerEventDataZeroCtids'
+            'AfterTriggerEventData',
+            'AfterTriggerEventDataNoOids',
+            'AfterTriggerEventDataOneCtid',
+            'AfterTriggerEventDataZeroCtids'
         ].map(type => _(type, 'ate_flags', [
-            ['AFTER_TRIGGER_DONE', '0x80000000'],
-            ['AFTER_TRIGGER_IN_PROGRESS', '0x40000000'],
-            ['AFTER_TRIGGER_FDW_REUSE', '0x00000000'],
-            ['AFTER_TRIGGER_FDW_FETCH', '0x20000000'],
-            ['AFTER_TRIGGER_1CTID', '0x10000000'],
-            ['AFTER_TRIGGER_2CTID', '0x30000000'],
-            ['AFTER_TRIGGER_CP_UPDATE', '0x08000000'],
-            ['AFTER_TRIGGER_TUP_BITS', '0x38000000'],
-        ], [
-            ['offset', ['AFTER_TRIGGER_OFFSET', '0x07FFFFFF']],
+            to(9_04_00, [
+                ['AFTER_TRIGGER_2CTIDS',			'0x10000000'],
+                ['AFTER_TRIGGER_DONE',				'0x20000000'],
+                ['AFTER_TRIGGER_IN_PROGRESS',		'0x40000000'],
+            ], [
+                ['offset', ['AFTER_TRIGGER_OFFSET', '0x0FFFFFFF']]
+            ]),
+            interval(9_04_00, 15_00_00, [
+                ['AFTER_TRIGGER_DONE',				'0x10000000'],
+                ['AFTER_TRIGGER_IN_PROGRESS',		'0x20000000'],
+                ['AFTER_TRIGGER_FDW_REUSE',			'0x00000000'],
+                ['AFTER_TRIGGER_FDW_FETCH',			'0x80000000'],
+                ['AFTER_TRIGGER_1CTID',				'0x40000000'],
+                ['AFTER_TRIGGER_2CTID',				'0xC0000000'],
+            ], [
+                ['offset', ['AFTER_TRIGGER_OFFSET', '0x0FFFFFFF']]
+            ]),
+            from(15_00_00, [
+                ['AFTER_TRIGGER_DONE', '0x80000000'],
+                ['AFTER_TRIGGER_IN_PROGRESS', '0x40000000'],
+                ['AFTER_TRIGGER_FDW_REUSE', '0x00000000'],
+                ['AFTER_TRIGGER_FDW_FETCH', '0x20000000'],
+                ['AFTER_TRIGGER_1CTID', '0x10000000'],
+                ['AFTER_TRIGGER_2CTID', '0x30000000'],
+                ['AFTER_TRIGGER_CP_UPDATE', '0x08000000'],
+            ], [
+                ['offset', ['AFTER_TRIGGER_OFFSET', '0x07FFFFFF']],
+            ])
         ])),
 
         /* src/backend/commands/user.c */
         _('GrantRoleOptions', 'specified', [
-            ['GRANT_ROLE_SPECIFIED_ADMIN', '0x0001'],
-            ['GRANT_ROLE_SPECIFIED_INHERIT', '0x0002'],
-            ['GRANT_ROLE_SPECIFIED_SET', '0x0004'],
+            from(16_00_00, [
+                ['GRANT_ROLE_SPECIFIED_ADMIN', '0x0001'],
+                ['GRANT_ROLE_SPECIFIED_INHERIT', '0x0002'],
+                ['GRANT_ROLE_SPECIFIED_SET', '0x0004'],
+            ]),
         ]),
 
         /* src/include/storage/large_object.h */
         _('LargeObjectDesc', 'flags', [
-            ['IFS_RDLOCK', '(1 << 0)'],
-            ['IFS_WRLOCK', '(1 << 1)'],
+            unbounded([
+                ['IFS_RDLOCK', '(1 << 0)'],
+                ['IFS_WRLOCK', '(1 << 1)'],
+            ])
         ]),
 
         /* src/utils/selfuncs.h */
         _('EstimationInfo', 'flags', [
-            ['SELFLAG_USED_DEFAULT', '(1 << 0)'],
+            from(14_00_00, [
+                ['SELFLAG_USED_DEFAULT', '(1 << 0)'],
+            ]),
         ]),
 
         /* src/include/nodes/extensible.h */
         _('CustomScan', 'flags', [
-            ['CUSTOMPATH_SUPPORT_BACKWARD_SCAN', '0x0001'],
-            ['CUSTOMPATH_SUPPORT_MARK_RESTORE', '0x0002'],
-            ['CUSTOMPATH_SUPPORT_PROJECTION', '0x0004'],
+            interval(9_05_00, 15_00_00, [
+                ['CUSTOMPATH_SUPPORT_BACKWARD_SCAN', '0x0001'],
+                ['CUSTOMPATH_SUPPORT_MARK_RESTORE', '0x0002'],
+            ]),
+            from(15_00_00, [
+                ['CUSTOMPATH_SUPPORT_BACKWARD_SCAN', '0x0001'],
+                ['CUSTOMPATH_SUPPORT_MARK_RESTORE', '0x0002'],
+                ['CUSTOMPATH_SUPPORT_PROJECTION', '0x0004'],
+            ]),
         ]),
 
         /* src/include/postmaster/bgworker.h */
         _('BackgroundWorker', 'bgw_flags', [
-            ['BGWORKER_SHMEM_ACCESS', '0x0001'],
-            ['BGWORKER_BACKEND_DATABASE_CONNECTION', '0x0002'],
-            ['BGWORKER_CLASS_PARALLEL', '0x0010'],
+            interval(9_03_00, 10_00_00, [
+                ['BGWORKER_SHMEM_ACCESS', '0x0001'],
+                ['BGWORKER_BACKEND_DATABASE_CONNECTION', '0x0002'],
+            ]),
+            from(10_00_00, [
+                ['BGWORKER_SHMEM_ACCESS', '0x0001'],
+                ['BGWORKER_BACKEND_DATABASE_CONNECTION', '0x0002'],                
+                ['BGWORKER_CLASS_PARALLEL', '0x0010'],
+            ]),
         ]),
 
         /* src/include/utils/guc_tables.h */
         _('config_generic', 'flags', [
-            ['GUC_LIST_INPUT', '0x000001'],
-            ['GUC_LIST_QUOTE', '0x000002'],
-            ['GUC_NO_SHOW_ALL', '0x000004'],
-            ['GUC_NO_RESET', '0x000008'],
-            ['GUC_NO_RESET_ALL', '0x000010'],
-            ['GUC_EXPLAIN', '0x000020'],
-            ['GUC_REPORT', '0x000040'],
-            ['GUC_NOT_IN_SAMPLE', '0x000080'],
-            ['GUC_DISALLOW_IN_FILE', '0x000100'],
-            ['GUC_CUSTOM_PLACEHOLDER', '0x000200'],
-            ['GUC_SUPERUSER_ONLY', '0x000400'],
-            ['GUC_IS_NAME', '0x000800'],
-            ['GUC_NOT_WHILE_SEC_REST', '0x001000'],
-            ['GUC_DISALLOW_IN_AUTO_FILE', '0x002000'],
-            ['GUC_RUNTIME_COMPUTED', '0x004000'],
-            ['GUC_ALLOW_IN_PARALLEL', '0x008000'],
+            to(8_02_00, [
+                ['GUC_LIST_INPUT',			'0x0001'],
+                ['GUC_LIST_QUOTE',			'0x0002'],
+                ['GUC_NO_SHOW_ALL',			'0x0004'],
+                ['GUC_NO_RESET_ALL',		'0x0008'],
+                ['GUC_REPORT',				'0x0010'],
+                ['GUC_NOT_IN_SAMPLE',		'0x0020'],
+                ['GUC_DISALLOW_IN_FILE',	'0x0040'],
+                ['GUC_CUSTOM_PLACEHOLDER',	'0x0080'],
+                ['GUC_SUPERUSER_ONLY',		'0x0100'],
+                ['GUC_IS_NAME',				'0x0200'],
+                ['GUC_NOT_WHILE_SEC_REST',	'0x8000'],
+            ]),
+            interval(8_02_00, 9_05_00, [
+                ['GUC_LIST_INPUT',			'0x0001'],
+                ['GUC_LIST_QUOTE',			'0x0002'],
+                ['GUC_NO_SHOW_ALL',			'0x0004'],
+                ['GUC_NO_RESET_ALL',		'0x0008'],
+                ['GUC_REPORT',				'0x0010'],
+                ['GUC_NOT_IN_SAMPLE',		'0x0020'],
+                ['GUC_DISALLOW_IN_FILE',	'0x0040'],
+                ['GUC_CUSTOM_PLACEHOLDER',	'0x0080'],
+                ['GUC_SUPERUSER_ONLY',		'0x0100'],
+                ['GUC_IS_NAME',				'0x0200'],
+                ['GUC_UNIT_KB',				'0x0400'],
+                ['GUC_UNIT_BLOCKS',			'0x0800'],
+                ['GUC_UNIT_XBLOCKS',		'0x0C00'],
+                ['GUC_UNIT_MS',				'0x1000'],
+                ['GUC_UNIT_S',				'0x2000'],
+                ['GUC_UNIT_MIN',			'0x4000'],
+                ['GUC_NOT_WHILE_SEC_REST',	'0x8000'],
+            ]),
+            interval(9_05_00, 10_00_00, [
+                ['GUC_LIST_INPUT',			  '0x0001'],
+                ['GUC_LIST_QUOTE',			  '0x0002'],
+                ['GUC_NO_SHOW_ALL',			  '0x0004'],
+                ['GUC_NO_RESET_ALL',		  '0x0008'],
+                ['GUC_REPORT',				  '0x0010'],
+                ['GUC_NOT_IN_SAMPLE',		  '0x0020'],
+                ['GUC_DISALLOW_IN_FILE',	  '0x0040'],
+                ['GUC_CUSTOM_PLACEHOLDER',	  '0x0080'],
+                ['GUC_SUPERUSER_ONLY',		  '0x0100'],
+                ['GUC_IS_NAME',				  '0x0200'],
+                ['GUC_NOT_WHILE_SEC_REST',	  '0x0400'],
+                ['GUC_DISALLOW_IN_AUTO_FILE', '0x0800'],
+                ['GUC_UNIT_KB',				  '0x1000'],
+                ['GUC_UNIT_BLOCKS',			  '0x2000'],
+                ['GUC_UNIT_XBLOCKS',		  '0x3000'],
+                ['GUC_UNIT_XSEGS',			  '0x4000'],
+                ['GUC_UNIT_MS',			     '0x10000'],
+                ['GUC_UNIT_S',			     '0x20000'],
+                ['GUC_UNIT_MIN',		     '0x30000'],
+            ]),
+            interval(10_00_00, 11_00_00, [
+                ['GUC_LIST_INPUT',			  '0x0001'],
+                ['GUC_LIST_QUOTE',			  '0x0002'],
+                ['GUC_NO_SHOW_ALL',			  '0x0004'],
+                ['GUC_NO_RESET_ALL',		  '0x0008'],
+                ['GUC_REPORT',				  '0x0010'],
+                ['GUC_NOT_IN_SAMPLE',		  '0x0020'],
+                ['GUC_DISALLOW_IN_FILE',	  '0x0040'],
+                ['GUC_CUSTOM_PLACEHOLDER',	  '0x0080'],
+                ['GUC_SUPERUSER_ONLY',		  '0x0100'],
+                ['GUC_IS_NAME',				  '0x0200'],
+                ['GUC_NOT_WHILE_SEC_REST',	  '0x0400'],
+                ['GUC_DISALLOW_IN_AUTO_FILE', '0x0800'],
+                ['GUC_UNIT_KB',				  '0x1000'],
+                ['GUC_UNIT_BLOCKS',			  '0x2000'],
+                ['GUC_UNIT_XBLOCKS',		  '0x3000'],
+                ['GUC_UNIT_MB',				  '0x4000'],
+                ['GUC_UNIT_MS',			     '0x10000'],
+                ['GUC_UNIT_S',			     '0x20000'],
+                ['GUC_UNIT_MIN',		     '0x30000'],
+            ]),
+            interval(11_00_00, 12_00_00, [
+                ['GUC_LIST_INPUT',			  '0x0001'],
+                ['GUC_LIST_QUOTE',			  '0x0002'],
+                ['GUC_NO_SHOW_ALL',			  '0x0004'],
+                ['GUC_NO_RESET_ALL',		  '0x0008'],
+                ['GUC_REPORT',				  '0x0010'],
+                ['GUC_NOT_IN_SAMPLE',		  '0x0020'],
+                ['GUC_DISALLOW_IN_FILE',	  '0x0040'],
+                ['GUC_CUSTOM_PLACEHOLDER',	  '0x0080'],
+                ['GUC_SUPERUSER_ONLY',		  '0x0100'],
+                ['GUC_IS_NAME',				  '0x0200'],
+                ['GUC_NOT_WHILE_SEC_REST',	  '0x0400'],
+                ['GUC_DISALLOW_IN_AUTO_FILE', '0x0800'],
+                ['GUC_UNIT_KB',				  '0x1000'],
+                ['GUC_UNIT_BLOCKS',			  '0x2000'],
+                ['GUC_UNIT_XBLOCKS',		  '0x3000'],
+                ['GUC_UNIT_MB',				  '0x4000'],
+                ['GUC_UNIT_BYTE',			  '0x8000'],
+                ['GUC_UNIT_MS',			     '0x10000'],
+                ['GUC_UNIT_S',			     '0x20000'],
+                ['GUC_UNIT_MIN',		     '0x30000'],
+            ]),
+            interval(12_00_00, 15_00_00, [
+                ['GUC_LIST_INPUT',			  '0x0001'],
+                ['GUC_LIST_QUOTE',			  '0x0002'],
+                ['GUC_NO_SHOW_ALL',			  '0x0004'],
+                ['GUC_NO_RESET_ALL',		  '0x0008'],
+                ['GUC_REPORT',				  '0x0010'],
+                ['GUC_NOT_IN_SAMPLE',		  '0x0020'],
+                ['GUC_DISALLOW_IN_FILE',	  '0x0040'],
+                ['GUC_CUSTOM_PLACEHOLDER',	  '0x0080'],
+                ['GUC_SUPERUSER_ONLY',		  '0x0100'],
+                ['GUC_IS_NAME',				  '0x0200'],
+                ['GUC_NOT_WHILE_SEC_REST',	  '0x0400'],
+                ['GUC_DISALLOW_IN_AUTO_FILE', '0x0800'],
+                ['GUC_UNIT_KB',				  '0x1000'],
+                ['GUC_UNIT_BLOCKS',			  '0x2000'],
+                ['GUC_UNIT_XBLOCKS',		  '0x3000'],
+                ['GUC_UNIT_MB',				  '0x4000'],
+                ['GUC_UNIT_BYTE',			  '0x8000'],
+                ['GUC_UNIT_MS',			     '0x10000'],
+                ['GUC_UNIT_S',			     '0x20000'],
+                ['GUC_UNIT_MIN',		     '0x30000'],
+                ['GUC_EXPLAIN',			    '0x100000'],
+                ['GUC_ALLOW_IN_PARALLEL',   '0x200000'],
+            ]),
+            interval(15_00_00, 16_00_00, [
+                ['GUC_LIST_INPUT',			  '0x0001'],
+                ['GUC_LIST_QUOTE',			  '0x0002'],
+                ['GUC_NO_SHOW_ALL',			  '0x0004'],
+                ['GUC_NO_RESET_ALL',		  '0x0008'],
+                ['GUC_REPORT',				  '0x0010'],
+                ['GUC_NOT_IN_SAMPLE',		  '0x0020'],
+                ['GUC_DISALLOW_IN_FILE',	  '0x0040'],
+                ['GUC_CUSTOM_PLACEHOLDER',	  '0x0080'],
+                ['GUC_SUPERUSER_ONLY',		  '0x0100'],
+                ['GUC_IS_NAME',				  '0x0200'],
+                ['GUC_NOT_WHILE_SEC_REST',	  '0x0400'],
+                ['GUC_DISALLOW_IN_AUTO_FILE', '0x0800'],
+                ['GUC_UNIT_KB',				  '0x1000'],
+                ['GUC_UNIT_BLOCKS',			  '0x2000'],
+                ['GUC_UNIT_XBLOCKS',		  '0x3000'],
+                ['GUC_UNIT_MB',				  '0x4000'],
+                ['GUC_UNIT_BYTE',			  '0x8000'],
+                ['GUC_UNIT_MS',			     '0x10000'],
+                ['GUC_UNIT_S',			     '0x20000'],
+                ['GUC_UNIT_MIN',		     '0x30000'],
+                ['GUC_EXPLAIN',			    '0x100000'],
+            ]),
+            from(16_00_00, [
+                ['GUC_LIST_INPUT',		      '0x000001'],
+                ['GUC_LIST_QUOTE',		      '0x000002'],
+                ['GUC_NO_SHOW_ALL',		      '0x000004'],
+                ['GUC_NO_RESET',		      '0x000008'],
+                ['GUC_NO_RESET_ALL',	      '0x000010'],
+                ['GUC_EXPLAIN',			      '0x000020'],
+                ['GUC_REPORT',			      '0x000040'],
+                ['GUC_NOT_IN_SAMPLE',	      '0x000080'],
+                ['GUC_DISALLOW_IN_FILE',      '0x000100'],
+                ['GUC_CUSTOM_PLACEHOLDER',    '0x000200'],
+                ['GUC_SUPERUSER_ONLY',	      '0x000400'],
+                ['GUC_IS_NAME',			      '0x000800'],
+                ['GUC_NOT_WHILE_SEC_REST',    '0x001000'],
+                ['GUC_DISALLOW_IN_AUTO_FILE', '0x002000'],
+                ['GUC_RUNTIME_COMPUTED',      '0x004000'],
+                ['GUC_ALLOW_IN_PARALLEL',     '0x008000'],
+                ['GUC_UNIT_KB',			    '0x01000000'],
+                ['GUC_UNIT_BLOCKS',		    '0x02000000'],
+                ['GUC_UNIT_XBLOCKS',	    '0x03000000'],
+                ['GUC_UNIT_MB',			    '0x04000000'],
+                ['GUC_UNIT_BYTE',		    '0x05000000'],
+                ['GUC_UNIT_MS',			    '0x10000000'],
+                ['GUC_UNIT_S',			    '0x20000000'],
+                ['GUC_UNIT_MIN',		    '0x30000000'],
+            ]),
         ]),
 
         /* src/include/storage/predicate_internals.h */
         _('SERIALIZABLEXACT', 'flags', [
-            ['SXACT_FLAG_COMMITTED', '0x00000001'],
-            ['SXACT_FLAG_PREPARED', '0x00000002'],
-            ['SXACT_FLAG_ROLLED_BACK', '0x00000004'],
-            ['SXACT_FLAG_DOOMED', '0x00000008'],
-            ['SXACT_FLAG_CONFLICT_OUT', '0x00000010'],
-            ['SXACT_FLAG_READ_ONLY', '0x00000020'],
-            ['SXACT_FLAG_DEFERRABLE_WAITING', '0x00000040'],
-            ['SXACT_FLAG_RO_SAFE', '0x00000080'],
-            ['SXACT_FLAG_RO_UNSAFE', '0x00000100'],
-            ['SXACT_FLAG_SUMMARY_CONFLICT_IN', '0x00000200'],
-            ['SXACT_FLAG_SUMMARY_CONFLICT_OUT', '0x00000400'],
-            ['SXACT_FLAG_PARTIALLY_RELEASED', '0x00000800'],
+            interval(9_01_00, 12_00_00, [
+                ['SXACT_FLAG_COMMITTED', '0x00000001'],
+                ['SXACT_FLAG_PREPARED', '0x00000002'],
+                ['SXACT_FLAG_ROLLED_BACK', '0x00000004'],
+                ['SXACT_FLAG_DOOMED', '0x00000008'],
+                ['SXACT_FLAG_CONFLICT_OUT', '0x00000010'],
+                ['SXACT_FLAG_READ_ONLY', '0x00000020'],
+                ['SXACT_FLAG_DEFERRABLE_WAITING', '0x00000040'],
+                ['SXACT_FLAG_RO_SAFE', '0x00000080'],
+                ['SXACT_FLAG_RO_UNSAFE', '0x00000100'],
+                ['SXACT_FLAG_SUMMARY_CONFLICT_IN', '0x00000200'],
+                ['SXACT_FLAG_SUMMARY_CONFLICT_OUT', '0x00000400'],
+            ]),
+            from(12_00_00, [
+                ['SXACT_FLAG_COMMITTED', '0x00000001'],
+                ['SXACT_FLAG_PREPARED', '0x00000002'],
+                ['SXACT_FLAG_ROLLED_BACK', '0x00000004'],
+                ['SXACT_FLAG_DOOMED', '0x00000008'],
+                ['SXACT_FLAG_CONFLICT_OUT', '0x00000010'],
+                ['SXACT_FLAG_READ_ONLY', '0x00000020'],
+                ['SXACT_FLAG_DEFERRABLE_WAITING', '0x00000040'],
+                ['SXACT_FLAG_RO_SAFE', '0x00000080'],
+                ['SXACT_FLAG_RO_UNSAFE', '0x00000100'],
+                ['SXACT_FLAG_SUMMARY_CONFLICT_IN', '0x00000200'],
+                ['SXACT_FLAG_SUMMARY_CONFLICT_OUT', '0x00000400'],
+                ['SXACT_FLAG_PARTIALLY_RELEASED', '0x00000800'],
+            ]),
         ]),
 
         /* src/include/storage/bufmgr.h */
         _('ReadBuffersOperation', 'flags', [
-            ['READ_BUFFERS_ZERO_ON_ERROR', '(1 << 0)'],
-            ['READ_BUFFERS_ISSUE_ADVICE', '(1 << 1)'],
+            interval(17_00_00, 18_00_00, [
+                ['READ_BUFFERS_ZERO_ON_ERROR', '(1 << 0)'],
+                ['READ_BUFFERS_ISSUE_ADVICE', '(1 << 1)'],
+            ]),
+            from(18_00_00, [
+                ['READ_BUFFERS_ZERO_ON_ERROR', '(1 << 0)'],
+                ['READ_BUFFERS_ISSUE_ADVICE', '(1 << 1)'],
+                ['READ_BUFFERS_IGNORE_CHECKSUM_FAILURES', '(1 << 2)'],
+                ['READ_BUFFERS_SYNCHRONOUSLY', '(1 << 3)'],
+            ]),
         ]),
 
         /* src/include/tsearch/ts_public.h */
         _('TSLexeme', 'flags', [
-            ['TSL_ADDPOS', '0x01'],
-            ['TSL_PREFIX', '0x02'],
-            ['TSL_FILTER', '0x04'],
+            interval(8_02_00, 8_04_00, [
+                ['TSL_ADDPOS', '0x01'],
+            ]),
+            interval(8_04_00, 9_00_00, [
+                ['TSL_ADDPOS', '0x01'],
+                ['TSL_PREFIX', '0x02'],
+            ]),
+            from(9_00_00, [
+                ['TSL_ADDPOS', '0x01'],
+                ['TSL_PREFIX', '0x02'],
+                ['TSL_FILTER', '0x04'],
+            ]),
         ]),
 
         /* src/backend/tsearch/wparser_def.c */
         _('TParserStateActionItem', 'flags', [
-            ['A_NEXT', '0x0000'],
-            ['A_BINGO', '0x0001'],
-            ['A_POP', '0x0002'],
-            ['A_PUSH', '0x0004'],
-            ['A_RERUN', '0x0008'],
-            ['A_CLEAR', '0x0010'],
-            ['A_MERGE', '0x0020'],
-            ['A_CLRALL', '0x0040'],
+            from(8_02_00, [
+                ['A_NEXT', '0x0000'],
+                ['A_BINGO', '0x0001'],
+                ['A_POP', '0x0002'],
+                ['A_PUSH', '0x0004'],
+                ['A_RERUN', '0x0008'],
+                ['A_CLEAR', '0x0010'],
+                ['A_MERGE', '0x0020'],
+                ['A_CLRALL', '0x0040'],
+            ])
         ]),
 
         /* src/include/utils/expandedrecord.h */
         _('ExpandedRecordHeader', 'flags', [
-            ['ER_FLAG_FVALUE_VALID', '0x0001'],
-            ['ER_FLAG_FVALUE_ALLOCED', '0x0002'],
-            ['ER_FLAG_DVALUES_VALID', '0x0004'],
-            ['ER_FLAG_DVALUES_ALLOCED', '0x0008'],
-            ['ER_FLAG_HAVE_EXTERNAL', '0x0010'],
-            ['ER_FLAG_TUPDESC_ALLOCED', '0x0020'],
-            ['ER_FLAG_IS_DOMAIN', '0x0040'],
-            ['ER_FLAG_IS_DUMMY', '0x0080'],
+            from(11_00_00, [
+                ['ER_FLAG_FVALUE_VALID', '0x0001'],
+                ['ER_FLAG_FVALUE_ALLOCED', '0x0002'],
+                ['ER_FLAG_DVALUES_VALID', '0x0004'],
+                ['ER_FLAG_DVALUES_ALLOCED', '0x0008'],
+                ['ER_FLAG_HAVE_EXTERNAL', '0x0010'],
+                ['ER_FLAG_TUPDESC_ALLOCED', '0x0020'],
+                ['ER_FLAG_IS_DOMAIN', '0x0040'],
+                ['ER_FLAG_IS_DUMMY', '0x0080'],
+            ]),
         ]),
 
         /* src/backend/utils/adt/ruleutils.c */
         _('deparse_context', 'prettyFlags', [
-            ['PRETTYFLAG_PAREN', '0x0001'],
-            ['PRETTYFLAG_INDENT', '0x0002'],
-            ['PRETTYFLAG_SCHEMA', '0x0004'],
+            to(9_03_00, [
+                ['PRETTYFLAG_PAREN', '1'],
+                ['PRETTYFLAG_INDENT', '2'],
+            ]),
+            from(9_03_00, [
+                ['PRETTYFLAG_PAREN', '0x0001'],
+                ['PRETTYFLAG_INDENT', '0x0002'],
+                ['PRETTYFLAG_SCHEMA', '0x0004'],
+            ]),
         ]),
 
         /* src/include/utils/typcache.h */
         _('TypeCacheEntry', 'flags', [
-            ['TYPECACHE_EQ_OPR', '0x00001'],
-            ['TYPECACHE_LT_OPR', '0x00002'],
-            ['TYPECACHE_GT_OPR', '0x00004'],
-            ['TYPECACHE_CMP_PROC', '0x00008'],
-            ['TYPECACHE_HASH_PROC', '0x00010'],
-            ['TYPECACHE_EQ_OPR_FINFO', '0x00020'],
-            ['TYPECACHE_CMP_PROC_FINFO', '0x00040'],
-            ['TYPECACHE_HASH_PROC_FINFO', '0x00080'],
-            ['TYPECACHE_TUPDESC', '0x00100'],
-            ['TYPECACHE_BTREE_OPFAMILY', '0x00200'],
-            ['TYPECACHE_HASH_OPFAMILY', '0x00400'],
-            ['TYPECACHE_RANGE_INFO', '0x00800'],
-            ['TYPECACHE_DOMAIN_BASE_INFO', '0x01000'],
-            ['TYPECACHE_DOMAIN_CONSTR_INFO', '0x02000'],
-            ['TYPECACHE_HASH_EXTENDED_PROC', '0x04000'],
-            ['TYPECACHE_HASH_EXTENDED_PROC_FINFO', '0x08000'],
-            ['TYPECACHE_MULTIRANGE_INFO', '0x10000'],
+            to(8_03_00, [
+                ['TYPECACHE_EQ_OPR',			'0x0001'],
+                ['TYPECACHE_LT_OPR',			'0x0002'],
+                ['TYPECACHE_GT_OPR',			'0x0004'],
+                ['TYPECACHE_CMP_PROC',			'0x0008'],
+                ['TYPECACHE_EQ_OPR_FINFO',		'0x0010'],
+                ['TYPECACHE_CMP_PROC_FINFO',	'0x0020'],
+                ['TYPECACHE_TUPDESC',			'0x0040'],
+            ]),
+            interval(8_03_00, 9_01_00, [
+                ['TYPECACHE_EQ_OPR',			'0x0001'],
+                ['TYPECACHE_LT_OPR',			'0x0002'],
+                ['TYPECACHE_GT_OPR',			'0x0004'],
+                ['TYPECACHE_CMP_PROC',			'0x0008'],
+                ['TYPECACHE_EQ_OPR_FINFO',		'0x0010'],
+                ['TYPECACHE_CMP_PROC_FINFO',	'0x0020'],
+                ['TYPECACHE_TUPDESC',			'0x0040'],
+                ['TYPECACHE_BTREE_OPFAMILY',	'0x0080'],
+            ]),
+            interval(9_01_00, 9_02_00, [
+                ['TYPECACHE_EQ_OPR',			'0x0001'],
+                ['TYPECACHE_LT_OPR',			'0x0002'],
+                ['TYPECACHE_GT_OPR',			'0x0004'],
+                ['TYPECACHE_CMP_PROC',			'0x0008'],
+                ['TYPECACHE_HASH_PROC',			'0x0010'],
+                ['TYPECACHE_EQ_OPR_FINFO',		'0x0020'],
+                ['TYPECACHE_CMP_PROC_FINFO',	'0x0040'],
+                ['TYPECACHE_HASH_PROC_FINFO',	'0x0080'],
+                ['TYPECACHE_TUPDESC',			'0x0100'],
+                ['TYPECACHE_BTREE_OPFAMILY',	'0x0200'],
+                ['TYPECACHE_HASH_OPFAMILY',		'0x0400'],
+            ]),
+            interval(9_02_00, 9_05_00, [
+                ['TYPECACHE_EQ_OPR',			'0x0001'],
+                ['TYPECACHE_LT_OPR',			'0x0002'],
+                ['TYPECACHE_GT_OPR',			'0x0004'],
+                ['TYPECACHE_CMP_PROC',			'0x0008'],
+                ['TYPECACHE_HASH_PROC',			'0x0010'],
+                ['TYPECACHE_EQ_OPR_FINFO',		'0x0020'],
+                ['TYPECACHE_CMP_PROC_FINFO',	'0x0040'],
+                ['TYPECACHE_HASH_PROC_FINFO',	'0x0080'],
+                ['TYPECACHE_TUPDESC',			'0x0100'],
+                ['TYPECACHE_BTREE_OPFAMILY',	'0x0200'],
+                ['TYPECACHE_HASH_OPFAMILY',		'0x0400'],
+                ['TYPECACHE_RANGE_INFO',		'0x0800'],
+            ]),
+            interval(9_05_00, 11_00_00, [
+                ['TYPECACHE_EQ_OPR',			'0x0001'],
+                ['TYPECACHE_LT_OPR',			'0x0002'],
+                ['TYPECACHE_GT_OPR',			'0x0004'],
+                ['TYPECACHE_CMP_PROC',			'0x0008'],
+                ['TYPECACHE_HASH_PROC',			'0x0010'],
+                ['TYPECACHE_EQ_OPR_FINFO',		'0x0020'],
+                ['TYPECACHE_CMP_PROC_FINFO',	'0x0040'],
+                ['TYPECACHE_HASH_PROC_FINFO',	'0x0080'],
+                ['TYPECACHE_TUPDESC',			'0x0100'],
+                ['TYPECACHE_BTREE_OPFAMILY',	'0x0200'],
+                ['TYPECACHE_HASH_OPFAMILY',		'0x0400'],
+                ['TYPECACHE_RANGE_INFO',		'0x0800'],
+                ['TYPECACHE_DOMAIN_INFO',       '0x1000'],
+            ]),
+            interval(11_00_00, 14_00_00, [
+                ['TYPECACHE_EQ_OPR',			'0x0001'],
+                ['TYPECACHE_LT_OPR',			'0x0002'],
+                ['TYPECACHE_GT_OPR',			'0x0004'],
+                ['TYPECACHE_CMP_PROC',			'0x0008'],
+                ['TYPECACHE_HASH_PROC',			'0x0010'],
+                ['TYPECACHE_EQ_OPR_FINFO',		'0x0020'],
+                ['TYPECACHE_CMP_PROC_FINFO',	'0x0040'],
+                ['TYPECACHE_HASH_PROC_FINFO',	'0x0080'],
+                ['TYPECACHE_TUPDESC',			'0x0100'],
+                ['TYPECACHE_BTREE_OPFAMILY',	'0x0200'],
+                ['TYPECACHE_HASH_OPFAMILY',		'0x0400'],
+                ['TYPECACHE_RANGE_INFO',		'0x0800'],
+                ['TYPECACHE_DOMAIN_BASE_INFO',			'0x1000'],
+                ['TYPECACHE_DOMAIN_CONSTR_INFO',		'0x2000'],
+                ['TYPECACHE_HASH_EXTENDED_PROC',		'0x4000'],
+                ['TYPECACHE_HASH_EXTENDED_PROC_FINFO',	'0x8000'],
+            ]),
+            from(14_00_00, [
+                ['TYPECACHE_EQ_OPR', '0x00001'],
+                ['TYPECACHE_LT_OPR', '0x00002'],
+                ['TYPECACHE_GT_OPR', '0x00004'],
+                ['TYPECACHE_CMP_PROC', '0x00008'],
+                ['TYPECACHE_HASH_PROC', '0x00010'],
+                ['TYPECACHE_EQ_OPR_FINFO', '0x00020'],
+                ['TYPECACHE_CMP_PROC_FINFO', '0x00040'],
+                ['TYPECACHE_HASH_PROC_FINFO', '0x00080'],
+                ['TYPECACHE_TUPDESC', '0x00100'],
+                ['TYPECACHE_BTREE_OPFAMILY', '0x00200'],
+                ['TYPECACHE_HASH_OPFAMILY', '0x00400'],
+                ['TYPECACHE_RANGE_INFO', '0x00800'],
+                ['TYPECACHE_DOMAIN_BASE_INFO', '0x01000'],
+                ['TYPECACHE_DOMAIN_CONSTR_INFO', '0x02000'],
+                ['TYPECACHE_HASH_EXTENDED_PROC', '0x04000'],
+                ['TYPECACHE_HASH_EXTENDED_PROC_FINFO', '0x08000'],
+                ['TYPECACHE_MULTIRANGE_INFO', '0x10000'],
+            ])
         ]),
 
         /* src/bin/pg_dump/pg_backup_archiver.h */
         _('_tocEntry', 'reqs', [
-            ['REQ_SCHEMA', '0x01'],
-            ['REQ_DATA', '0x02'],
-            ['REQ_SPECIAL', '0x04'],
+            from(14_00_00, [
+                ['REQ_SCHEMA', '0x01'],
+                ['REQ_DATA', '0x02'],
+                ['REQ_SPECIAL', '0x04'],
+            ])
         ]),
 
         /* src/bin/pg_dump/pg_dump.h */
@@ -2541,123 +3386,248 @@ export function getWellKnownFlagsMembers(): BitmaskMemberInfo[] {
             'dump_contains',
             'components'
         ].map(member => _('DumpableObject', member, [
-            ['DUMP_COMPONENT_NONE', '(0)'],
-            ['DUMP_COMPONENT_DEFINITION', '(1 << 0)'],
-            ['DUMP_COMPONENT_DATA', '(1 << 1)'],
-            ['DUMP_COMPONENT_COMMENT', '(1 << 2)'],
-            ['DUMP_COMPONENT_SECLABEL', '(1 << 3)'],
-            ['DUMP_COMPONENT_ACL', '(1 << 4)'],
-            ['DUMP_COMPONENT_POLICY', '(1 << 5)'],
-            ['DUMP_COMPONENT_USERMAP', '(1 << 6)'],
-            ['DUMP_COMPONENT_ALL', '(0xFFFF)'],
+            interval(9_06_00, 18_00_00, [
+                ['DUMP_COMPONENT_NONE', '(0)'],
+                ['DUMP_COMPONENT_DEFINITION', '(1 << 0)'],
+                ['DUMP_COMPONENT_DATA', '(1 << 1)'],
+                ['DUMP_COMPONENT_COMMENT', '(1 << 2)'],
+                ['DUMP_COMPONENT_SECLABEL', '(1 << 3)'],
+                ['DUMP_COMPONENT_ACL', '(1 << 4)'],
+                ['DUMP_COMPONENT_POLICY', '(1 << 5)'],
+                ['DUMP_COMPONENT_USERMAP', '(1 << 6)'],
+                ['DUMP_COMPONENT_ALL', '(0xFFFF)'],
+            ]),
+            from(18_00_00, [
+                ['DUMP_COMPONENT_NONE', '(0)'],
+                ['DUMP_COMPONENT_DEFINITION', '(1 << 0)'],
+                ['DUMP_COMPONENT_DATA', '(1 << 1)'],
+                ['DUMP_COMPONENT_COMMENT', '(1 << 2)'],
+                ['DUMP_COMPONENT_SECLABEL', '(1 << 3)'],
+                ['DUMP_COMPONENT_ACL', '(1 << 4)'],
+                ['DUMP_COMPONENT_POLICY', '(1 << 5)'],
+                ['DUMP_COMPONENT_USERMAP', '(1 << 6)'],
+                ['DUMP_COMPONENT_STATISTICS', '(1 << 7)'],
+                ['DUMP_COMPONENT_ALL', '(0xFFFF)'],
+            ]),
         ])),
 
         /* src/include/access/hash_xlog.h */
         _('xl_hash_split_allocate_page', 'flags', [
-            ['XLH_SPLIT_META_UPDATE_MASKS', '(1<<0)'],
-            ['XLH_SPLIT_META_UPDATE_SPLITPOINT', '(1<<1)'],
+            from(10_00_00, [
+                ['XLH_SPLIT_META_UPDATE_MASKS', '(1<<0)'],
+                ['XLH_SPLIT_META_UPDATE_SPLITPOINT', '(1<<1)'],
+            ])
         ]),
 
         /* src/include/access/heapam_xlog.h */
         _('xl_heap_delete', 'flags', [
-            ['XLH_DELETE_ALL_VISIBLE_CLEARED', '(1<<0)'],
-            ['XLH_DELETE_CONTAINS_OLD_TUPLE', '(1<<1)'],
-            ['XLH_DELETE_CONTAINS_OLD_KEY', '(1<<2)'],
-            ['XLH_DELETE_IS_SUPER', '(1<<3)'],
-            ['XLH_DELETE_IS_PARTITION_MOVE', '(1<<4)'],
+            interval(9_05_00, 11_00_00, [
+                ['XLH_DELETE_ALL_VISIBLE_CLEARED', '(1<<0)'],
+                ['XLH_DELETE_CONTAINS_OLD_TUPLE', '(1<<1)'],
+                ['XLH_DELETE_CONTAINS_OLD_KEY', '(1<<2)'],
+                ['XLH_DELETE_IS_SUPER', '(1<<3)'],
+            ]),
+            from(11_00_00, [
+                ['XLH_DELETE_ALL_VISIBLE_CLEARED', '(1<<0)'],
+                ['XLH_DELETE_CONTAINS_OLD_TUPLE', '(1<<1)'],
+                ['XLH_DELETE_CONTAINS_OLD_KEY', '(1<<2)'],
+                ['XLH_DELETE_IS_SUPER', '(1<<3)'],
+                ['XLH_DELETE_IS_PARTITION_MOVE', '(1<<4)'],
+            ])
         ]),
-        _('xl_heap_delete', 'infobits_set', infobitsFlags),
+        createInfobitsFlags('xl_heap_delete', 'infobits_set'),
 
         _('xl_heap_truncate', 'flags', [
-            ['XLH_TRUNCATE_CASCADE', '(1<<0)'],
-            ['XLH_TRUNCATE_RESTART_SEQS', '(1<<1)'],
+            from(11_00_00, [
+                ['XLH_TRUNCATE_CASCADE', '(1<<0)'],
+                ['XLH_TRUNCATE_RESTART_SEQS', '(1<<1)'],
+            ]),
         ]),
 
-        _('xl_heap_header', 't_infomask', infomaskFlags),
-        _('xl_heap_header', 't_infomask2', infomask2Flags),
+        createInfomaskFlags('xl_heap_header', 't_infomask'),
+        createInfomask2Flags('xl_heap_header', 't_infomask2'),
 
         ...[
             'xl_heap_insert',
             'xl_heap_multi_insert'
         ].map(type => _(type, 'flags', [
+            interval(9_05_00, 14_00_00, [
+                ['XLH_INSERT_ALL_VISIBLE_CLEARED', '(1<<0)'],
+                ['XLH_INSERT_LAST_IN_MULTI', '(1<<1)'],
+                ['XLH_INSERT_IS_SPECULATIVE', '(1<<2)'],
+                ['XLH_INSERT_CONTAINS_NEW_TUPLE', '(1<<3)'],
+            ]),
+            from(14_00_00, [
                 ['XLH_INSERT_ALL_VISIBLE_CLEARED', '(1<<0)'],
                 ['XLH_INSERT_LAST_IN_MULTI', '(1<<1)'],
                 ['XLH_INSERT_IS_SPECULATIVE', '(1<<2)'],
                 ['XLH_INSERT_CONTAINS_NEW_TUPLE', '(1<<3)'],
                 ['XLH_INSERT_ON_TOAST_RELATION', '(1<<4)'],
                 ['XLH_INSERT_ALL_FROZEN_SET', '(1<<5)'],
+            ]),
         ])),
 
-        _('xl_multi_insert_tuple', 't_infomask', infomaskFlags),
-        _('xl_multi_insert_tuple', 't_infomask2', infomask2Flags),
+        createInfomaskFlags('xl_multi_insert_tuple', 't_infomask'),
+        createInfomask2Flags('xl_multi_insert_tuple', 't_infomask2'),
 
         _('xl_heap_update', 'flags', [
-            ['XLH_UPDATE_OLD_ALL_VISIBLE_CLEARED', '(1<<0)'],
-            ['XLH_UPDATE_NEW_ALL_VISIBLE_CLEARED', '(1<<1)'],
-            ['XLH_UPDATE_CONTAINS_OLD_TUPLE', '(1<<2)'],
-            ['XLH_UPDATE_CONTAINS_OLD_KEY', '(1<<3)'],
-            ['XLH_UPDATE_CONTAINS_NEW_TUPLE', '(1<<4)'],
-            ['XLH_UPDATE_PREFIX_FROM_OLD', '(1<<5)'],
-            ['XLH_UPDATE_SUFFIX_FROM_OLD', '(1<<6)'],
+            from(9_05_00, [
+                ['XLH_UPDATE_OLD_ALL_VISIBLE_CLEARED', '(1<<0)'],
+                ['XLH_UPDATE_NEW_ALL_VISIBLE_CLEARED', '(1<<1)'],
+                ['XLH_UPDATE_CONTAINS_OLD_TUPLE', '(1<<2)'],
+                ['XLH_UPDATE_CONTAINS_OLD_KEY', '(1<<3)'],
+                ['XLH_UPDATE_CONTAINS_NEW_TUPLE', '(1<<4)'],
+                ['XLH_UPDATE_PREFIX_FROM_OLD', '(1<<5)'],
+                ['XLH_UPDATE_SUFFIX_FROM_OLD', '(1<<6)'],
+            ]),
         ]),
-
-        _('xl_heap_update', 'old_infobits_set', infobitsFlags),
+        createInfobitsFlags('xl_heap_update', 'old_infobits_set'),
 
         _('xl_heap_prune', 'flags', [
-            ['XLHP_IS_CATALOG_REL', '(1 << 1)'],
-            ['XLHP_CLEANUP_LOCK', '(1 << 2)'],
-            ['XLHP_HAS_CONFLICT_HORIZON', '(1 << 3)'],
-            ['XLHP_HAS_FREEZE_PLANS', '(1 << 4)'],
-            ['XLHP_HAS_REDIRECTIONS', '(1 << 5)'],
-            ['XLHP_HAS_DEAD_ITEMS', '(1 << 6)'],
-            ['XLHP_HAS_NOW_UNUSED_ITEMS', '(1 << 7)'],
+            from(17_00_00, [
+                ['XLHP_IS_CATALOG_REL', '(1 << 1)'],
+                ['XLHP_CLEANUP_LOCK', '(1 << 2)'],
+                ['XLHP_HAS_CONFLICT_HORIZON', '(1 << 3)'],
+                ['XLHP_HAS_FREEZE_PLANS', '(1 << 4)'],
+                ['XLHP_HAS_REDIRECTIONS', '(1 << 5)'],
+                ['XLHP_HAS_DEAD_ITEMS', '(1 << 6)'],
+                ['XLHP_HAS_NOW_UNUSED_ITEMS', '(1 << 7)'],
+            ]),
         ]),
 
         ...[
             'xl_heap_lock',
             'xl_heap_lock_updated',
         ].map(type => _(type, 'flags', [
-           ['XLH_LOCK_ALL_FROZEN_CLEARED', '0x01'],
+            from(9_05_00, [
+                ['XLH_LOCK_ALL_FROZEN_CLEARED', '0x01'],
+            ]),
         ])),
 
-        _('xl_heap_lock', 'infobits_set', infobitsFlags),
+        createInfobitsFlags('xl_heap_lock', 'infobits_set'),
 
         _('xl_heap_visible', 'flags', [
-            ['VISIBILITYMAP_ALL_VISIBLE', '0x01'],
-            ['VISIBILITYMAP_ALL_FROZEN', '0x02'],
-            ['VISIBILITYMAP_VALID_BITS', '0x03'],
-            ['VISIBILITYMAP_XLOG_CATALOG_REL', '0x4'],
+            interval(9_05_00, 16_00_00, [
+                ['VISIBILITYMAP_ALL_VISIBLE',	'0x01'],
+                ['VISIBILITYMAP_ALL_FROZEN',	'0x02'],
+                ['VISIBILITYMAP_VALID_BITS',	'0x03'],
+            ]),
+            from(16_00_00, [
+                ['VISIBILITYMAP_ALL_VISIBLE', '0x01'],
+                ['VISIBILITYMAP_ALL_FROZEN', '0x02'],
+                ['VISIBILITYMAP_VALID_BITS', '0x03'],
+                ['VISIBILITYMAP_XLOG_CATALOG_REL', '0x4'],
+            ]),
         ]),
 
         /* src/include/access/xact.h */
-        _('xl_xact_info', 'xinfo', [
-            ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
-            ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
-            ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
-            ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
-            ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
-            ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
-            ['XACT_XINFO_HAS_AE_LOCKS', '(1U << 6)'],
-            ['XACT_XINFO_HAS_GID', '(1U << 7)'],
-            ['XACT_XINFO_HAS_DROPPED_STATS', '(1U << 8)'],
-            ['XACT_COMPLETION_APPLY_FEEDBACK', '(1U << 29)'],
-            ['XACT_COMPLETION_UPDATE_RELCACHE_FILE', '(1U << 30)'],
-            ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
-        ]),
-
         ...[
             'xl_xact_parsed_commit',
-            'xl_xact_parsed_abort'
+            'xl_xact_parsed_abort',
+            'xl_xact_info'
         ].map(type => _(type, 'xinfo', [
-            ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
-            ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
-            ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
-            ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
-            ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
-            ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
-            ['XACT_XINFO_HAS_AE_LOCKS', '(1U << 6)'],
-            ['XACT_XINFO_HAS_GID', '(1U << 7)'],
-            ['XACT_XINFO_HAS_DROPPED_STATS', '(1U << 8)'],
+                interval(9_05_00, 9_06_00, [
+                    ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
+                    ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
+                    ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
+                    ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
+                    ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
+                    ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
+                    ['XACT_COMPLETION_UPDATE_RELCACHE_FILE', '(1U << 30)'],
+                    ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
+                ]),
+                interval(9_06_00, 10_00_00, [
+                    ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
+                    ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
+                    ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
+                    ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
+                    ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
+                    ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
+                    ['XACT_COMPLETION_APPLY_FEEDBACK', '(1U << 29)'],
+                    ['XACT_COMPLETION_UPDATE_RELCACHE_FILE', '(1U << 30)'],
+                    ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
+                ]),
+                interval(10_00_00, 11_00_00, [
+                    ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
+                    ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
+                    ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
+                    ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
+                    ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
+                    ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
+                    ['XACT_XINFO_HAS_AE_LOCKS', '(1U << 6)'],
+                    ['XACT_COMPLETION_APPLY_FEEDBACK', '(1U << 29)'],
+                    ['XACT_COMPLETION_UPDATE_RELCACHE_FILE', '(1U << 30)'],
+                    ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
+                ]),
+                interval(11_00_00, 15_00_00, [
+                    ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
+                    ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
+                    ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
+                    ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
+                    ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
+                    ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
+                    ['XACT_XINFO_HAS_AE_LOCKS', '(1U << 6)'],
+                    ['XACT_XINFO_HAS_GID', '(1U << 7)'],
+                    ['XACT_COMPLETION_APPLY_FEEDBACK', '(1U << 29)'],
+                    ['XACT_COMPLETION_UPDATE_RELCACHE_FILE', '(1U << 30)'],
+                    ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
+                ]),
+                from(15_00_00, [
+                    ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
+                    ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
+                    ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
+                    ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
+                    ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
+                    ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
+                    ['XACT_XINFO_HAS_AE_LOCKS', '(1U << 6)'],
+                    ['XACT_XINFO_HAS_GID', '(1U << 7)'],
+                    ['XACT_XINFO_HAS_DROPPED_STATS', '(1U << 8)'],
+                    ['XACT_COMPLETION_APPLY_FEEDBACK', '(1U << 29)'],
+                    ['XACT_COMPLETION_UPDATE_RELCACHE_FILE', '(1U << 30)'],
+                    ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
+                ]),
         ])),
     ]
+
+    /* 
+     * Each array of versions is stored in reversed order, because 1) it is
+     * more likely that you are working with latest major version and 2) we
+     * can get latest version of mask quiet fast (just take element at 0 index).
+     */
+    bitmasks.forEach(arr => arr.reverse());
+
+    return bitmasks;
+}
+
+/* 
+ * Actual array of all bitmask members. Initialized lazily, because
+ * we must perform some actions after array is initialized (reverse
+ * inner array, reason see above).
+ */
+let versionedFlagMembers: [VersionInterval, BitmaskMemberInfo][][] | undefined;
+
+/* 
+ * Most times you will work with same PostgreSQL version, so cache previous
+ * flags for reuse.
+ */
+let prevVersionedFlagMembers: [BitmaskMemberInfo[], number] | undefined;
+export function getWellKnownFlagsMembers(pgversion: number): BitmaskMemberInfo[] {
+    /* Search in cache */
+    if (prevVersionedFlagMembers !== undefined) {
+        const [members, version] = prevVersionedFlagMembers;
+        if (version === pgversion) {
+            return members;
+        }
+    }
+
+    if (versionedFlagMembers === undefined) {
+        versionedFlagMembers = buildFlagMembers();
+    }
+
+    const members = versionedFlagMembers.map(arrs => {
+        return arrs.find(([ver,]) => ver.satisfies(pgversion))?.[1];
+    }).filter(x => x !== undefined);
+
+    prevVersionedFlagMembers = [members, pgversion];
+    return members;
 }

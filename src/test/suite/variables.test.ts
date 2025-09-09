@@ -196,44 +196,6 @@ suite('Variables', async () => {
             new vscode.SourceBreakpoint(await searchBreakpointLocation(), true)
         ]);
 
-        /* 
-         * Register some types used for debugging.
-         * 
-         * This is done without configuration file involving, because that
-         * logic can be broken.
-         */
-        const treeViewProvider = await execGetTreeViewProvider();
-        if (!treeViewProvider) {
-            throw new Error('Failed to get NodeTreeViewProvider');
-        }
-        if (!treeViewProvider.execContext) {
-            throw new Error('ExecContext of NodeTreeViewProvider does not exist');
-        }
-        treeViewProvider.execContext.hashTableTypes.addHTABTypes([
-            {
-                parent: 'vscode_test_helper',
-                member: 'htab',
-                type: 'TestHtabEntry *'
-            }
-        ]);
-        treeViewProvider.execContext.hashTableTypes.addSimplehashTypes([
-            {
-                prefix: 'testhash',
-                elementType: 'SimpleHashEntry *',
-                canIterate: true,
-            }
-        ]);
-        treeViewProvider.execContext.specialMemberRegistry.addListCustomPtrSpecialMembers([
-            {
-                type: 'CustomListElement *',
-                variable: ['vscode_test_helper', 'custom_list']
-            },
-            {
-                type: 'CustomListElement *',
-                member: ['CustomListVariable', 'value']
-            },
-        ]);
-
         /* Wait before breakpoint enables and run query */
         await sleep(1000);
 

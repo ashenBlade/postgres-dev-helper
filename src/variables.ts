@@ -540,15 +540,6 @@ export class ExecContext {
     hasBmsNodeTag = true;
 
     /**
-     * Has `get_attname` function.
-     *
-     * It is used when formatting `Var` representation.
-     * This function is preferred, because allows not to throw ERROR
-     * if failed to get attribute.
-     */
-    hasGetAttname = true;
-
-    /**
      * `getTypeOutputInfo` function accepts 3 arguments instead of 4 (old-style).
      * 
      * This is used when CodeLLDB is used as debugger, because CppDbg do not
@@ -559,7 +550,8 @@ export class ExecContext {
     /**
      * 'bool' type represented as 'char'
      * 
-     * Until PostgreSQL 10 'bool' was typedef to 'char'. Required for CodeLLDB.
+     * Until PostgreSQL 10 'bool' was typedef to 'char' and now it uses
+     * stdbool.h header.
      */
     hasBoolAsChar = false;
 
@@ -602,6 +594,48 @@ export class ExecContext {
         const name = await this.debug.getCurrentFunctionName();
         this.step.currentFunctionName = name;
         return name;
+    }
+
+    /* 
+     * Set property values according to knowledge of debugging
+     * PostgreSQL server version
+     */
+    adjustProperties(version: number) {
+        if (version < 15_00_00) {
+            this.hasValueStruct = true;
+        }
+        
+        if (version <  8_04_00) {
+            this.hasPalloc = false;
+        }
+        
+        if (version <  9_05_00) {
+            this.hasAllowInCritSection = false;
+        }
+        
+        if (version < 17_00_00) {
+            this.hasBmsIsValidSet = false;
+        }
+        
+        if (version <  9_03_00) {
+            this.hasBmsNextMember = false;
+        }
+        
+        if (version < 16_00_00) {
+            this.hasBmsNodeTag = false;
+        }
+        
+        if (version <  8_01_00) {
+            this.hasGetTypeOutputInfo3Args = false;
+        }
+        
+        if (version < 11_00_00) {
+            this.hasGetAttname3 = false;
+        }
+        
+        if (version <  8_01_00) {
+            this.hasOidOutputFunctionCall = false;
+        }
     }
 }
 
@@ -2004,57 +2038,55 @@ class ExprNodeVariable extends NodeVariable {
                 }
             }
 
-            if (this.context.hasGetAttname) {
-                const rteRelation = this.debug.formatEnumValue('RTEKind', 'RTE_RELATION'); 
-                const getAttnameExpr = `   ${rtePtr}->rtekind == ${rteRelation} 
-                                        && ${rtePtr}->relid   != ${InvalidOid}`;
-                const evalResult = await this.evaluate(getAttnameExpr);
-                const useGetAttname = this.debug.extractBool(evalResult);
-                if (useGetAttname) {
-                    let r;
-                    let attname;
-                    if (this.context.hasGetAttname3) {
-                        /* 
-                         * There are 2 notes:
-                         * 
-                         * 1. In older versions `get_attname` accepted only 2
-                         *    arguments and behaved in same way as `true` is
-                         *    passed today
-                         * 2. We first should check for failed var, not extract
-                         *    string and check for null. My current code for
-                         *    extracting strings is dumb and does not check for
-                         *    such situations (so it will return non-null in
-                         *    case of such error)
-                         */
-                        try {
-                            r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno}, true)`);
-                            attname = this.debug.extractString(r);
-                            if (attname !== null) {
-                                return attname;
-                            }
-                        } catch (err) {
-                            if (!(err instanceof EvaluationError)) {
-                                throw err;
-                            }
-
-                            /* maybe this version has get_attname with 2 arguments */
-                            if (err.message.indexOf('no matching function') === -1) {
-                                throw err;
-                            }
-                        }
-
-                        r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno})`);
-                        attname = this.debug.extractString(r);
-                        if (attname !== null) {
-                            this.context.hasGetAttname3 = false;
-                            return attname;
-                        }
-                    } else {
-                        r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno})`);
+            const rteRelation = this.debug.formatEnumValue('RTEKind', 'RTE_RELATION'); 
+            const getAttnameExpr = `   ${rtePtr}->rtekind == ${rteRelation} 
+                                    && ${rtePtr}->relid   != ${InvalidOid}`;
+            const evalResult = await this.evaluate(getAttnameExpr);
+            const useGetAttname = this.debug.extractBool(evalResult);
+            if (useGetAttname) {
+                let r;
+                let attname;
+                if (this.context.hasGetAttname3) {
+                    /* 
+                     * There are 2 notes:
+                     * 
+                     * 1. In older versions `get_attname` accepted only 2
+                     *    arguments and behaved in same way as `true` is
+                     *    passed today
+                     * 2. We first should check for failed var, not extract
+                     *    string and check for null. My current code for
+                     *    extracting strings is dumb and does not check for
+                     *    such situations (so it will return non-null in
+                     *    case of such error)
+                     */
+                    try {
+                        r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno}, true)`);
                         attname = this.debug.extractString(r);
                         if (attname !== null) {
                             return attname;
                         }
+                    } catch (err) {
+                        if (!(err instanceof EvaluationError)) {
+                            throw err;
+                        }
+
+                        /* maybe this version has get_attname with 2 arguments */
+                        if (err.message.indexOf('no matching function') === -1) {
+                            throw err;
+                        }
+                    }
+
+                    r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno})`);
+                    attname = this.debug.extractString(r);
+                    if (attname !== null) {
+                        this.context.hasGetAttname3 = false;
+                        return attname;
+                    }
+                } else {
+                    r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno})`);
+                    attname = this.debug.extractString(r);
+                    if (attname !== null) {
+                        return attname;
                     }
                 }
             }
