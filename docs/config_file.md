@@ -3,15 +3,6 @@
 Extension has config file with custom settings - `pgsql_hacker_helper.json`.
 It stored inside `.vscode` folder.
 
-## Layout
-
-There are 4 versions of config file layout.
-Version is specified using `"version"` field.
-
-Current version - 4.
-
-> This file belongs to latest schema version.
-
 ## Json schema
 
 There is file [`properties.schema.json`](../properties.schema.json) -
@@ -85,25 +76,22 @@ Examples:
 
 ```json
 {
-    "version": 3,
-    "specialMembers": {
-        "array": [
-            {
-                "typeName": "PlannerInfo",
-                "memberName": "simple_rel_array",
-                "lengthExpression": "simple_rel_array_size"
-            },
-            {
-                "typeName": "GatherMergeState",
-                "memberName": "gm_slots",
-                "lengthExpression": "nreaders + 1"
-            },
-            {
-                "typeName": "RelOptInfo",
-                "memberName": "attr_needed",
-                "lengthExpression": "!{}->max_attr - {}->min_attr + 1"
-            }
-        ]
+    "arrays": {
+        {
+            "typeName": "PlannerInfo",
+            "memberName": "simple_rel_array",
+            "lengthExpression": "simple_rel_array_size"
+        },
+        {
+            "typeName": "GatherMergeState",
+            "memberName": "gm_slots",
+            "lengthExpression": "nreaders + 1"
+        },
+        {
+            "typeName": "RelOptInfo",
+            "memberName": "attr_needed",
+            "lengthExpression": "!{}->max_attr - {}->min_attr + 1"
+        }
     }
 }
 ```
@@ -129,14 +117,13 @@ For now, there is 1 alias - `Relids`, which is alias for `Bitmapset *` -
 Aliases stored in top level `"aliases"` field.
 Every object of array - is a pair of:
 
-- `"alias"` - target alias, i.e. `Relids`
-- `"type"` - original type, i.e. `Bitmapset *`
+- `"alias"` - name of alias, i.e. `Relids`
+- `"type"` - actual type, i.e. `Bitmapset *`
 
 Example:
 
 ```json
 {
-    "version": 3,
     "aliases": [
         {
             "alias": "Relids",
@@ -172,7 +159,6 @@ Read typedefs file `custom.typedefs.list` in current src path.
 
 ```json
 {
-    "version": 3,
     "typedefs": "custom.typedefs.list"
 }
 ```
@@ -181,7 +167,6 @@ Read global typedefs file stored in temporary directory.
 
 ```json
 {
-    "version": 3,
     "typedefs": "/tmp/cached.custom.typedefs.list"
 }
 ```
@@ -190,7 +175,6 @@ You have created 2 extensions `pgext1` and `pgext2` which have custom `typedefs.
 
 ```json
 {
-    "version": 3,
     "typedefs": [
         "contrib/pgext1/first.typedefs.list",
         "contrib/pgext2/second.typedefs.list"
@@ -209,7 +193,6 @@ This information stored in `customListTypes` member. This is array of objects:
 
 ```json
 {
-    "version": 4,
     "customListTypes": [
         {
             "type": "MyCustomType *",
@@ -261,7 +244,6 @@ This information stored in `htab` member. This is an array of objects similar to
 
 ```json
 {
-    "version": 5,
     "htab": [
         {
             "type": "SampleType *",
@@ -302,7 +284,6 @@ To define your custom simplehash you need to specify 2 things: prefix and entry 
 
 ```json
 {
-    "version": 5,
     "simplehash": [
         {
             "prefix": "sometableprefix",
@@ -321,3 +302,34 @@ Identifiers of structures and functions are derived from `prefix` and generated 
 
 > NOTE: compiler can apply unused symbol stripping, so after compilation there can be no structures/functions for iteration.
 > In such situation, you should add some code that uses `PREFIX_iterator`, `PREFIX_start_iterate` and `PREFIX_iterate` (i.e. wrap such code with debug macros).
+
+### Bitmask enum fields
+
+Some types may work with enums as plain `uint32`, not `enum`, and members of enum are defined using preprocessor's `#define`.
+For these cases you can specify your own enum bitmask members.
+
+```json
+{
+    "enums": [
+        {
+            "type": "ParentType",
+            "member": "enum_member",
+            "flags": [
+                ["EM_FIRST", "0x01"],
+                ["EM_SECOND", "0x02"],
+                ["EM_THIRD", "0x04"],
+            ],
+            "fields": [
+                ["inner field", "EM_FIELD_MASK", "0xF"]
+            ]
+        }
+    ]
+}
+```
+
+Fields:
+
+- `type` - name of the type to which "member" belongs
+- `member` - name of the member with enum type (`type->member`)
+- `flags` - array of enum value definitions: MACRO VALUE + NUMERIC VALUE
+- `fields` - array of inner fields: human readable name of field + MACRO MASK for member + numeric value of mask

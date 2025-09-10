@@ -419,72 +419,7 @@ export class ConfigFile {
 }
 
 function parseConfigurationFile(configFile: any): ConfigFile | undefined {
-    const parseArraySm1 = (obj: any): vars.ArraySpecialMemberInfo | undefined => {
-        if (!(obj && typeof obj === 'object' && obj !== null)) {
-            return;
-        }
-        
-        let nodeTag = obj.nodeTag;
-        if (!nodeTag) {
-            vscode.window.showErrorMessage('"nodeTag" field not provided');
-            return;
-        }
-
-        if (typeof nodeTag !== 'string') {
-            vscode.window.showErrorMessage(`nodeTag type must be string, given: ${typeof nodeTag}`);
-            return;
-        }
-
-        nodeTag = nodeTag.trim().replace('T_', '');
-
-        /* NodeTag used also as type name, so it must be valid identifier */
-        if (!utils.isValidIdentifier(nodeTag)) {
-            vscode.window.showErrorMessage(`nodeTag must be valid identifier. given: ${obj.nodeTag}`);
-            return;
-        }
-
-        let memberName = obj.memberName;
-        if (!memberName) {
-            vscode.window.showErrorMessage(`"memberName" field not provided for type with NodeTag: ${obj.nodeTag}`);
-            return;
-        }
-
-        if (typeof memberName !== 'string') {
-            vscode.window.showErrorMessage(`"memberName" field must be string for type with NodeTag: ${obj.nodeTag}`);
-            return;
-        }
-
-        memberName = memberName.trim();
-        if (!utils.isValidIdentifier(memberName)) {
-            vscode.window.showErrorMessage(`"memberName" field ${memberName} is not valid identifier`);
-            return;
-        }
-
-        let lengthExpr = obj.lengthExpression;
-        if (!lengthExpr) {
-            vscode.window.showErrorMessage(`lengthExpression not provided for: ${obj.nodeTag}->${memberName}`);
-            return;
-        }
-
-        if (typeof lengthExpr !== 'string') {
-            vscode.window.showErrorMessage(`lengthExpression field must be string for: ${obj.nodeTag}->${memberName}`);
-            return;
-        }
-
-        lengthExpr = lengthExpr.trim();
-        if (!lengthExpr) {
-            vscode.window.showErrorMessage('lengthExpression can not be empty string');
-            return;
-        }
-
-        return {
-            typeName: nodeTag,
-            memberName,
-            lengthExpr,
-        }
-    }
-
-    const parseArraySm2 = (obj: any): vars.ArraySpecialMemberInfo | undefined => {
+    const parseArrayMember = (obj: any): vars.ArraySpecialMemberInfo | undefined => {
         if (!(obj && typeof obj === 'object' && obj !== null)) {
             return;
         }
@@ -548,7 +483,7 @@ function parseConfigurationFile(configFile: any): ConfigFile | undefined {
         }
     }
 
-    const parseAliasV2 = (obj: any): vars.AliasInfo | undefined => {
+    const parseSingleAlias = (obj: any): vars.AliasInfo | undefined => {
         if (typeof obj !== 'object') {
             return;
         }
@@ -847,46 +782,21 @@ function parseConfigurationFile(configFile: any): ConfigFile | undefined {
         return;
     }
 
-    const configVersion = Number(configFile.version);
-    if (!(Number.isInteger(configVersion) && 1 <= configVersion && configVersion <= 5)) {
-        vscode.window.showErrorMessage(`unknown version of config file: ${configFile.version}`);
-        return;
-    }
-
-    const arrayMemberParser = configVersion == 1
-        ? parseArraySm1
-        : parseArraySm2;
-
-    const arrayInfos = Array.isArray(configFile.specialMembers?.array) &&
-                       configFile.specialMembers.array.length > 0
-                ? configFile.specialMembers.array.map(arrayMemberParser).filter((a: any) => a !== undefined)
+    const arrayInfos = Array.isArray(configFile.arrays) &&
+                       configFile.arrays.length > 0
+                ? configFile.arrays.map(parseArrayMember).filter((a: any) => a !== undefined)
                 : undefined;
 
-    const aliasInfos = configVersion >= 2 &&
-                       Array.isArray(configFile.aliases) &&
+    const aliasInfos = Array.isArray(configFile.aliases) &&
                        configFile.aliases.length > 0
-                ? configFile.aliases.map(parseAliasV2).filter((a: any) => a !== undefined)
+                ? configFile.aliases.map(parseSingleAlias).filter((a: any) => a !== undefined)
                 : undefined;
 
-    const typedefs = configVersion >= 3
-                ? parseTypedefs(configFile.typedefs)
-                : undefined;
-
-    const customListTypes = configVersion >= 4
-                ? parseListTypes(configFile.customListTypes)
-                : undefined;
-
-    const htabTypes = configVersion >= 5
-                ? parseHtabTypes(configFile.htab)
-                : undefined;
-    
-    const simpleHashTableTypes = configVersion >= 5
-                ? parseSimplehashTypes(configFile.simplehash)
-                : undefined;
-                
-    const bitmaskEnumMembers = configVersion >= 5
-                ? parseEnumBitmasks(configFile.enums)
-                : undefined;
+    const typedefs = parseTypedefs(configFile.typedefs);
+    const customListTypes = parseListTypes(configFile.customListTypes);
+    const htabTypes = parseHtabTypes(configFile.htab);
+    const simpleHashTableTypes = parseSimplehashTypes(configFile.simplehash);   
+    const bitmaskEnumMembers = parseEnumBitmasks(configFile.enums);
 
     return {
         arrayInfos,
@@ -1346,14 +1256,13 @@ export function setupExtension(context: vscode.ExtensionContext,
                     await utils.writeFile(configFilePath, JSON.stringify(
                         /* Example config file */
                         {
-                            version: 5,
-                            specialMembers: {
-                                array: []
-                            },
+                            arrays: [],
                             aliases: [],
                             customListTypes: [],
                             htab: [],
-                            simplehash: []
+                            simplehash: [],
+                            enums: [],
+                            typedefs: [],
                         },
                         undefined, '    '));
                 } catch (err: any) {

@@ -1,11 +1,11 @@
 {
     "$schema": "http://json-schema.org/draft-04/schema#",
     "$id": "https://example.com/product.schema.json",
-    "title": "PostgreSQL Hacker Helper settings",
-    "description": "Settings for PostgreSQL Hacker Helper VS Code extension",
+    "title": "PostgreSQL Hacker Helper configuration",
+    "description": "Configuration for PostgreSQL Hacker Helper VS Code extension",
     "type": "object",
     "definitions": {
-        "arraySpecialMemberV2": {
+        "arraySpecialMember": {
             "type": "object",
             "required": [
                 "typeName",
@@ -30,31 +30,7 @@
                 }
             }
         },
-        "arraySpecialMemberV1": {
-            "type": "object",
-            "required": [
-                "nodeTag",
-                "memberName",
-                "lengthExpression"
-            ],
-            "properties": {
-                "nodeTag": {
-                    "type": "string",
-                    "description": "NodeTag value of Node. Either values with 'T_' prefix or without allowed",
-                    "pattern": "^(T_)?[a-zA-Z_][a-zA-Z0-9_]*$"
-                },
-                "memberName": {
-                    "type": "string",
-                    "description": "Member name that contains array",
-                    "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
-                },
-                "lengthExpression": {
-                    "type": "string",
-                    "description": "Expression to evaluate to get array length"
-                }
-            }
-        },
-        "aliasesV2": {
+        "aliases": {
             "type": "array",
             "description": "Aliases for Node types",
             "items": {
@@ -64,12 +40,12 @@
                     "alias": {
                         "type": "string",
                         "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
-                        "description": "Alias of type"
+                        "description": "Name of alias"
                     },
                     "type": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Type for which alias is created"
+                        "description": "Real type"
                     }
                 },
                 "required": [
@@ -92,19 +68,7 @@
                     "description": "Array of paths to custom typedefs.list files which will be added to default"
                 }
             ],
-            "description": "Path or array of paths to custom typedefs.list files which will be added to default"
-        },
-        "version": {
-            "type": "integer",
-            "default": 5,
-            "enum": [
-                1,
-                2,
-                3,
-                4,
-                5
-            ],
-            "description": "Version of configuration file layout. Managed by extension"
+            "description": "Path to or array of paths to custom typedefs.list files which will be added to default"
         },
         "customListType": {
             "type": "object",
@@ -229,175 +193,47 @@
             "required": ["type", "member"]
         }
     },
-    "oneOf": [
-        {
-            "type": "object",
-            "properties": {
-                "version": {
-                    "const": 1,
-                    "$ref": "#/definitions/version"
-                },
-                "specialMembers": {
-                    "type": "object",
-                    "description": "Configurations for special members",
-                    "properties": {
-                        "array": {
-                            "type": "array",
-                            "description": "Special members that represent arrays - separate fields for array and it's length",
-                            "items": {
-                                "$ref": "#/definitions/arraySpecialMemberV1"
-                            }
-                        }
-                    }
-                }
+    "properties": {
+        "arrays": {
+            "type": "array",
+            "description": "Special members that represent arrays - separate fields for array and it's length",
+            "items": {
+                "$ref": "#/definitions/arraySpecialMember"
             }
         },
-        {
-            "type": "object",
-            "properties": {
-                "version": {
-                    "const": 2,
-                    "$ref": "#/definitions/version"
-                },
-                "specialMembers": {
-                    "type": "object",
-                    "description": "Configurations for special members",
-                    "properties": {
-                        "array": {
-                            "type": "array",
-                            "description": "Special members that represent arrays - separate fields for array and it's length",
-                            "items": {
-                                "$ref": "#/definitions/arraySpecialMemberV2"
-                            }
-                        }
-                    }
-                },
-                "aliases": {
-                    "$ref": "#/definitions/aliasesV2"
-                }
+        "aliases": {
+            "$ref": "#/definitions/aliases"
+        },
+        "typedefs": {
+            "$ref": "#/definitions/typedefs"
+        },
+        "customListTypes": {
+            "type": "array",
+            "description": "Array of definitions of custom List types",
+            "items": {
+                "$ref": "#/definitions/customListType"
             }
         },
-        {
-            "type": "object",
-            "properties": {
-                "version": {
-                    "const": 3,
-                    "$ref": "#/definitions/version"
-                },
-                "specialMembers": {
-                    "type": "object",
-                    "description": "Configurations for special members",
-                    "properties": {
-                        "array": {
-                            "type": "array",
-                            "description": "Special members that represent arrays - separate fields for array and it's length",
-                            "items": {
-                                "$ref": "#/definitions/arraySpecialMemberV2"
-                            }
-                        }
-                    }
-                },
-                "aliases": {
-                    "$ref": "#/definitions/aliasesV2"
-                },
-                "typedefs": {
-                    "$ref": "#/definitions/typedefs"
-                }
+        "htab": {
+            "type": "array",
+            "description": "Array of definitions of types of entries in HTAB",
+            "items": {
+                "$ref": "#/definitions/htab"
             }
         },
-        {
-            "type": "object",
-            "properties": {
-                "version": {
-                    "const": 4,
-                    "$ref": "#/definitions/version"
-                },
-                "specialMembers": {
-                    "type": "object",
-                    "description": "Configurations for special members",
-                    "properties": {
-                        "array": {
-                            "type": "array",
-                            "description": "Special members that represent arrays - separate fields for array and it's length",
-                            "items": {
-                                "$ref": "#/definitions/arraySpecialMemberV2"
-                            }
-                        }
-                    }
-                },
-                "aliases": {
-                    "$ref": "#/definitions/aliasesV2"
-                },
-                "typedefs": {
-                    "$ref": "#/definitions/typedefs"
-                },
-                "customListTypes": {
-                    "type": "array",
-                    "description": "Array of definitions of custom List types",
-                    "items": {
-                        "$ref": "#/definitions/customListType"
-                    }
-                }
+        "simplehash": {
+            "type": "array",
+            "description": "Array of definitions of types in simple hash tables",
+            "items": {
+                "$ref": "#/definitions/simplehash"
             }
         },
-        {
-            "type": "object",
-            "properties": {
-                "version": {
-                    "const": 5,
-                    "$ref": "#/definitions/version"
-                },
-                "specialMembers": {
-                    "type": "object",
-                    "description": "Configurations for special members",
-                    "properties": {
-                        "array": {
-                            "type": "array",
-                            "description": "Special members that represent arrays - separate fields for array and it's length",
-                            "items": {
-                                "$ref": "#/definitions/arraySpecialMemberV2"
-                            }
-                        }
-                    }
-                },
-                "aliases": {
-                    "$ref": "#/definitions/aliasesV2"
-                },
-                "typedefs": {
-                    "$ref": "#/definitions/typedefs"
-                },
-                "customListTypes": {
-                    "type": "array",
-                    "description": "Array of definitions of custom List types",
-                    "items": {
-                        "$ref": "#/definitions/customListType"
-                    }
-                },
-                "htab": {
-                    "type": "array",
-                    "description": "Array of definitions of types of entries in HTAB",
-                    "items": {
-                        "$ref": "#/definitions/htab"
-                    }
-                },
-                "simplehash": {
-                    "type": "array",
-                    "description": "Array of definitions of types in simple hash tables",
-                    "items": {
-                        "$ref": "#/definitions/simplehash"
-                    }
-                },
-                "enums": {
-                    "type": "array",
-                    "description": "Array of definitions of enum types defined as integers and with MACROs used to access them",
-                    "items": {
-                        "$ref": "#/definitions/enumBitmask"
-                    }
-                }
+        "enums": {
+            "type": "array",
+            "description": "Array of definitions of enum types defined as integers and with MACROs used to access them",
+            "items": {
+                "$ref": "#/definitions/enumBitmask"
             }
         }
-    ],
-    "required": [
-        "version"
-    ]
+    }
 }
