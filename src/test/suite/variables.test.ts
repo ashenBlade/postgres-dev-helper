@@ -483,35 +483,6 @@ suite('Variables', async () => {
                             'values of IntList are not valid');
         });
 
-        /* List with Non-Node pointer array elements */
-        test('List[CustomPtr]', async () => {
-            /* list = [{value: 1}, {value: 2}, {value: 3}] */
-
-            /* Check variable */
-            let elementsMember = await getMemberOf(getVar('custom_list'), '$elements$');
-            let elements = await expand(elementsMember);
-            assert.equal(elements.length, 3,
-                         '$elements$ of variable does not contains all list members');
-            
-            for (const [i, element] of elements.entries()) {
-                const valueMember = await getMemberOf(element, 'value');
-                assert.match(valueMember.item.description, intRegexp(i + 1),
-                             `Element at ${i} does not contain valid value for variable`);
-            }
-
-            /* Check member */
-            const valueMember = await getMemberOf(getVar('custom_list_variable'), 'value');
-            elementsMember = await getMemberOf(valueMember, '$elements$');
-            assert.equal(elements.length, 3,
-                         '$elements$ of member does not contains all list members');
-
-            for (const [i, element] of elements.entries()) {
-                const valueMember = await getMemberOf(element, 'value');
-                assert.match(valueMember.item.description, intRegexp(i + 1),
-                             `Element at ${i} does not contain valid value for member`);
-            } 
-        });
-
         /* Bitmapset elements shown correctly */
         test('Bitmapset', async () => {
             /* 
@@ -574,6 +545,91 @@ suite('Variables', async () => {
             }
         });
 
+        /* Array members are rendered as actual array */
+        test('Array members', async () => {
+            const rootVar = getVar('root');
+            const arrayVar = await getMemberOf(rootVar, 'simple_rte_array');
+            const arrayElements = await expand(arrayVar);
+            assert.equal(arrayElements.length, 4,
+                         'simple_rte_array must contain 4 entries');
+        });
+
+        /* RestrictInfo and Expr is rendered instead of pointer value */
+        test('RestrictInfo', async () => {
+            const exprRegexp = /t1\.y > 10/i;
+
+            const {var: rinfoVar, item: rinfoItem} = await getVarItem('rinfo');
+            assert.match(rinfoItem.description, exprRegexp,
+                         'RestrictInfo expression is not rendered in description');
+
+            const clauseVar = await getMemberOf(rinfoVar, 'clause');
+            const {item: exprItem} = await getMemberOf(clauseVar, '$expr$');
+            assert.match(exprItem.description, exprRegexp,
+                         '$expr$ member does not contain valid expression');
+        });
+    });
+    
+    suite('Config file', async () => {
+        /* List with Non-Node pointer array elements */
+        test('List[CustomPtr]', async () => {
+            /* list = [{value: 1}, {value: 2}, {value: 3}] */
+
+            /* Check variable */
+            let elementsMember = await getMemberOf(getVar('custom_list'), '$elements$');
+            const elements = await expand(elementsMember);
+            assert.equal(elements.length, 3,
+                         '$elements$ of variable does not contains all list members');
+            
+            for (const [i, element] of elements.entries()) {
+                const valueMember = await getMemberOf(element, 'value');
+                assert.match(valueMember.item.description, intRegexp(i + 1),
+                             `Element at ${i} does not contain valid value for variable`);
+            }
+
+            /* Check member */
+            const valueMember = await getMemberOf(getVar('custom_list_variable'), 'value');
+            elementsMember = await getMemberOf(valueMember, '$elements$');
+            assert.equal(elements.length, 3,
+                         '$elements$ of member does not contains all list members');
+
+            for (const [i, element] of elements.entries()) {
+                const valueMember = await getMemberOf(element, 'value');
+                assert.match(valueMember.item.description, intRegexp(i + 1),
+                             `Element at ${i} does not contain valid value for member`);
+            } 
+        });
+
+        /* Array members are rendered as actual array */
+        test('Array members', async () => {
+            /*
+             * array_field = [1, 2] 
+             * array_expr  = [1, 2, 4, 8]
+             */
+            const arrayMemberVar = getVar('array_member');
+
+            const getArrayElementsOf = async (field: string) => {
+                const arrayMember = await getMemberOf(arrayMemberVar, field);
+                const elements = await expand(arrayMember);
+                return elements.map(x => x.item.description.trim());
+            }
+
+            const arrayFieldElements = await getArrayElementsOf('array_field');
+            assert.deepStrictEqual(['1', '2'], arrayFieldElements,
+                                    'array_field contains 2 elements: 1, 2');
+            
+            const arrayExprElements = await getArrayElementsOf('array_expr');
+            assert.deepStrictEqual(['1', '2', '4', '8'], arrayExprElements,
+                                    'array_expr contains 4 elements: 1, 2, 4, 8');
+        });
+        
+        /* User defined aliases */
+        test('Alias', async () => {
+            const exprRegexp = /t1\.y > 10/i;
+            const exprReprVar = await getMemberOf(getVar('expr_alias'), '$expr$');
+            assert.match(exprReprVar.item.description, exprRegexp,
+                         'Alias must be expanded and handled as original type');
+        });
+
         /* Hash table elements are shown */
         test('HTAB', async function() {
             const elementsVar = await getMemberOf(getVar('htab'), '$elements$');
@@ -627,27 +683,5 @@ suite('Variables', async () => {
                 'Shown elements of simplehash are not ones that stored');
         });
 
-        /* Array members are rendered as actual array */
-        test('Array members', async () => {
-            const rootVar = getVar('root');
-            const arrayVar = await getMemberOf(rootVar, 'simple_rte_array');
-            const arrayElements = await expand(arrayVar);
-            assert.equal(arrayElements.length, 4,
-                         'simple_rte_array must contain 4 entries');
-        });
-
-        /* RestrictInfo and Expr is rendered instead of pointer value */
-        test('RestrictInfo', async () => {
-            const exprRegexp = /t1\.y > 10/i;
-
-            const {var: rinfoVar, item: rinfoItem} = await getVarItem('rinfo');
-            assert.match(rinfoItem.description, exprRegexp,
-                         'RestrictInfo expression is not rendered in description');
-
-            const clauseVar = await getMemberOf(rinfoVar, 'clause');
-            const {item: exprItem} = await getMemberOf(clauseVar, '$expr$');
-            assert.match(exprItem.description, exprRegexp,
-                         '$expr$ member does not contain valid expression');
-        });
-    });
+    })
 });

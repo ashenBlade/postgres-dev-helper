@@ -35,7 +35,7 @@ new file mode 100644
 index 00000000000..76f2903e179
 --- /dev/null
 +++ b/src/backend/optimizer/plan/vscodehelper.c
-@@ -0,0 +1,239 @@
+@@ -0,0 +1,275 @@
 +#include "postgres.h"
 +
 +#include "nodes/relation.h"
@@ -95,6 +95,16 @@ index 00000000000..76f2903e179
 +	int value;
 +} SimpleHashEntry;
 +
++typedef struct ArrayMember
++{
++	int *array_field;
++	int *array_expr;
++	int length;
++	int length2;
++} ArrayMember;
++
++typedef Expr *ExprAlias;
++
 +#define SH_PREFIX 			testhash
 +#define SH_ELEMENT_TYPE 	SimpleHashEntry
 +#define SH_KEY_TYPE 		int
@@ -111,6 +121,7 @@ index 00000000000..76f2903e179
 +static HTAB *create_htab(void);
 +static testhash_hash *create_simplehash(void);
 +static List *create_custom_list(void);
++static ArrayMember *create_special_array_member(void);
 +
 +static HTAB *
 +create_htab(void)
@@ -178,6 +189,23 @@ index 00000000000..76f2903e179
 +	return list;
 +}
 +
++static ArrayMember *
++create_special_array_member(void)
++{
++	ArrayMember *array = palloc(sizeof(ArrayMember));
++	array->length = 2;
++	array->length2 = 2;
++	array->array_field = palloc(sizeof(int) * array->length);
++	array->array_expr = palloc(sizeof(int) * (array->length + array->length2));
++	array->array_field[0] = 1;
++	array->array_field[1] = 2;
++	array->array_expr[0] = 1;
++	array->array_expr[1] = 2;
++	array->array_expr[2] = 4;
++	array->array_expr[3] = 8;
++	return array;
++}
++
 +void
 +vscode_test_helper_unused(void *pointer)
 +{
@@ -203,6 +231,14 @@ index 00000000000..76f2903e179
 +	TestEmbeddedStructure embedded_member;
 +	TestFixedArray fixed_size_array_member;
 +	TestFlexibleArrayMember flexible_array_member;
++	
++	/* Config file */
++	ArrayMember *array_member;
++	ExprAlias expr_alias;
++	CustomListVariable custom_list_variable;
++	testhash_hash *simplehash;
++	List *custom_list;
++	HTAB *htab;
 +
 +	/* Node variables */
 +	Bitmapset *bms;
@@ -210,12 +246,8 @@ index 00000000000..76f2903e179
 +	Expr *expr;
 +	List *list;
 +	List *int_list;
-+	List *custom_list;
-+	CustomListVariable custom_list_variable;
-+	HTAB *htab;
 +	RestrictInfo *rinfo;
 +	EquivalenceClass *eclass;
-+	testhash_hash *simplehash;
 +
 +	/* Protect against arbitrary query */
 +	if (!(   list_length(root->parse->rtable) == 3
@@ -233,7 +265,9 @@ index 00000000000..76f2903e179
 +	simplehash = create_simplehash();
 +	rinfo = (RestrictInfo *) linitial((root->simple_rel_array[1])->baserestrictinfo);
 +	expr = rinfo->clause;
++	expr_alias = expr;
 +	eclass = (EquivalenceClass *) linitial(root->eq_classes);
++	array_member = create_special_array_member();
 +
 +	i = 1;
 +	value_struct.value = 1;
@@ -259,6 +293,8 @@ index 00000000000..76f2903e179
 +	UNUSED(htab);
 +	UNUSED(rinfo);
 +	UNUSED(eclass);
++	UNUSED(array_member);
++	UNUSED(expr_alias);
 +	UNUSED(simplehash);
 +	UNUSED(i);
 +	UNUSED(int_array);

@@ -35,7 +35,7 @@ new file mode 100644
 index 00000000000..358d8795a48
 --- /dev/null
 +++ b/src/backend/optimizer/plan/vscodehelper.c
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,233 @@
 +#include "postgres.h"
 +
 +#include "nodes/relation.h"
@@ -89,9 +89,20 @@ index 00000000000..358d8795a48
 +	int value;
 +} TestHtabEntry;
 +
++typedef struct ArrayMember
++{
++	int *array_field;
++	int *array_expr;
++	int length;
++	int length2;
++} ArrayMember;
++
++typedef Expr *ExprAlias;
++
 +static HTAB *create_htab(void);
 +static Bitmapset *create_bms(void);
 +static List *create_custom_list(void);
++static ArrayMember *create_special_array_member(void);
 +
 +static HTAB *
 +create_htab(void)
@@ -150,6 +161,23 @@ index 00000000000..358d8795a48
 +	return list;
 +}
 +
++static ArrayMember *
++create_special_array_member(void)
++{
++	ArrayMember *array = palloc(sizeof(ArrayMember));
++	array->length = 2;
++	array->length2 = 2;
++	array->array_field = palloc(sizeof(int) * array->length);
++	array->array_expr = palloc(sizeof(int) * (array->length + array->length2));
++	array->array_field[0] = 1;
++	array->array_field[1] = 2;
++	array->array_expr[0] = 1;
++	array->array_expr[1] = 2;
++	array->array_expr[2] = 4;
++	array->array_expr[3] = 8;
++	return array;
++}
++
 +void
 +vscode_test_helper(PlannerInfo *root)
 +{
@@ -165,15 +193,19 @@ index 00000000000..358d8795a48
 +	TestFixedArray fixed_size_array_member;
 +	TestFlexibleArrayMember flexible_array_member;
 +
++	/* Config file */
++	ArrayMember *array_member;
++	ExprAlias expr_alias;
++	CustomListVariable custom_list_variable;
++	List *custom_list;
++	HTAB *htab;
++
 +	/* Node variables */
 +	Bitmapset *bms;
 +	Node *node;
 +	Expr *expr;
 +	List *list;
 +	List *int_list;
-+	List *custom_list;
-+	CustomListVariable custom_list_variable;
-+	HTAB *htab;
 +	RestrictInfo *rinfo;
 +	EquivalenceClass *eclass;
 +
@@ -192,7 +224,9 @@ index 00000000000..358d8795a48
 +	htab = create_htab();
 +	rinfo = (RestrictInfo *) linitial((root->simple_rel_array[1])->baserestrictinfo);
 +	expr = rinfo->clause;
++	expr_alias = expr;
 +	eclass = (EquivalenceClass *) linitial(root->eq_classes);
++	array_member = create_special_array_member();
 +
 +	i = 1;
 +	value_struct.value = 1;
@@ -218,6 +252,8 @@ index 00000000000..358d8795a48
 +	UNUSED(htab);
 +	UNUSED(rinfo);
 +	UNUSED(eclass);
++	UNUSED(array_member);
++	UNUSED(expr_alias);
 +	UNUSED(i);
 +	UNUSED(int_array);
 +	UNUSED(structure_array);

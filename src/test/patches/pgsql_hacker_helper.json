@@ -1,4 +1,22 @@
 {
+    "aliases": [
+        {
+            "alias": "ExprAlias",
+            "type": "Expr *"
+        }
+    ],
+    "arrays": [
+        {
+            "typeName": "ArrayMember",
+            "memberName": "array_field",
+            "lengthExpression": "length"
+        },
+        {
+            "typeName": "ArrayMember",
+            "memberName": "array_expr",
+            "lengthExpression": "!{}->length + {}->length2"
+        }
+    ],
     "htab": [
         {
             "type": "TestHtabEntry *",
