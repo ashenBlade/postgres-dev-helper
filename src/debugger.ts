@@ -768,19 +768,13 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
         }
         
         /* 
-         * For structures we have 2 renderings (in description field):
-         *  1. Raw pointer, i.e. 0x00006295b176f6b0
-         *  2. Structure fields around curly brackets, i.e. {type:T_PlannerInfo}
+         * CodeLLDB is smart, but it is problem for us, because it becomes hard
+         * to detect which type of this type: pointer to struct or builtin basic
+         * type (i.e. 'int *').
+         * So, here I try to be as flexible as I can - this is pointer type
+         * if it contains any pointer in type or it is raw pointer value.
          */
-        if (this.valueRepresentsStructure(value) && variable.type.indexOf('*') !== -1) {
-            return true;
-        }
-
-        if (pointerRegex.test(value)) {
-            return true;
-        }
-
-        return false;
+        return variable.type.indexOf('*') !== -1 || pointerRegex.test(value);
     }
 
     isScalarType(variable: IDebugVariable, type?: string) {
