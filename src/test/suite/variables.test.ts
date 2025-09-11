@@ -172,6 +172,26 @@ suite('Variables', async () => {
         user: 'postgres'
     });
 
+    /* 
+     * Store predicate and query together, so we can fast reflect any
+     * changes in tested predicate.
+     * 
+     * We can not check every possible function/operator/etc... so check
+     * basic: 
+     *  - column: t1.y
+     *  - constant: 10
+     *  - binary operator: >
+     *  - function: random()
+     * 
+     * Before updating this note, that this query is run against latest
+     * and *oldest* pg versions, so this oldest version also must support
+     * presented functions.
+     */
+    const predicateRegex = /t1\.y > power\(10, random\(\)\)/i;
+    const query = `SELECT *
+                   FROM t1 JOIN t2 ON t1.x = t2.x 
+                   WHERE t1.y > power(10, random()) AND t2.x = t1.y;`;
+    
     /* There must be only 1 workspace */
     const workspace = vscode.workspace.workspaceFolders![0];
 
@@ -199,9 +219,7 @@ suite('Variables', async () => {
         /* Wait before breakpoint enables and run query */
         await sleep(1000);
 
-        client.query(`SELECT *
-                      FROM t1 JOIN t2 ON t1.x = t2.x 
-                      WHERE t1.y > 10 AND t2.x = t1.y`);
+        client.query(query);
 
         /*
          * Wait for breakpoint and collect variables.
@@ -556,8 +574,7 @@ suite('Variables', async () => {
 
         /* RestrictInfo and Expr is rendered instead of pointer value */
         test('RestrictInfo', async () => {
-            const exprRegexp = /t1\.y > 10/i;
-
+            const exprRegexp = predicateRegex;
             const {var: rinfoVar, item: rinfoItem} = await getVarItem('rinfo');
             assert.match(rinfoItem.description, exprRegexp,
                          'RestrictInfo expression is not rendered in description');
@@ -624,7 +641,7 @@ suite('Variables', async () => {
         
         /* User defined aliases */
         test('Alias', async () => {
-            const exprRegexp = /t1\.y > 10/i;
+            const exprRegexp = predicateRegex;
             const exprReprVar = await getMemberOf(getVar('expr_alias'), '$expr$');
             assert.match(exprReprVar.item.description, exprRegexp,
                          'Alias must be expanded and handled as original type');
