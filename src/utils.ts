@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import path from 'path';
 import * as util from 'util';
-import * as fs from 'fs';
 import * as child_process from 'child_process';
 import { Configuration } from './extension';
 import * as https from 'https';
@@ -222,39 +221,12 @@ export class VsCodeLogger extends BaseLogger implements ILogger {
     }
 }
 
-function getFileType(stats: fs.Stats) {
-    if (stats.isFile()) {
-        return vscode.FileType.File;
-    }
-    if (stats.isDirectory()) {
-        return vscode.FileType.Directory;
-    }
-    if (stats.isSymbolicLink()) {
-        return vscode.FileType.SymbolicLink;
-    }
-
-    return vscode.FileType.Unknown;
+export function joinPath(base: vscode.Uri, ...paths: string[]) {
+    return vscode.Uri.joinPath(base, ...paths);
 }
 
 function statFile(uri: vscode.Uri): Thenable<vscode.FileStat> {
-    if (Features.hasWorkspaceFs()) {
-        return vscode.workspace.fs.stat(uri);
-    } else {
-        return new Promise((resolve, reject) => {
-            fs.stat(uri.fsPath, (err, stats) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve({
-                        ctime: stats.ctime.valueOf(),
-                        mtime: stats.mtime.valueOf(),
-                        size: stats.size,
-                        type: getFileType(stats),
-                    } as vscode.FileStat);
-                }
-            });
-        })
-    }
+    return vscode.workspace.fs.stat(uri);
 }
 
 /**
@@ -297,52 +269,16 @@ export async function directoryExists(path: vscode.Uri) {
 }
 
 export async function createDirectory(path: vscode.Uri): Promise<void> {
-    if (Features.hasWorkspaceFs()) {
-        return vscode.workspace.fs.createDirectory(path);
-    } else {
-        return new Promise((resolve, reject) => {
-            fs.mkdir(path.fsPath, null, (err) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve();
-                }
-            })
-        })
-    }
+    return vscode.workspace.fs.createDirectory(path);
 }
 
 export async function directoryEmpty(path: vscode.Uri) {
-    if (Features.hasWorkspaceFs()) {
-        const files = await vscode.workspace.fs.readDirectory(path);
-        return files.length === 0;
-    } else {
-        return await new Promise((resolve, reject) => {
-            fs.readdir(path.fsPath, (err, files) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(files.length === 0);
-                }
-            });
-        });
-    }
+    const files = await vscode.workspace.fs.readDirectory(path);
+    return files.length === 0;
 }
 
 export async function copyFile(file: vscode.Uri, targetFile: vscode.Uri) {
-    if (Features.hasWorkspaceFs()) {
-        await vscode.workspace.fs.copy(file, targetFile);
-    } else {
-        return await new Promise<void>((resolve, reject) => {
-            fs.copyFile(file.fsPath, targetFile.fsPath, (err) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve();
-                }
-            })
-        })
-    }
+    await vscode.workspace.fs.copy(file, targetFile);
 }
 
 export function createTempFileName(template: string) {
@@ -409,57 +345,16 @@ export async function execShell(cmd: string, args?: string[],
 }
 
 export async function deleteFile(file: vscode.Uri) {
-    if (Features.hasWorkspaceFs()) {
-        await vscode.workspace.fs.delete(file, { useTrash: false });
-    } else {
-        return new Promise<void>((resolve, reject) => {
-            fs.unlink(file.fsPath, (err) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve();
-                }
-            })
-        });
-    }
+    await vscode.workspace.fs.delete(file, { useTrash: false });
 }
 
-export function readFile(path: vscode.Uri) {
-    if (Features.hasWorkspaceFs()) {
-        return vscode.workspace.fs.readFile(path)
-                .then(value => new TextDecoder().decode(value));
-    } else {
-        return new Promise<string>((resolve, reject) => {
-            fs.readFile(path.fsPath, (err, value) => {
-                if (err) {
-                    reject(err);
-                    return;
-                }
-
-                try {
-                    resolve(new TextDecoder().decode(value));
-                } catch (err: any) {
-                    reject(err);
-                }
-            })
-        })
-    }
+export async function readFile(path: vscode.Uri) {
+    const value = await vscode.workspace.fs.readFile(path);
+    return new TextDecoder().decode(value);
 }
 
 export function writeFile(path: vscode.Uri, data: string): Thenable<void> {
-    if (Features.hasWorkspaceFs()) {
-        return vscode.workspace.fs.writeFile(path, new TextEncoder().encode(data));
-    } else {
-        return new Promise((resolve, reject) => {
-            fs.writeFile(path.fsPath, data, (err) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve();
-                }
-            })
-        })
-    }
+    return vscode.workspace.fs.writeFile(path, new TextEncoder().encode(data));
 }
 
 export function getFileName(path: vscode.Uri) {
@@ -570,9 +465,6 @@ export function version(ver: string): number {
  */
 let debugFocusEnabled: boolean | undefined = undefined;
 let hasArrayLengthFeature: boolean | undefined = undefined;
-let logOutputLanguageEnabled: boolean | undefined = undefined;
-let hasWorkspaceFs: boolean | undefined = undefined;
-let hasUriJoinPath: boolean | undefined = undefined;
 let hasLogOutputChannel: boolean | undefined = undefined;
 
 export class Features {
@@ -606,29 +498,6 @@ export class Features {
         return hasArrayLengthFeature;
     }
 
-    static logOutputLanguageEnabled() {
-        /* Set 'log' to languageId in Output Channel */
-        if (logOutputLanguageEnabled === undefined) {
-            logOutputLanguageEnabled = this.versionAtLeast('1.67.0');
-        }
-        return logOutputLanguageEnabled;
-    }
-
-    static hasWorkspaceFs() {
-        /* Has 'vscode.workspace.fs' */
-        if (hasWorkspaceFs === undefined) {
-            hasWorkspaceFs = this.versionAtLeast('1.37.0');
-        }
-        return hasWorkspaceFs;
-    }
-
-    static hasUriJoinPath() {
-        if (hasUriJoinPath === undefined) {
-            hasUriJoinPath = this.versionAtLeast('1.45.0');
-        }
-        return hasUriJoinPath;
-    }
-
     static hasLogOutputChannel() {
         if (hasLogOutputChannel === undefined) {
             hasLogOutputChannel = this.versionAtLeast('1.74.0');
@@ -636,12 +505,4 @@ export class Features {
 
         return hasLogOutputChannel;
     }
-}
-
-export function joinPath(base: vscode.Uri, ...paths: string[]) {
-    if (Features.hasUriJoinPath()) {
-        return vscode.Uri.joinPath(base, ...paths);
-    }
-
-    return vscode.Uri.file(path.join(base.fsPath, ...paths));
 }

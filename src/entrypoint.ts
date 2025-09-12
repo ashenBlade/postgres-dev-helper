@@ -2,11 +2,9 @@ import * as vscode from 'vscode';
 import * as vars from './variables';
 import * as utils from './utils';
 import * as formatter from './formatter';
-import { ConfigFile } from './extension';
 import { setupDebugger } from './debugger';
 
 import {
-    NodePreviewTreeViewProvider,
     NodePreviewTreeViewProvider as PgVariablesView,
     Configuration as config,
     getCurrentLogLevel,
@@ -21,12 +19,8 @@ function createLogger(context: vscode.ExtensionContext): utils.ILogger {
         outputChannel = vscode.window.createOutputChannel(config.ExtensionPrettyName, {log: true});
         logger = new utils.VsCodeLogger(outputChannel);
     } else {
-        if (utils.Features.logOutputLanguageEnabled()) {
-            outputChannel = vscode.window.createOutputChannel(config.ExtensionPrettyName, 'log');
-        } else {
-            outputChannel = vscode.window.createOutputChannel(config.ExtensionPrettyName);
-        }
-        
+        outputChannel = vscode.window.createOutputChannel(config.ExtensionPrettyName, 'log');
+
         const logLevelConfigSection = config.ConfigSections.LogLevel;
         const fullConfigSectionName = config.getFullConfigSection(logLevelConfigSection);
         const vsLogger = new utils.ObsoleteVsCodeLogger(outputChannel, getCurrentLogLevel());
