@@ -462,6 +462,11 @@ export function writeFile(path: vscode.Uri, data: string): Thenable<void> {
     }
 }
 
+export function getFileName(path: vscode.Uri) {
+    const parts = path.fsPath.split('/');
+    return parts[parts.length - 1];
+}
+
 /**
  * Download file and return it's content.
  * 
