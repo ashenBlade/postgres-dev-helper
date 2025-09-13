@@ -4,6 +4,9 @@ import * as util from 'util';
 import * as child_process from 'child_process';
 import { Configuration } from './extension';
 import * as https from 'https';
+import * as fs from 'fs';
+import * as os from 'os';
+import { PghhError } from './error';
 
 const identifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
@@ -281,8 +284,20 @@ export async function copyFile(file: vscode.Uri, targetFile: vscode.Uri) {
     await vscode.workspace.fs.copy(file, targetFile);
 }
 
-export function createTempFileName(template: string) {
-    return template.replace('{}', crypto.randomUUID().toString());
+export async function createTempFile(template: string, content: string) {
+    const filename = template.replace('{}', crypto.randomUUID().toString());
+    const tempFile = vscode.Uri.joinPath(vscode.Uri.file(os.tmpdir()), filename);
+    await vscode.workspace.fs.writeFile(tempFile, new TextEncoder().encode(content));
+    return tempFile;
+}
+
+export class ShellExecError extends PghhError {
+    constructor(public command: string, 
+                public stderr: string,
+                public stdout: string,
+                public code: number) {
+        super(`command "${command}" failed to execute: ${stderr}`);
+    }
 }
 
 export async function execShell(cmd: string, args?: string[], 
@@ -308,8 +323,9 @@ export async function execShell(cmd: string, args?: string[],
         });
 
         child.on('close', (code) => {
-            if (code !== 0 && (throwOnError === undefined || throwOnError)) {
-                reject(new Error(`command failed to execute. error stack: ${stdout.join('')}`));
+            if (code !== 0 && (throwOnError ?? true)) {
+                const command = `${cmd} ${args?.join(' ')}`;
+                reject(new ShellExecError(command, stderr.join(''), stdout.join(''), code ?? 1));
             } else {
                 resolve({
                     code: code ?? 0,

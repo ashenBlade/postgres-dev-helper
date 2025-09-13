@@ -2,8 +2,11 @@ import * as vscode from 'vscode';
 import {languages} from 'vscode';
 import * as utils from './utils';
 import { Configuration } from './extension';
+import { PghhError } from './error';
 import * as path from 'path';
 import * as os from 'os';
+
+class FormattingError extends PghhError {}
 
 function findSuitableWorkspace(document: vscode.TextDocument) {
     if (!vscode.workspace.workspaceFolders?.length) {
@@ -28,6 +31,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         '-nip', '-npro', '-sac', '-tpg', '-ts4'
     ];
 
+    private savedPgindentPath?: vscode.Uri;
     private savedPgbsdPath?: vscode.Uri;
     private savedProcessedTypedef?: vscode.Uri;
     constructor(private logger: utils.ILogger) {}
@@ -40,12 +44,12 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         }
 
         const userInput = await vscode.window.showInputBox({
-            prompt: 'pg_config is required to build pg_bsd_indent',
+            prompt: 'Enter pg_config path',
             password: false,
-            title: 'Enter pg_config path',
+            title: 'pg_config is required to build pg_bsd_indent',
             validateInput: async (value: string) => {
                 const filePath = path.isAbsolute(value) 
-                                        ? vscode.Uri.file(value) 
+                                        ? vscode.Uri.file(value)
                                         : utils.joinPath(workspace.uri, value);
                 if (!await utils.fileExists(filePath)) {
                     return 'File not found';
@@ -61,8 +65,126 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
                                     : utils.joinPath(workspace.uri, userInput);
         return pg_configPath;
     }
+    
+    private async tryFindRequiredPgBsdIndentVersion(pgindent: vscode.Uri) {
+        const file = await utils.readFile(pgindent);
+        const lines = file.split('\n');
+        const versionRegexp = /=\s+"(\d(\.\d)*)"/;
 
-    private async findExistingPgbsdindent(workspace: vscode.WorkspaceFolder) {
+        const tryGetVersion = (line: string) => {
+            if (line.indexOf('INDENT_VERSION') === -1) {
+                return;
+            }
+            
+            const result = versionRegexp.exec(line);
+            if (!result) {
+                /*
+                 * version line must be first - there no point in looking
+                 * any further
+                 */
+                return;
+            }
+            
+            return result[1];
+        }
+        
+        /* 
+        * most likely, pgindent's code have not
+        * changed variable declared on these lines
+        */
+        let version;
+        if (   (version = tryGetVersion(lines[14]))
+            || (version = tryGetVersion(lines[15]))
+            || (version = tryGetVersion(lines[16]))) {
+            return version;
+        }
+
+        /* fallback scanning whole file */
+        for (const line of lines) {
+            version = tryGetVersion(line);
+            if (version) {
+                return version;
+            }
+        }
+    }
+    
+    private async clonePgBsdIndent(workspace: vscode.WorkspaceFolder,
+                                   pgindent: vscode.Uri,
+                                   pgBsdIndentDir: vscode.Uri) {
+        /*
+         * Actually clone sources. Note that here we are only if we are running
+         * in pg version 16< where pg_bsd_indent
+         */
+        const pgindentDir = utils.getWorkspacePgSrcFile(
+                                    workspace.uri, 'src', 'tools', 'pgindent');
+        this.logger.info('cloning pg_bsd_indent repository');
+        /* XXX: maybe better to download archive, not full history? */
+        await utils.execShell(
+            'git', ['clone', 'https://git.postgresql.org/git/pg_bsd_indent.git'],
+            {cwd: pgindentDir.fsPath});
+
+        /* 
+         * Each pgindent requires specific version of pg_bsd_indent and
+         * original repo contains tag only for 2.1.1 and the only thing we
+         * could do - checkout to specific commit.
+         * But the problem is that not-master branch fails to build whichever
+         * commit i used, so instead we will mock pg_bsd_indent, so it
+         * behaves like expected version.
+         */
+        const version = await this.tryFindRequiredPgBsdIndentVersion(pgindent);
+        if (!version) {
+            this.logger.warn('could not detect required pg_bsd_indent version - using latest');
+            return;
+        }
+
+        /* 
+         * After repo freeze this is latest version which pgindent expects,
+         * so no need to patch and we are here only if pg<16 and there
+         * are no versions greater than that.
+         */
+        if (version === '2.1.1') {
+            return;    
+        }
+
+        this.logger.info('patching pg_bsd_indent/args.c to be like %s', version);
+        const argsFile = utils.joinPath(pgBsdIndentDir, 'args.c');
+        const contents = await utils.readFile(argsFile);
+        const lines = contents.split('\n');
+        
+        /* 
+         * We should patch 2 parts in '--version': 
+         * - set version to expected
+         * - remove trailing 'based on BSD indent' (due to regex match rule)
+         * 
+         * Also we know that cloned pg_bsd_indent always has same source code,
+         * so we know where the lines are located:
+         * -  57 - INDENT_VERSION macro
+         * - 309 - version format string
+         */
+        const patchHeuristic = (search: string, replacePattern: string | RegExp,
+                                replace: string, expectedLine: number) => {
+            let line = lines[expectedLine];
+            if (line.indexOf(search) !== -1) {
+                lines[expectedLine] = line.replace(replacePattern, replace);
+            } else {
+                for (let i = 0; i < lines.length; ++i) {
+                    line = lines[i];
+                    if (line.indexOf(search) !== -1) {
+                        lines[i] = line.replace(replacePattern, replace);
+                        break;
+                    }
+                }
+            }
+        }
+        patchHeuristic('INDENT_VERSION', /"\d(\.\d)*"/, `"${version}"`, 57);
+        patchHeuristic(' (based on FreeBSD indent)', ' (based on FreeBSD indent)', '', 309);
+
+        this.logger.info('writing patched args.c back');
+        await utils.writeFile(argsFile, lines.join('\n'));
+    }
+
+    private async findPgBsdIndentOrBuild(workspace: vscode.WorkspaceFolder,
+                                          pgindent: vscode.Uri) {
         /* 
          * For pg_bsd_indent search 2 locations:
          * 
@@ -71,58 +193,45 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          *  - src/tools/pgindent/pg_bsd_indent (PG <16)
          *      - not exist: download + build
          */
-        let pg_bsd_indent_dir = utils.getWorkspacePgSrcFile(
-                                workspace.uri, 'src', 'tools', 'pg_bsd_indent');
-        if (await utils.directoryExists(pg_bsd_indent_dir)) {
-            /* src/tools/pg_bsd_indent */
-            let pg_bsd_indent = utils.joinPath(pg_bsd_indent_dir, 'pg_bsd_indent');
-            if (await utils.fileExists(pg_bsd_indent)) {
-                return pg_bsd_indent;
+        let pgBsdIndentDir = utils.getWorkspacePgSrcFile(
+                                  workspace.uri, 'src', 'tools', 'pg_bsd_indent');
+
+        /* src/tools/pg_bsd_indent */
+        if (await utils.directoryExists(pgBsdIndentDir)) {
+            let pgBsdIndent = utils.joinPath(pgBsdIndentDir, 'pg_bsd_indent');
+            if (await utils.fileExists(pgBsdIndent)) {
+                return pgBsdIndent;
             }
 
             /* Try to build it */
-            this.logger.info('building pg_bsd_indent in %s', pg_bsd_indent_dir.fsPath);
-            await utils.execShell('make', ['-C', pg_bsd_indent_dir.fsPath],
+            this.logger.info('building pg_bsd_indent in %s', pgBsdIndentDir.fsPath);
+            await utils.execShell('make', ['-C', pgBsdIndentDir.fsPath],
                                   {cwd: workspace.uri.fsPath});
-            return pg_bsd_indent;
+            return pgBsdIndent;
         }
 
         /* src/tools/pgindent/pg_bsd_indent */
-        pg_bsd_indent_dir = utils.getWorkspacePgSrcFile(
+        pgBsdIndentDir = utils.getWorkspacePgSrcFile(
                         workspace.uri, 'src', 'tools', 'pgindent', 'pg_bsd_indent');
-        const pg_bsd_indent = utils.joinPath(pg_bsd_indent_dir, 'pg_bsd_indent');
-        if (await utils.fileExists(pg_bsd_indent)) {
-            return pg_bsd_indent;
+        const pgBsdIndent = utils.joinPath(pgBsdIndentDir, 'pg_bsd_indent');
+        if (await utils.fileExists(pgBsdIndent)) {
+            return pgBsdIndent;
         }
-
-        const shouldClone = (!await utils.directoryExists(pg_bsd_indent_dir) || 
-                                await utils.directoryEmpty(pg_bsd_indent_dir));
-
-        const pg_configPath = await this.getPgConfigPath(workspace);
 
         /* Clone and build pg_bsd_indent */
+        const pgConfigPath = await this.getPgConfigPath(workspace);
+        const shouldClone = (!await utils.directoryExists(pgBsdIndentDir) ||
+                                await utils.directoryEmpty(pgBsdIndentDir));
         if (shouldClone) {
-            const pgindentDir = utils.getWorkspacePgSrcFile(
-                                    workspace.uri, 'src', 'tools', 'pgindent');
-            try {
-                this.logger.info('cloning pg_bsd_indent repository');
-                await utils.execShell(
-                    'git', ['clone', 'https://git.postgresql.org/git/pg_bsd_indent.git'],
-                    {cwd: pgindentDir.fsPath});
-            } catch (error) {
-                throw new Error(`failed to git clone pg_bsd_indent repository: ${error}`);
-            }
+            await this.clonePgBsdIndent(workspace, pgindent, pgBsdIndentDir);
         }
 
-        try {
-            this.logger.info('building pg_bsd_indent')
-            await utils.execShell(
-                'make', ['all', `PG_CONFIG="${pg_configPath.fsPath}"`],
-                {cwd: pg_bsd_indent_dir.fsPath});
-            return pg_bsd_indent;
-        } catch (error) {
-            throw new Error(`failed to build pg_bsd_indent after clone: ${error}`);
-        }
+        this.logger.info('building pg_bsd_indent')
+        /* Repo's version requires passing PG_CONFIG (just build, no 'install') */
+        await utils.execShell(
+            'make', ['all', `PG_CONFIG="${pgConfigPath.fsPath}"`],
+            {cwd: pgBsdIndentDir.fsPath});
+        return pgBsdIndent;
     }
     
     private getProcessedTypedefFilePath(workspace: vscode.WorkspaceFolder) {
@@ -245,7 +354,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         return processedTypedef;
     }
 
-    private async getPgbsdindent(workspace: vscode.WorkspaceFolder) {
+    private async getPgBsdIndent(workspace: vscode.WorkspaceFolder, pgindent: vscode.Uri) {
         if (this.savedPgbsdPath) {
             if (await utils.fileExists(this.savedPgbsdPath)) {
                 return this.savedPgbsdPath;
@@ -261,59 +370,28 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
                             : utils.joinPath(workspace.uri, userPgbsdindent);
         }
 
-        return await this.findExistingPgbsdindent(workspace);
+        return await this.findPgBsdIndentOrBuild(workspace, pgindent);
     }
-
-    private runPreIndent(contents: string): string {
-        function replace(regex: any, replacement: any) {
-            contents = contents.replace(regex, replacement)
+    
+    private async getPgindent(workspace: vscode.WorkspaceFolder) {
+        if (this.savedPgindentPath) {
+            return this.savedPgindentPath;
         }
-
-        // Convert // comments to /* */
-        replace(/^([ \t]*)\/\/(.*)$/gm, '$1/* $2 */');
-
-        // Adjust dash-protected block comments so indent won't change them
-        replace(/\/\* \+---/gm, '/*---X_X');
-
-        // Prevent indenting of code in 'extern "C"' blocks
-        // we replace the braces with comments which we'll reverse later
-        replace(/(^#ifdef[ \t]+__cplusplus.*\nextern[ \t]+"C"[ \t]*\n)\{[ \t]*$/gm, 
-                '$1/* Open extern "C" */');
-        replace(/(^#ifdef[ \t]+__cplusplus.*\n)\}[ \t]*$/gm,
-                '$1/* Close extern "C" */');
-
-        // Protect wrapping in CATALOG()
-        replace(/^(CATALOG\(.*)$/gm, '/*$1*/');
-
-        return contents;
-    }
-
-    private runPostIndent(contents: string): string {
-        function replace(regex: any, replacement: any) {
-            contents = contents.replace(regex, replacement);
+        
+        const pgindentPath = utils.getWorkspacePgSrcFile(
+                        workspace.uri, 'src', 'tools', 'pgindent', 'pgindent');
+        if (!await utils.fileExists(pgindentPath)) {
+            vscode.window.showErrorMessage(`could not find pgindent at ${pgindentPath.fsPath}`);
+            throw new FormattingError('could not find pgindent');
         }
-
-        // Restore CATALOG lines
-        replace(/^\/\*(CATALOG\(.*)\*\/$/gm, '$1');
-
-        // put back braces for extern "C"
-        replace(/^\/\* Open extern "C" \*\//gm, '{');
-        replace(/^\/\* Close extern "C" \*\/$/gm, '}');
-
-        // Undo change of dash-protected block comments
-        replace(/\/\*---X_X/gm, '/* ---');
-
-        // Fix run-together comments to have a tab between them
-        replace(/\*\/(\/\*.*\*\/)$/gm, '*/\t$1');
-
-        // Use a single space before '*' in function return types
-        replace(/^([A-Za-z_]\S*)[ \t]+\*$/gm, '$1 *');
-
-        return contents;
+        
+        this.savedPgindentPath = pgindentPath;
+        return pgindentPath;
     }
 
-    private async runPgindentInternal(document: string, 
+    private async runPgindentInternal(document: vscode.Uri,
                                       pg_bsd_indent: vscode.Uri,
+                                      pgindent: vscode.Uri,
                                       workspace: vscode.WorkspaceFolder) {
         /* 
          * We use pg_bsd_indent directly instead of pgindent because:
@@ -322,26 +400,42 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          *  - pgindent creates temp files which are not removed if error
          *    happens - we can not track these files (main reason)
          */
-        let typedefs = await this.getProcessedTypedefs(workspace);
-        const preProcessed = this.runPreIndent(document);
-        const {stdout: processed} = await utils.execShell(
-            pg_bsd_indent.fsPath, [
-                ...PgindentDocumentFormatterProvider.pg_bsd_indentDefaultFlags,
-                `-U${typedefs.fsPath}`],
-            {
-                stdin: preProcessed,
-                /* 
-                 * pg_bsd_indent returns non-zero code if it encountered some
-                 * errors, but for us they are not important. i.e. no newline
-                 * at end of file causes to return code 1
-                 */
-                throwOnError: false,
-            });
-        const postProcessed = this.runPostIndent(processed);
+        const typedefs = await this.getProcessedTypedefs(workspace);
+        try {
+            await utils.execShell(
+                pgindent.fsPath, [
+                    `--indent=${pg_bsd_indent.fsPath}`,
+                    `--typedefs=${typedefs.fsPath}`,
+                    document.fsPath,
+                ],
+                {cwd: utils.getWorkspacePgSrcFile(workspace.uri).fsPath},
+            );
+        } catch (err) {
+            if (!(err instanceof utils.ShellExecError)) {
+                throw err;
+            }
 
-        /* On success cache pg_bsd_indent path */
+            const r = /version (\d(\.\d)*)/.exec(err.stderr);
+            if (!r) {
+                throw err;
+            }
+
+            const version = r[1];
+            const help =
+                    `you can remove existing pg_bsd_indent installation and run `
+                  + `formatting again - extension will install it and patch`;
+            vscode.window.showErrorMessage(
+                `pgindent expects pg_bsd_indent version ${version} - ${help}`);
+            throw err;
+        }
+
+        const formatted = await utils.readFile(document);
+
+        /* On success cache binaries paths */
         this.savedPgbsdPath = pg_bsd_indent;
-        return postProcessed;
+        this.savedPgindentPath = pgindent;
+
+        return formatted;
     }
     
     private getDocumentContent(document: vscode.TextDocument) {
@@ -355,7 +449,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          */
         const newLineIndex = content.lastIndexOf('\n');
         if (newLineIndex === -1 || newLineIndex === content.length - 1) {
-            /* There is no new line or (more likely) new line is last character */
+            /* Shortcut when there is already a newline at the end */
             return content;
         }
 
@@ -365,27 +459,42 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
                 return content + '\n';
             }
         }
-        
+
         return content;
     }
-
-    private async runPgindent(document: vscode.TextDocument, 
-                              workspace: vscode.WorkspaceFolder) {
-        let pg_bsd_indent = await this.getPgbsdindent(workspace);
-        const content = this.getDocumentContent(document);
- 
+    
+    private async runPgindentRebuildBsd(document: vscode.Uri,
+                                        pgBsdIndent: vscode.Uri,
+                                        pgindent: vscode.Uri,
+                                        workspace: vscode.WorkspaceFolder) {
         try {
-            return await this.runPgindentInternal(content, pg_bsd_indent, workspace);
+            return await this.runPgindentInternal(
+                                    document, pgBsdIndent, pgindent, workspace);
         } catch (err) {
-            if (await utils.fileExists(pg_bsd_indent)) {
+            if (await utils.fileExists(pgBsdIndent)) {
                 throw err;
             }
         }
 
-        this.logger.info('pg_bsd_indent seems not installed. trying to install');
+        this.logger.info('pg_bsd_indent seems to be not installed - trying to install');
         this.savedPgbsdPath = undefined;
-        pg_bsd_indent = await this.findExistingPgbsdindent(workspace);
-        return await this.runPgindentInternal(content, pg_bsd_indent, workspace);
+        pgBsdIndent = await this.findPgBsdIndentOrBuild(workspace, pgindent);
+        return await this.runPgindentInternal(
+                                    document, pgBsdIndent, pgindent, workspace);
+    }
+
+    private async runPgindent(document: vscode.TextDocument, 
+                              workspace: vscode.WorkspaceFolder) {
+        const pgindent = await this.getPgindent(workspace);
+        const pg_bsd_indent = await this.getPgBsdIndent(workspace, pgindent);
+        const content = this.getDocumentContent(document);
+        const tempDocument = await utils.createTempFile('pghh-{}.c', content);
+        try {
+            return await this.runPgindentRebuildBsd(
+                                tempDocument, pg_bsd_indent, pgindent, workspace);
+        } finally {
+            await utils.deleteFile(tempDocument);
+        }
     }
 
     private async getDefaultTypedefs(workspace: vscode.WorkspaceFolder) {
@@ -441,7 +550,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             const workspace = findSuitableWorkspace(document);
             indented = await this.runPgindent(document, workspace);
         } catch (err) {
-            this.logger.error('failed to run pgindent', err);
+            this.logger.error('could not to run pgindent', err);
             return [];
         }
 
