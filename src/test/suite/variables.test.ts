@@ -2,8 +2,10 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import {TreeItemCollapsibleState as CollapsibleState} from 'vscode';
 import * as pg from 'pg';
-import { Configuration, NodePreviewTreeViewProvider } from '../../extension';
+import { Configuration } from '../../extension';
 import * as vars from '../../variables';
+import {getTestEnv, TestEnv} from './env';
+import * as cp from 'child_process';
 
 class TreeItemWrapper {
     item: vscode.TreeItem;
@@ -47,53 +49,6 @@ interface VarTreeItemPair {
     var: vars.Variable;
     item: TreeItemWrapper;
 };
-
-type DebuggerType = 'cppdbg' | 'lldb';
-
-class TestEnv {
-    /* Version of Postgresql being tested */
-    pgVersion: string;
-    /* Version of VS Code we are running on */
-    vscodeVersion: string;
-    /* Debugger extension is used */
-    debugger: DebuggerType;
-
-    constructor(pgVersion: string, vscodeVersion: string, debuggerType: DebuggerType) {
-        this.pgVersion = pgVersion;
-        if (Number.isNaN(Number(this.pgVersion))) {
-            throw new Error(`Invalid PostgreSQL version "${pgVersion}".` +
-                            'Version must be in "major.minor" form.')
-        }
-
-        this.vscodeVersion = vscodeVersion;
-        this.debugger = debuggerType;
-    }
-
-    isCodeLLDB() {
-        return this.debugger === 'lldb';
-    }
-
-    isCppDbg() {
-        return this.debugger === 'cppdbg';
-    }
-
-    pgVersionSatisfies(required: string) {
-        const requiredVersion = Number(required);
-        console.assert(!Number.isNaN(requiredVersion));
-        return Number(this.pgVersion) >= requiredVersion;
-    }
-}
-
-function getTestEnv(): TestEnv {
-    const pgVersion = process.env.PGHH_PG_VERSION ?? '17';
-    const vscodeVersion = process.env.PGHH_VSCODE_VERSION ?? 'stable';
-    const dbg = process.env.PGHH_DEBUGGER ?? 'cppdbg';
-    if (!(dbg === 'cppdbg' || dbg === 'lldb')) {
-        throw new Error(`Unknown type of debugger: ${dbg}`);
-    }
-
-    return new TestEnv(pgVersion, vscodeVersion, dbg);
-}
 
 function getDebugConfiguration(env: TestEnv, pid: number) {
     let config: vscode.DebugConfiguration;
@@ -150,15 +105,10 @@ async function searchBreakpointLocation() {
 }
 
 const sleep = async (ms: number) => await new Promise(r => setTimeout(r, ms));
-const execCommand = vscode.commands.executeCommand;
-const execGetTreeViewProvider = async () => {
-    return await execCommand<NodePreviewTreeViewProvider>(
-                                Configuration.Commands.GetTreeViewProvider);
-}
 
 const intRegexp = (value: number) => new RegExp(`^\\s*${value}\\s*$`);
 const execGetVariables = async () => {
-    return await execCommand<vars.Variable[] | undefined>(
+    return await vscode.commands.executeCommand<vars.Variable[] | undefined>(
                                 Configuration.Commands.GetVariables);
 }
 
@@ -166,7 +116,7 @@ suite('Variables', async () => {
     let variables: vars.Variable[] | undefined;
     const env = getTestEnv();
     const client = new pg.Client({
-        host: `${process.cwd()}/pgsrc/${env.pgVersion}/data`,
+        host: env.getWorkspaceFile('data'),
         port: 5432,
         database: 'postgres',
         user: 'postgres'
@@ -196,6 +146,13 @@ suite('Variables', async () => {
     const workspace = vscode.workspace.workspaceFolders![0];
 
     suiteSetup(async () => {
+        /* Run DB */
+        cp.spawnSync('/bin/bash', ['./run.sh', '--run'], {
+            cwd: env.getWorkspaceFile(),
+            stdio: 'inherit',
+            encoding: 'utf-8',
+        });
+        
         /* Connect to backend */
         await client.connect();
         
@@ -255,7 +212,15 @@ suite('Variables', async () => {
             await vscode.debug.activeDebugSession.customRequest('disconnect', {});
         }
 
+        /* Disconnect from server */
         await client.end();
+        
+        /* Stop database */
+        cp.spawnSync('/bin/bash', ['./run.sh', '--stop'], {
+            cwd: env.getWorkspaceFile(),
+            stdio: 'inherit',
+            encoding: 'utf-8',
+        });
     });
 
     const getVar = (name: string, vars?: vars.Variable[]) => {

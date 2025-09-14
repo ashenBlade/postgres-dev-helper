@@ -59,6 +59,11 @@ There are useful flags that allows to specify which value range to use:
 
 Use `--help` flag to get more info about.
 
+Also, there are 2 tested modules: `vars` (variables) and `format` (formatter).
+You can specify any of them using `--tests` argument, i.e. `--tests='vars'` or `--tests='vars,format'`.
+
+By default only `vars` is used.
+
 ## Test design
 
 There are 2 main moments, which you should take into account if you want to write tests.
@@ -68,7 +73,7 @@ There are 2 main moments, which you should take into account if you want to writ
 Logic must be run sequentially, not in parallel. This applies both to `tests` and code in these tests.
 A vivid example - do not use `Promise.all` in tests.
 
-Reason: many operations require requests to DAP, but it access to it must be performed sequentially.
+Reason: for variables many operations require requests to DAP, but it access to it must be performed sequentially and for formatting we usually perform IO which do not like concurrency.
 
 ### Assertions
 
@@ -79,7 +84,9 @@ Reasons:
 1. After parsing you can get i.e. `Number.NAN`. In assertions (i.e. `assert.equal`) we will not know why the value is invalid.
 2. We should be flexible enough to change layout of displayed data
 
-## Do not check `description`
+### Do not check `description`
+
+> For variables tests
 
 When performing assertions on generic variable, do not rely on `description` member (from `vscode.TreeItem`).
 You can use it when working with our custom members (i.e. number from `Bitmapset`).

@@ -1,0 +1,6 @@
+{
+    "[c]": {
+        // To run 'Format Document' without 'Choose Formatter' quick pick (no-gui)
+        "editor.defaultFormatter": "ash-blade.postgresql-hacker-helper"
+    }
+}

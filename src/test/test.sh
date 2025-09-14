@@ -20,6 +20,7 @@ Options:
     --no-rebuild            Do not rebuild PostgreSQL at first run.
                             Useful during development when installation already present.
     --no-gui                Run tests without GUI (using 'xvfb')
+    --tests                 Which test suites to run: "vars" (variables, default) and/or "format"
 
 Supported PG versions from 17 to 9.6 inclusive.
 Default value: $DEFAULT_PG_VERSIONS
@@ -32,7 +33,7 @@ Default value: $DEFAULT_DEBUGGERS
 
 Example:
     $0 --pg-versions="17 15 10"
-    $0 --threads=15
+    $0 --threads=15 --tests="vars,format"
     $0 -j 15 --vscode-versions="stable 1.78.2" --debuggers="lldb"
 EOM
 }
@@ -46,6 +47,7 @@ PG_VERSIONS=""
 DEBUGGERS=""
 NO_REBUILD=""
 NO_GUI=""
+TEST_MODES=""
 while [ "$1" ]; do
     ARG="$1"
     case "$ARG" in
@@ -74,6 +76,9 @@ while [ "$1" ]; do
         ;;
     --no-gui)
         NO_GUI="1"
+        ;;
+    --tests=*)
+        TEST_MODES="${ARG#*=}"
         ;;
     *)
         echo "Unknown option: $1"
@@ -111,18 +116,33 @@ for PGVERSION in $PG_VERSIONS; do
     export PGHH_PG_VERSION="$PGVERSION"
     for VSCODEVERSION in $VSCODE_VERSIONS; do
         export PGHH_VSCODE_VERSION="$VSCODEVERSION"
-        for DEBUGGER in $DEBUGGERS; do
-            {
-                echo "Testing PostgreSQL $PGVERSION in VS Code $VSCODEVERSION using $DEBUGGER"
-                export PGHH_DEBUGGER="$DEBUGGER"
+        if [[ "$TEST_MODES" == *"vars"* ]]; then
+            for DEBUGGER in $DEBUGGERS; do
+                {
+                    echo "Variables testing: PostgreSQL $PGVERSION in VS Code $VSCODEVERSION using $DEBUGGER"
+                    export PGHH_DEBUGGER="$DEBUGGER"
+                    export PGHH_TEST_MODE="vars"
 
+                    if [[ -z "$NO_GUI" ]]; then
+                        npm test
+                    else
+                        xvfb-run -a npm test
+                    fi
+                } 2>&1 | tee "$LOGFILE"
+            done
+        fi
+        
+        if [[ "$TEST_MODES" == *"format"* ]]; then
+            {
+                echo "Formatter testing: PostgreSQL $PGVERSION in VS Code $VSCODEVERSION"
+                export PGHH_TEST_MODE="format"
                 if [[ -z "$NO_GUI" ]]; then
                     npm test
                 else
                     xvfb-run -a npm test
                 fi
             } 2>&1 | tee "$LOGFILE"
-        done
+        fi
     done
 
     NO_REBUILD=""

@@ -107,7 +107,7 @@ cd "$(dirname ${BASH_SOURCE[0]:-$0})/../.."
 EXT_ROOT_DIR="$PWD"
 
 PATCH_FILE="$EXT_ROOT_DIR/src/test/patches/pg${PG_VERSION}.patch"
-EXT_CONFIG_FILE="$EXT_ROOT_DIR/src/test/patches/pgsql_hacker_helper.json"
+PATCHES_DIR="$EXT_ROOT_DIR/src/test/patches"
 PG_SRC_DOWNLOAD_URL="https://ftp.postgresql.org/pub/source/v${PG_VERSION}/postgresql-${PG_VERSION}.tar.gz"
 CACHEDIR="$EXT_ROOT_DIR/src/test/cache"
 TARFILE="$CACHEDIR/postgresql-${PG_VERSION}.tar.gz"
@@ -199,10 +199,12 @@ psql -c "CREATE TABLE t1(x int, y int);"
 psql -c "CREATE TABLE t2(x int, y int);"
 pg_ctl stop -w
 
-# Copy test function
+# Copy utility script
 cp "$EXT_ROOT_DIR/src/test/run.sh" "$SRC_PATH"
 
 # Copy extension configuration
 mkdir -p "$SRC_PATH/.vscode"
-cp "$EXT_CONFIG_FILE" "$SRC_PATH/.vscode"
+cp "$PATCHES_DIR/pgsql_hacker_helper.json" "$SRC_PATH/.vscode"
+cp "$PATCHES_DIR/settings.json" "$SRC_PATH/.vscode"
+cp "$PATCHES_DIR/custom.typedefs.list" "$SRC_PATH"
 } 2>&1 | tee "$LOGFILE"

@@ -23,6 +23,8 @@ function findSuitableWorkspace(document: vscode.TextDocument) {
     return vscode.workspace.workspaceFolders[0];
 }
 
+export const typedefFile = 'pg-hacker-helper.typedefs.list';
+
 class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEditProvider {
     /* Flags found in pgindent */
     static pg_bsd_indentDefaultFlags = [
@@ -233,7 +235,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             {cwd: pgBsdIndentDir.fsPath});
         return pgBsdIndent;
     }
-    
+
     private getProcessedTypedefFilePath(workspace: vscode.WorkspaceFolder) {
         /* 
          * Formatter module supports custom typedef.lists which are added
@@ -253,8 +255,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          *      perform second attempt to save file).
          */
 
-        return utils.joinPath(
-                    workspace.uri, '.vscode', 'pg-hacker-helper.typedefs.list');
+        return utils.joinPath(workspace.uri, '.vscode', typedefFile);
     }
 
     private async saveCachedTypedefFile(content: string, typedefsFile: vscode.Uri,

@@ -1,4 +1,7 @@
 {
+    "typedefs": [
+        "custom.typedefs.list"
+    ],
     "aliases": [
         {
             "alias": "ExprAlias",
