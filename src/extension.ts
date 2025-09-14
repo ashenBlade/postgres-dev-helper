@@ -1371,7 +1371,7 @@ export function setupExtension(context: vscode.ExtensionContext,
     };
 
     const addVariableToWatchCmd = async (args: any) => {
-        const expr = vars.getWatchExpressionCommandHandler(args);
+        const expr = await vars.getWatchExpressionCommandHandler(args);
         if (!expr) {
             return;
         }

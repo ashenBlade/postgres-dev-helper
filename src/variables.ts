@@ -971,10 +971,11 @@ export abstract class Variable {
 
         /* NodeTag variables: Node, List, Bitmapset etc.. */
         if (context.nodeVarRegistry.isNodeVar(effectiveType)) {
-            const nodeTagVar = await NodeVariable.createNode(debugVariable, frameId,
+            const nodeVar = await NodeVariable.createNode(debugVariable, frameId,
                                                              context, logger, args);
-            if (nodeTagVar) {
-                return nodeTagVar;
+            if (nodeVar) {
+                await nodeVar.typeComputed
+                return nodeVar;
             }
         }
 
@@ -1020,7 +1021,7 @@ export abstract class Variable {
      *
      * @returns Expression to be evaluated in 'Watch' view
      */
-    getWatchExpression(): string | null {
+    async getWatchExpression(): Promise<string | null> {
         return null;
     }
     
@@ -1429,7 +1430,7 @@ export class RealVariable extends Variable {
         return m;
     }
 
-    getRealType() {
+    getType() {
         return this.type;
     }
 
@@ -1541,65 +1542,76 @@ export class RealVariable extends Variable {
         return num;
     }
 
-    protected formatWatchExpression(myType: string) {
-        /* TODO: needs refactoring */
-        if (this.parent instanceof VariablesRoot) {
-            /* Top level variable */
-            if (this.debug.isValueStruct(this, myType)) {
-                /* No way to evaluate raw structs as they just lie on stack */
-                return this.name;
-            } else if (this.debug.isValidPointerType(this)) {
-                return `(${myType})${this.getPointer()}`;
-            }
+    protected async formatWatchExpression(): Promise<string | null> {
+        if (!this.parent) {
+            /* should not happen */
+            return null;
         }
-        else if (this.parent instanceof ListElementsMember ||
-            this.parent instanceof LinkedListElementsMember) {
-            /* Pointer element of List, not int/Oid/TransactionId... */
+
+        const cast = this.type === this.declaredType
+                        ? ''
+                        : `(${this.type})`
+        if (this.parent instanceof VariablesRoot) {
+            /* Top level variable needs to be just printed */
+            if (this.debug.isValueStruct(this)) {
+                return this.name;
+            } else {
+                return `${cast}${this.name}`;
+            }
+        } else if (   this.parent instanceof ListElementsMember
+                  || this.parent instanceof LinkedListElementsMember) {
+            /*
+             * For arrays we do not know indexes of element, so everything
+             * we can do - is to return pointer (value) of non-scalar element.
+             */
             if (this.debug.isValidPointerType(this)) {
-                return `(${myType})${this.getPointer()}`;
+                return `(${this.type})${this.getPointer()}`;
             }
         } else if (this.parent instanceof ArraySpecialMember) {
+            /*
+             * I don't know index of array I'm in, so everything I
+             * can do is to return pointer to myself if it is a
+             * pointer array.
+             */
             if (this.debug.isValidPointerType(this)) {
-                return `(${myType})${this.getPointer()}`
+                return `(${this.type})${this.getPointer()}`
             }
         } else if (this.parent instanceof RealVariable) {
             /* Member of real structure */
-            const typeModifier = this.type === myType ? '' : `(${myType})`;
             if (this.debug.isValueStruct(this.parent)) {
-                if (   this.debug.isFixedSizeArray(this.parent)
-                    && this.debug.isValidPointerType(this)) {
-                    return `(${myType})${this.getPointer()}`;
-                } else {
-                    return `${typeModifier}(${this.parent.type})${this.parent.getPointer()}.${this.name}`;
+                /*
+                 * If parent is a value struct, then his parent also
+                 * can be value struct, so we can not get pointer of
+                 * parent of parent - it also can be a value struct.
+                 * So in such case just recursively get watch expression.
+                 */
+                const base = await this.parent.formatWatchExpression();
+                if (!base) {
+                    return null;
                 }
-            } else if (this.debug.isValidPointerType(this.parent)) {
-                return `${typeModifier}((${this.parent.getRealType()})${this.parent.getPointer()})->${this.name}`;
+
+                return `${cast}${base}.${this.name}`;
+            } else {
+                /* This is the most common case - watch member of some pointer type */
+                const parentExpr = `((${this.parent.type})${this.parent.getPointer()})`
+                return `${cast}${parentExpr}->${this.name}`;
             }
         } else {
             /* Child of pseudo-member */
-            if (this.debug.isValueStruct(this, myType)) {
-                if (!this.parent) {
-                    /* Should not happen */
-                    return this.name;
-                }
-
-                if (this.parent instanceof VariablesRoot) { 
-                    return this.name;
-                } else if (this.debug.isValidPointerType(this.parent)) {
-                    return `((${this.parent.type})${this.parent.getPointer()})->${this.name}`
-                } else {
-                    return `((${this.parent.type})${this.parent.getPointer()}).${this.name}`
-                }
+            if (this.debug.isValueStruct(this, this.type)) {
+                const parent = `((${this.parent.type})${this.parent.getPointer()})`;
+                const separator = this.debug.isValidPointerType(this.parent) ? '->' : '.';
+                return `${parent}${separator}${this.name}`;
             } else if (this.debug.isValidPointerType(this)) {
-                return `(${myType})${this.getPointer()}`
+                return `(${this.type})${this.getPointer()}`
             }
         }
 
         return null;
     }
 
-    getWatchExpression() {
-        return this.formatWatchExpression(this.type);
+    async getWatchExpression() {
+        return this.formatWatchExpression();
     }
 }
 
@@ -1627,23 +1639,12 @@ export class NodeVariable extends RealVariable {
      */
     realNodeTag: string;
 
-    /**
-     * Real type of Node variable. May be equal to declared type if NodeTags
-     * are equal.
-     *
-     * Evaluated lazily - use {@link getRealType getRealType()} function to
-     * get value
-     *
-     * @example `OpExpr *' was `Node *'
-     */
-    realType?: string;
-
     constructor(realNodeTag: string, args: RealVariableArgs) {
         super(args);
         this.realNodeTag = realNodeTag.replace('T_', '');
     }
 
-    protected computeRealType() {
+    protected computeEffectiveType() {
         const tagFromType = utils.getStructNameFromType(this.type);
         if (tagFromType === this.realNodeTag) {
             return this.type;
@@ -1661,12 +1662,14 @@ export class NodeVariable extends RealVariable {
         return utils.substituteStructName(type, this.realNodeTag);
     }
 
-    getRealType(): string {
-        if (!this.realType) {
-            this.realType = this.computeRealType();
+    typeComputed = false;
+    getType(): string {
+        if (!this.typeComputed) {
+            this.type = this.computeEffectiveType();
+            this.typeComputed = true;
         }
 
-        return this.realType;
+        return this.type;
     }
 
     /**
@@ -1725,7 +1728,7 @@ export class NodeVariable extends RealVariable {
          * We should substitute current type with target, because
          * there may be qualifiers such `struct' or `const'
          */
-        const resultType = utils.substituteStructName(this.getRealType(), tag);
+        const resultType = utils.substituteStructName(this.getType(), tag);
         return await this.castToType(resultType);
     }
 
@@ -1854,9 +1857,12 @@ export class NodeVariable extends RealVariable {
 
         return new NodeVariable(realTag, args);
     }
+    
+    async formatWatchExpression() {
+        /* Make sure 'type' is correctly */
+        await this.getChildren();
 
-    getWatchExpression() {
-        return this.formatWatchExpression(this.computeRealType());
+        return super.formatWatchExpression();
     }
 }
 
@@ -3797,7 +3803,7 @@ export class ListNodeVariable extends NodeVariable {
     }
 
     getMemberExpression(member: string) {
-        return `((${this.getRealType()})${this.getPointer()})->${member}`
+        return `((${this.getType()})${this.getPointer()})->${member}`
     }
 
     isEmpty() {
@@ -3891,7 +3897,7 @@ export class ListNodeVariable extends NodeVariable {
         return new LinkedListElementsMember(this, info.member, info.type, this.context);
     }
 
-    override computeRealType(): string {
+    override computeEffectiveType(): string {
         const declaredTag = utils.getStructNameFromType(this.type);
         if (declaredTag !== 'List') {
             return utils.substituteStructName(this.type, 'List');
@@ -3900,7 +3906,7 @@ export class ListNodeVariable extends NodeVariable {
     }
 
     private async castToList() {
-        const realType = this.getRealType();
+        const realType = this.getType();
         const castExpression = `(${realType}) (${this.getPointer()})`;
         const response = await this.debug.evaluate(castExpression, this.frameId);
         if (!Number.isInteger(response.variablesReference)) {
@@ -4344,7 +4350,7 @@ class BitmapSetSpecialMember extends NodeVariable {
 
         let type;
         if (this.parent instanceof NodeVariable) {
-            type = this.parent.getRealType();
+            type = this.parent.getType();
         } else {
             type = this.parent.type;
         }
@@ -5430,8 +5436,8 @@ class FlagsMemberVariable extends RealVariable {
  *
  * @param variable Instance of variable user clicked on
  */
-export function getWatchExpressionCommandHandler(variable: any) {
+export async function getWatchExpressionCommandHandler(variable: any) {
     return variable instanceof Variable
-        ? variable.getWatchExpression()
+        ? await variable.getWatchExpression()
         : null;
 }
