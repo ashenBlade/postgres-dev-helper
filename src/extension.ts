@@ -5,7 +5,7 @@ import * as vars from './variables';
 import * as constants from './constants';
 import * as dbg from './debugger';
 import * as dap from './dap';
-import path from 'path';
+import { FormatterConfiguration, PgindentConfiguration } from './formatter';
 
 
 function createDebuggerFacade(type: string, provider: NodePreviewTreeViewProvider): dbg.GenericDebuggerFacade | undefined {
@@ -40,7 +40,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
      * Representation of parsed configuration file.
      * Used to seed ExecContext during initialization.
      */
-    configFile?: ConfigFile;
+    configFile?: VariablesConfiguration;
 
     /**
      * ExecContext used to pass to all members.
@@ -401,13 +401,11 @@ export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable,
     vscode.window.showTextDocument(document);
 }
 
-export class ConfigFile {
+interface VariablesConfiguration {
     /* Array special members */
     arrayInfos?: vars.ArraySpecialMemberInfo[];
     /* Information about type aliases */
     aliasInfos?: vars.AliasInfo[];
-    /* Path to custom typedef's file */
-    typedefs?: string[];
     /* Custom List types */
     customListTypes?: vars.ListPtrSpecialMemberInfo[];   
     /* Types stored in HTABs */
@@ -416,6 +414,11 @@ export class ConfigFile {
     simpleHashTableTypes?: vars.SimplehashEntryInfo[];
     /* Enum values for integer fields */
     bitmaskEnumMembers?: vars.BitmaskMemberInfo[];
+}
+
+class ConfigFile {
+    variables?: VariablesConfiguration;
+    formatter?: PgindentConfiguration;
 }
 
 function parseConfigurationFile(configFile: any): ConfigFile | undefined {
@@ -825,20 +828,38 @@ function parseConfigurationFile(configFile: any): ConfigFile | undefined {
                 ? configFile.aliases.map(parseSingleAlias).filter((a: any) => a !== undefined)
                 : undefined;
 
-    const typedefs = parseTypedefs(configFile.typedefs);
     const customListTypes = parseListTypes(configFile.customListTypes);
     const htabTypes = parseHtabTypes(configFile.htab);
     const simpleHashTableTypes = parseSimplehashTypes(configFile.simplehash);   
     const bitmaskEnumMembers = parseEnumBitmasks(configFile.enums);
+    const typedefs = parseTypedefs(configFile.typedefs);
+
+    let variables = undefined;
+    if (   arrayInfos?.length
+        || aliasInfos?.length
+        || customListTypes?.length
+        || htabTypes?.length
+        || simpleHashTableTypes?.length
+        || bitmaskEnumMembers?.length) {
+        variables = {
+            arrayInfos,
+            aliasInfos,
+            customListTypes,
+            htabTypes,
+            simpleHashTableTypes,
+            bitmaskEnumMembers,
+        }
+    }
+    let formatter = undefined;
+    if (typedefs?.length) {
+        formatter = {
+            typedefs,
+        }
+    }
 
     return {
-        arrayInfos,
-        aliasInfos,
-        typedefs,
-        customListTypes,
-        htabTypes,
-        simpleHashTableTypes,
-        bitmaskEnumMembers,
+        variables,
+        formatter,
     }
 }
 
@@ -1156,38 +1177,12 @@ export function setupExtension(context: vscode.ExtensionContext,
             return;
         }
         
-        if (parsedConfigFile) {
-            nodesView.configFile = parsedConfigFile;
+        if (parsedConfigFile?.variables) {
+            nodesView.configFile = parsedConfigFile.variables;
         }
-        
-        if (parsedConfigFile?.typedefs?.length) {
-            const typedefs = [];
-            for (const typedef of parsedConfigFile.typedefs) {
-                let p;
-                if (path.isAbsolute(typedef)) {
-                    p = vscode.Uri.file(typedef);
-                } else {
-                    const workspace = vscode.workspace.workspaceFolders?.length
-                                ? vscode.workspace.workspaceFolders[0]
-                                : undefined;
-                    if (!workspace) {
-                        logger.warn('could not determine workspace for file %s to add typedef file', typedef);
-                        continue;
-                    }
 
-                    p = utils.joinPath(workspace.uri, typedef);
-                }
-
-                if (await utils.fileExists(p)) {
-                    typedefs.push(p);
-                } else {
-                    logger.warn('typedef file %s does not exist', p.fsPath);
-                }
-            }
-
-            if (typedefs.length) {
-                Configuration.CustomTypedefsFiles = typedefs;
-            }
+        if (parsedConfigFile?.formatter) {
+            FormatterConfiguration.typedefs = parsedConfigFile.formatter.typedefs;
         }
     }
 
@@ -1549,9 +1544,6 @@ export class Configuration {
         NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`,
     };
     static ExtensionSettingsFileName = 'pgsql_hacker_helper.json';
-
-    /* Paths to custom typedefs.list files in pgsql_hacker_helper.json file */
-    static CustomTypedefsFiles: vscode.Uri[] | undefined = undefined;
 
     static getLogLevel() {
         return this.getConfig<string>(this.ConfigSections.LogLevel);

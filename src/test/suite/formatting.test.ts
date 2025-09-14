@@ -1,7 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { getTestEnv, TestEnv } from './env';
-import {typedefFile} from '../../formatter';
 import * as utils from '../../utils';
 import * as fs from 'fs';
 import path from 'path';
@@ -33,15 +32,7 @@ suite('Formatting', async function () {
                 /* skip */
             }
         }
-        
-        /* Remove compiled typedef.list file after previous run */
-        await swallow(async () => {
-            const typedef = env.getWorkspaceFile('.vscode', typedefFile);
-            fs.rmSync(typedef, {
-                force: true,
-            });
-        });
-        
+
         /* Remove cloned pg_bsd_indent */
         await swallow(async () => {
             const pgBsdIndentDir = 

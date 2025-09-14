@@ -135,18 +135,13 @@ Example:
 
 ### Custom `typedefs.list` files
 
-`typedefs.list` file is required for correct `pg_bsd_indent` work. It contains list of types that treated by formatter differently. Usually, it does not change, but sometimes you may want to change it manually. i.e. when creating new patches or writing contribs with `typedef` types.
+`typedefs.list` file is required for correct `pg_bsd_indent` work. It contains list of types that treated by formatter differently. During extension development you may want to create your own `typedefs.list` for your extension to later pass it to `./pgindent --list-of-typedefs=my.custom.typedefs.list`.
 
-Extension creates it's own copy of `typedefs.list` in `.vscode` directory (`.vscode/pg-hacker-helper.typedefs.list`):
-
-1. Take builtin `src/tools/pgindent/typedefs.list` file
-2. Add all custom `typedefs.list` files from `typedefs` setting
-3. Store into `.vscode/pg-hacker-helper.typedefs.list` file
-
-After that this file will be used for all formattings.
+You can specify your custom `typedefs.list` files in configuration using `typedefs` setting.
 
 > If `pg_bsd_indent` is not available extension will try to build it.
-> For this `pg_config` is required, but if it is missing, then extension will ask you to enter path to it manually.
+> It will perform all necessary work: building, patching, downloading (if necessary).
+> To build old versions `pg_config` is required - it will be searched in `./src`, but if it missing will ask you to enter path to it manually.
 
 `typedefs` setting can be either plain string or array of strings - each string is a path which can be in 2 forms:
 
@@ -167,7 +162,7 @@ Read global typedefs file stored in temporary directory.
 
 ```json
 {
-    "typedefs": "/tmp/cached.custom.typedefs.list"
+    "typedefs": "/tmp/custom.typedefs.list"
 }
 ```
 

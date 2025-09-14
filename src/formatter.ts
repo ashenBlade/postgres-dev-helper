@@ -23,19 +23,14 @@ function findSuitableWorkspace(document: vscode.TextDocument) {
     return vscode.workspace.workspaceFolders[0];
 }
 
-export const typedefFile = 'pg-hacker-helper.typedefs.list';
+export interface PgindentConfiguration {
+    typedefs?: string[];
+}
+export const FormatterConfiguration: PgindentConfiguration = {}
 
 class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEditProvider {
-    /* Flags found in pgindent */
-    static pg_bsd_indentDefaultFlags = [
-        '-bad', '-bap', '-bbb', '-bc', '-bl', '-cli1', '-cp33', '-cdb', 
-        '-nce', '-d0', '-di12', '-nfc1', '-i4', '-l79', '-lp', '-lpl', 
-        '-nip', '-npro', '-sac', '-tpg', '-ts4'
-    ];
-
     private savedPgindentPath?: vscode.Uri;
     private savedPgbsdPath?: vscode.Uri;
-    private savedProcessedTypedef?: vscode.Uri;
     constructor(private logger: utils.ILogger) {}
 
     private async getPgConfigPath(workspace: vscode.WorkspaceFolder) {
@@ -236,28 +231,6 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         return pgBsdIndent;
     }
 
-    private getProcessedTypedefFilePath(workspace: vscode.WorkspaceFolder) {
-        /* 
-         * Formatter module supports custom typedef.lists which are added
-         * to builtin in 'src/tools/pgindent'.  But formatter tool does not
-         * allow specifying list of typedef.lists, so I have to merge all
-         * files and for performance reasons this file is cached.
-         * 
-         * Currently, it's located in '/tmp/pg-hacker-helper.typedefs.list'.
-         * 
-         * XXX: when you are working with multiple pg versions you may have
-         *      different set of custom typedef.lists, so this can mess
-         *      everything up, so it would be more nice to store it i.e. in
-         *      '.vscode' directory.
-         *
-         * XXX: if you change location - do not forget to update try/catch block
-         *      where file is saved (catch block creates .vscode directory and
-         *      perform second attempt to save file).
-         */
-
-        return utils.joinPath(workspace.uri, '.vscode', typedefFile);
-    }
-
     private async saveCachedTypedefFile(content: string, typedefsFile: vscode.Uri,
                                         workspace: vscode.WorkspaceFolder) {
         /*
@@ -287,72 +260,30 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         await utils.writeFile(typedefsFile, content);
     }
 
-    private async enrichTypedefs(typedefs: Set<string>) {
-        const customTypedefFiles = Configuration.CustomTypedefsFiles;
-        if (!customTypedefFiles || customTypedefFiles.length === 0) {
-            return;
+    private async getListOfTypedefs(workspace: vscode.WorkspaceFolder) {
+        const files = FormatterConfiguration.typedefs;
+        if (!files?.length) {
+            return '';
         }
 
-        for (const typedef of customTypedefFiles) {
-            let content;
-            try {
-                content = await utils.readFile(typedef);
-            } catch (err) {
-                this.logger.warn('failed to read custom typedefs.list file %s', typedef.fsPath);
+        const typedefs = [];
+        for (const f of files) {
+            let typedefFile;
+            if (path.isAbsolute(f)) {
+                typedefFile = vscode.Uri.file(f);
+            } else {
+                typedefFile = utils.getWorkspacePgSrcFile(workspace.uri, f);
+            }
+            
+            if (!await utils.fileExists(typedefFile)) {
+                this.logger.warn('could not find file %s', typedefFile);
                 continue;
             }
-
-            content.split('\n').forEach(x => typedefs.add(x.trim()));
-        }
-    }
-
-    private async getProcessedTypedefs(workspace: vscode.WorkspaceFolder) {
-        if (this.savedProcessedTypedef) {
-            if (await utils.fileExists(this.savedProcessedTypedef)) {
-                return this.savedProcessedTypedef;
-            }
-
-            this.savedProcessedTypedef = undefined;
+            
+            typedefs.push(`--typedefs=${typedefFile.fsPath}`);
         }
 
-        const processedTypedef = this.getProcessedTypedefFilePath(workspace);
-        if (await utils.fileExists(processedTypedef)) {
-            /* 
-             * This file is cache in /tmp, so may be created from another
-             * workspace which can have different content - delete it
-             * to prevent formatting errors.
-             */
-            this.logger.info('found existing typedefs.list in .vscode directory');
-            this.savedProcessedTypedef = processedTypedef;
-            return processedTypedef;
-        }
-
-        /* 
-         * Add and remove some entries from `typedefs.list` file
-         * downloaded from buildfarm.
-         * 
-         * This data did not change since PG 10 and i don't think
-         * it will change in near future.
-         */
-        const rawTypedefs = await this.getDefaultTypedefs(workspace);
-        const entries = new Set(rawTypedefs.split('\n'));
-
-        [
-            'ANY', 'FD_SET', 'U', 'abs', 'allocfunc', 'boolean', 'date',
-            'digit', 'ilist', 'interval', 'iterator', 'other', 'pointer',
-            'printfunc', 'reference', 'string', 'timestamp', 'type', 'wrap'
-        ].forEach(e => entries.delete(e));
-        entries.add('bool');
-        entries.delete('');
-        await this.enrichTypedefs(entries);
-
-        const arr = Array.from(entries.values());
-        arr.sort();
-
-        await this.saveCachedTypedefFile(arr.join('\n'), processedTypedef, workspace);
-
-        this.savedProcessedTypedef = processedTypedef;
-        return processedTypedef;
+        return typedefs;
     }
 
     private async getPgBsdIndent(workspace: vscode.WorkspaceFolder, pgindent: vscode.Uri) {
@@ -394,22 +325,18 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
                                       pg_bsd_indent: vscode.Uri,
                                       pgindent: vscode.Uri,
                                       workspace: vscode.WorkspaceFolder) {
-        /* 
-         * We use pg_bsd_indent directly instead of pgindent because:
-         *  - different pgindent versions behaves differently
-         *  - direct call to pg_bsd_indent is faster
-         *  - pgindent creates temp files which are not removed if error
-         *    happens - we can not track these files (main reason)
-         */
-        const typedefs = await this.getProcessedTypedefs(workspace);
+        const typedefs = await this.getListOfTypedefs(workspace);
+
+        /* Work in pgindent dir, so it can find default typedefs.list */
+        const cwd = path.resolve(pgindent.fsPath, '..');
         try {
             await utils.execShell(
                 pgindent.fsPath, [
+                    ...typedefs,
                     `--indent=${pg_bsd_indent.fsPath}`,
-                    `--typedefs=${typedefs.fsPath}`,
                     document.fsPath,
                 ],
-                {cwd: utils.getWorkspacePgSrcFile(workspace.uri).fsPath},
+                {cwd},
             );
         } catch (err) {
             if (!(err instanceof utils.ShellExecError)) {
