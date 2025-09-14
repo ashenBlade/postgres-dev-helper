@@ -874,13 +874,7 @@ export abstract class Variable {
     static async create(debugVariable: dap.DebugVariable, frameId: number,
                         context: ExecContext, logger: utils.ILogger,
                         parent?: Variable) {
-                            
         const effectiveType = Variable.getRealType(debugVariable.type, context);
-        /*
-         * We pass RealVariable (not generic Variable), because if we
-         * want to use this function - it means we create variable
-         * using debugger interface and this variable is present in code.
-         */
         const args: RealVariableArgs = {
             ...debugVariable,
             frameId,
@@ -893,6 +887,11 @@ export abstract class Variable {
 
         if (   context.debug.isValueStruct(debugVariable, effectiveType)
             || !context.debug.isValidPointerType(debugVariable)) {
+            /* 
+             * We are here if got scalar type or value struct (not pointer).
+             * These types are not so interesting for us, so pass here to
+             * quickly return usual variable.
+             */
 
             if (context.debug.isNull(debugVariable) && 
                 debugVariable.type.endsWith('List *')) {
@@ -915,30 +914,26 @@ export abstract class Variable {
                 return new BitmapwordVariable(args);
             }
 
-            if (parent && context.canUseMacros) {
-                let parentType = Variable.getRealType(parent.type, context);
-                if (utils.isValueStructOrPointerType(parentType)) {
+            if (parent) {
+                if (utils.isValueStructOrPointerType(parent.type)) {
                     const flagsMember = context.specialMemberRegistry.getFlagsMember(
-                                        utils.getStructNameFromType(parentType),
-                                        debugVariable.name);
+                                                utils.getStructNameFromType(parent.type),
+                                                debugVariable.name);
                     if (flagsMember) {
                         return new FlagsMemberVariable(flagsMember, args);
                     }
                 }
-            }
-            
-            /* 
-             * Flexible array members for now recognized as
-             * non-valid pointers/scalars, but we actually
-             * can handle them.
-             */
-            if (debugVariable.type.endsWith('[]')) {
-                if (parent?.type && parent instanceof RealVariable) {
+                
+                /* 
+                 * Flexible array members for now recognized as non-valid
+                 * pointers/scalars, but we actually can handle them.
+                 */
+                if (debugVariable.type.endsWith('[]')) {
                     const parentType = Variable.getRealType(parent.type, context);
                     const specialMember = context.specialMemberRegistry
-                        .getArraySpecialMember(parentType, debugVariable.name);
+                            .getArraySpecialMember(parentType, debugVariable.name);
                     if (specialMember) {
-                        return new ArraySpecialMember(parent, specialMember, args);
+                        return new ArraySpecialMember(specialMember, args);
                     }
                 }
             }
@@ -953,11 +948,11 @@ export abstract class Variable {
          * It should never be one of others (Node, HTAB, etc...), but elements
          * of array can be.
          */
-        if (parent?.type && parent instanceof RealVariable) {
+        if (parent) {
             const specialMember = context.specialMemberRegistry
-                .getArraySpecialMember(parent.type, debugVariable.name);
+                        .getArraySpecialMember(parent.type, debugVariable.name);
             if (specialMember) {
-                return new ArraySpecialMember(parent, specialMember, args);
+                return new ArraySpecialMember(specialMember, args);
             }
         }
 
@@ -972,9 +967,8 @@ export abstract class Variable {
         /* NodeTag variables: Node, List, Bitmapset etc.. */
         if (context.nodeVarRegistry.isNodeVar(effectiveType)) {
             const nodeVar = await NodeVariable.createNode(debugVariable, frameId,
-                                                             context, logger, args);
+                                                          context, logger, args);
             if (nodeVar) {
-                await nodeVar.typeComputed
                 return nodeVar;
             }
         }
@@ -4012,13 +4006,10 @@ export class ArraySpecialMember extends RealVariable {
      * can be correction expressions i.e. '+ 1'.
      */
     info: ArraySpecialMemberInfo;
-    parent: RealVariable;
 
-    constructor(parent: RealVariable, info: ArraySpecialMemberInfo,
-                args: RealVariableArgs) {
+    constructor(info: ArraySpecialMemberInfo, args: RealVariableArgs) {
         super(args);
         this.info = info;
-        this.parent = parent;
     }
     
     protected isExpandable(): boolean {
@@ -4043,7 +4034,7 @@ export class ArraySpecialMember extends RealVariable {
          * so we can reference parent (members) multple times or use function
          * invocation instead of simple member.
          */
-        const parentExpr = `((${this.parent.type})${this.parent.getPointer()})`;
+        const parentExpr = `((${this.parent!.type})${this.parent!.getPointer()})`;
         const lengthExpr = this.info.lengthExpr.replace(/{}/g, parentExpr);
         if (lengthExpr.startsWith('!')) {
             return lengthExpr.substring(1);
@@ -4078,7 +4069,8 @@ export class ArraySpecialMember extends RealVariable {
             length = ArraySpecialMember.plausibleMaxLength;
         }
 
-        const memberExpr = `((${this.parent.type})${this.parent.getPointer()})->${this.info.memberName}`;
+        const parent = this.parent!;
+        const memberExpr = `((${parent.type})${parent.getPointer()})->${this.info.memberName}`;
         const debugVariables = await this.debug.getArrayVariables(memberExpr,
                                                         length, this.frameId);
         return await Variable.mapVariables(debugVariables, this.frameId, this.context,
