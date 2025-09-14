@@ -682,6 +682,12 @@ export abstract class Variable {
      * Real variable type (maybe with tag inspection)
      */
     type: string;
+    
+    /**
+     * Type that was originally declared and should be shown
+     * in variables view.
+     */
+    declaredType: string;
 
     /**
      * Evaluate value of variable. Have different meaning for
@@ -735,13 +741,15 @@ export abstract class Variable {
         return this.context.debug;
     }
 
-    constructor(name: string, value: string, type: string,
+    constructor(name: string, value: string,
+                type: string, declaredType: string,
                 context: ExecContext, frameId: number,
                 parent: Variable | undefined, logger?: utils.ILogger) {
         this.parent = parent;
         this.name = name;
         this.value = value;
         this.type = type;
+        this.declaredType = declaredType;
         this.context = context;
         this.frameId = frameId;
 
@@ -823,9 +831,9 @@ export abstract class Variable {
     async getTreeItem(): Promise<vscode.TreeItem> {
         try {
             return {
-                label: this.type === '' 
+                label: this.declaredType === '' 
                             ? this.name
-                            : `${this.name}: ${this.type}`,
+                            : `${this.name}: ${this.declaredType}`,
                 description: await this.getDescription(),
                 collapsibleState: this.isExpandable()
                     ? vscode.TreeItemCollapsibleState.Collapsed
@@ -866,6 +874,8 @@ export abstract class Variable {
     static async create(debugVariable: dap.DebugVariable, frameId: number,
                         context: ExecContext, logger: utils.ILogger,
                         parent?: Variable) {
+                            
+        const effectiveType = Variable.getRealType(debugVariable.type, context);
         /*
          * We pass RealVariable (not generic Variable), because if we
          * want to use this function - it means we create variable
@@ -877,10 +887,11 @@ export abstract class Variable {
             parent,
             context,
             logger,
+            type: effectiveType,
+            declaredType: debugVariable.type,
         };
 
-        const realType = Variable.getRealType(debugVariable.type, context);
-        if (   context.debug.isValueStruct(debugVariable, realType)
+        if (   context.debug.isValueStruct(debugVariable, effectiveType)
             || !context.debug.isValidPointerType(debugVariable)) {
 
             if (context.debug.isNull(debugVariable) && 
@@ -899,7 +910,7 @@ export abstract class Variable {
                 return new ListNodeVariable('List', args);
             }
 
-            if (realType === 'bitmapword') {
+            if (effectiveType === 'bitmapword') {
                 /* Show bitmapword as bitmask, not integer */
                 return new BitmapwordVariable(args);
             }
@@ -916,19 +927,18 @@ export abstract class Variable {
                 }
             }
             
+            /* 
+             * Flexible array members for now recognized as
+             * non-valid pointers/scalars, but we actually
+             * can handle them.
+             */
             if (debugVariable.type.endsWith('[]')) {
                 if (parent?.type && parent instanceof RealVariable) {
                     const parentType = Variable.getRealType(parent.type, context);
                     const specialMember = context.specialMemberRegistry
                         .getArraySpecialMember(parentType, debugVariable.name);
                     if (specialMember) {
-                        return new ArraySpecialMember(parent, specialMember, {
-                            ...debugVariable,
-                            frameId: frameId,
-                            parent: parent,
-                            context,
-                            logger,
-                        }) as RealVariable;
+                        return new ArraySpecialMember(parent, specialMember, args);
                     }
                 }
             }
@@ -947,13 +957,7 @@ export abstract class Variable {
             const specialMember = context.specialMemberRegistry
                 .getArraySpecialMember(parent.type, debugVariable.name);
             if (specialMember) {
-                return new ArraySpecialMember(parent, specialMember, {
-                    ...debugVariable,
-                    frameId: frameId,
-                    parent: parent,
-                    context,
-                    logger
-                }) as RealVariable;
+                return new ArraySpecialMember(parent, specialMember, args);
             }
         }
 
@@ -961,28 +965,28 @@ export abstract class Variable {
          * PostgreSQL versions prior 16 do not have Bitmapset Node.
          * So handle Bitmapset (with Relids) here.
          */
-        if (BitmapSetSpecialMember.isBitmapsetType(realType)) {
+        if (BitmapSetSpecialMember.isBitmapsetType(effectiveType)) {
             return new BitmapSetSpecialMember(args);
         }
 
         /* NodeTag variables: Node, List, Bitmapset etc.. */
-        if (context.nodeVarRegistry.isNodeVar(realType)) {
+        if (context.nodeVarRegistry.isNodeVar(effectiveType)) {
             const nodeTagVar = await NodeVariable.createNode(debugVariable, frameId,
-                                                             context, logger, parent);
+                                                             context, logger, args);
             if (nodeTagVar) {
                 return nodeTagVar;
             }
         }
 
         /* 'HTAB *' */
-        if (utils.getPointersCount(realType) === 1 &&
-            utils.getStructNameFromType(realType) === 'HTAB') {
+        if (utils.getPointersCount(effectiveType) === 1 &&
+            utils.getStructNameFromType(effectiveType) === 'HTAB') {
             return new HTABSpecialMember(args);
         }
 
         /* Simple hash table (simple hash) */
-        if (SimplehashMember.looksLikeSimpleHashTable(realType)) {
-            const entry = context.hashTableTypes.findSimpleHashTableType(realType);
+        if (SimplehashMember.looksLikeSimpleHashTable(effectiveType)) {
+            const entry = context.hashTableTypes.findSimpleHashTableType(effectiveType);
             if (entry) {
                 return new SimplehashMember(entry, args);
             }
@@ -1205,7 +1209,7 @@ export class VariablesRoot extends Variable {
 
     constructor(public topLevelVariables: Variable[],
                 context: ExecContext, logger: utils.ILogger) {
-        super(VariablesRoot.variableRootName, '', '', context, invalidFrameId,
+        super(VariablesRoot.variableRootName, '', '', '', context, invalidFrameId,
               undefined, logger);
     }
 
@@ -1218,7 +1222,7 @@ class ScalarVariable extends Variable {
     tooltip?: string;
     constructor(name: string, value: string, type: string, context: ExecContext,
                 logger: utils.ILogger, parent?: Variable, tooltip?: string) {
-        super(name, value, type, context, invalidFrameId, parent, logger);
+        super(name, value, type, type, context, invalidFrameId, parent, logger);
         this.tooltip = tooltip;
     }
 
@@ -1244,6 +1248,7 @@ interface RealVariableArgs {
     memoryReference?: string;
     name: string;
     type: string;
+    declaredType: string;
     value: string;
     variablesReference: number;
     frameId: number;
@@ -1291,7 +1296,8 @@ export class RealVariable extends Variable {
     members?: Variable[];
 
     constructor(args: RealVariableArgs) {
-        super(args.name, args.value, args.type, args.context, args.frameId, args.parent, args.logger);
+        super(args.name, args.value, args.type, args.declaredType, 
+              args.context, args.frameId, args.parent, args.logger);
         this.memoryReference = args.memoryReference;
         this.variablesReference = args.variablesReference;
         this.parent = args.parent;
@@ -1302,6 +1308,7 @@ export class RealVariable extends Variable {
             memoryReference: this.memoryReference,
             name: this.name,
             type: this.type,
+            declaredType: this.declaredType,
             value: this.value,
             variablesReference: this.variablesReference,
             frameId: this.frameId,
@@ -1535,6 +1542,7 @@ export class RealVariable extends Variable {
     }
 
     protected formatWatchExpression(myType: string) {
+        /* TODO: needs refactoring */
         if (this.parent instanceof VariablesRoot) {
             /* Top level variable */
             if (this.debug.isValueStruct(this, myType)) {
@@ -1676,8 +1684,8 @@ export class NodeVariable extends RealVariable {
         try {
             return {
                 label: this.tagsMatch()
-                    ? `${this.name}: ${this.type}`
-                    : `${this.name}: ${this.type} [${this.realNodeTag}]`,
+                    ? `${this.name}: ${this.declaredType}`
+                    : `${this.name}: ${this.declaredType} [${this.realNodeTag}]`,
                 description: await this.getDescription(),
                 collapsibleState: this.isExpandable()
                     ? vscode.TreeItemCollapsibleState.Collapsed
@@ -1785,7 +1793,7 @@ export class NodeVariable extends RealVariable {
 
     static async createNode(variable: dap.DebugVariable, frameId: number,
                             context: ExecContext, logger: utils.ILogger,
-                            parent?: Variable) {
+                            args: RealVariableArgs) {
         const getRealNodeTag = async () => {
             const expr = `((Node*)(${context.debug.getPointer(variable)}))->type`;
             const response = await context.debug.evaluate(expr, frameId);
@@ -1804,14 +1812,6 @@ export class NodeVariable extends RealVariable {
         if (!realTag) {
             return;
         }
-
-        const args: RealVariableArgs = {
-            ...variable,
-            frameId,
-            parent,
-            context,
-            logger,
-        };
 
         realTag = realTag.replace('T_', '');
 
@@ -3669,6 +3669,7 @@ class ListElementsMember extends RealVariable {
             elements.push(new RealVariable({
                 name: `[${i}]` /* array elements behaviour */,
                 type: this.listCellType,
+                declaredType: this.listCellType,
                 variablesReference: response.variablesReference,
                 value: response.result,
                 memoryReference: response.memoryReference,
@@ -3726,7 +3727,7 @@ class LinkedListElementsMember extends Variable {
 
     constructor(listParent: ListNodeVariable, cellValue: string,
         realType: string, context: ExecContext) {
-        super('$elements$', '', '', context, listParent.frameId, listParent);
+        super('$elements$', '', '', '', context, listParent.frameId, listParent);
         this.listParent = listParent;
         this.cellValue = cellValue;
         this.realType = realType;
@@ -4396,7 +4397,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                     value: number,
                     context: ExecContext,
                     ref: constants.BitmapsetReference | undefined) {
-            super(`[${index}]`, value.toString(), '', context, parent.frameId, parent);
+            super(`[${index}]`, value.toString(), '', '', context, parent.frameId, parent);
             this.relid = value;
             this.bmsParent = bmsParent;
             this.ref = ref;
@@ -4557,7 +4558,7 @@ class BitmapSetSpecialMember extends NodeVariable {
         constructor(parent: BitmapSetSpecialMember,
             setElements: number[],
             private ref?: constants.BitmapsetReference) {
-            super('$elements$', '', '', parent.context, parent.frameId, parent);
+            super('$elements$', '', '', '', parent.context, parent.frameId, parent);
             this.setElements = setElements;
             this.bmsParent = parent;
         }
@@ -4881,7 +4882,7 @@ class HTABElementsMember extends Variable {
     entryType: string;
 
     constructor(htab: HTABSpecialMember, entryType: string) {
-        super('$elements$', '', '', htab.context, htab.frameId, htab, htab.logger);
+        super('$elements$', '', '', '', htab.context, htab.frameId, htab, htab.logger);
         this.htab = htab;
         this.entryType = entryType;
     }
@@ -5107,7 +5108,7 @@ class SimplehashElementsMember extends Variable {
     hashTable: SimplehashMember;
 
     constructor(hashTable: SimplehashMember) {
-        super('$elements$', '', '', hashTable.context, hashTable.frameId, 
+        super('$elements$', '', '', '', hashTable.context, hashTable.frameId, 
               hashTable, hashTable.logger);
         this.hashTable = hashTable;
     }
