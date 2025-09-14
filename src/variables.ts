@@ -4,7 +4,6 @@ import * as dap from "./dap";
 import * as constants from './constants';
 import * as dbg from './debugger';
 import { PghhError, EvaluationError } from './error';
-import { Hash } from 'crypto';
 
 export interface AliasInfo {
     /* Declared type */
@@ -26,7 +25,7 @@ export class NodeVarRegistry {
      * Known NodeTags that represents Expr nodes.
      * Required for Exprs representation in tree view as expressions
      */
-    exprs: Set<string> = new Set<string>(constants.getDisplayedExprs())
+    exprs: Set<string> = new Set<string>(constants.getDisplayedExprs());
 
     /**
      * Known aliases for Node variables - `typedef RealType* Alias'
@@ -1003,13 +1002,8 @@ export abstract class Variable {
     getWatchExpression(): string | null {
         return null;
     }
-
-    /**
-     * call `palloc` with specified size (can be expression).
-     * before, it performs some checks and can throw EvaluationError
-     * if they fail.
-     */
-    async palloc(size: string) {
+    
+    async checkCanAlloc() {
         /*
          * Memory allocation is a very sensitive operation.
          */
@@ -1017,6 +1011,15 @@ export abstract class Variable {
             /* TODO: CritSectionError or something like that */
             throw new EvaluationError('It is not safe to allocate memory now');
         }
+    }
+
+    /**
+     * call `palloc` with specified size (can be expression).
+     * before, it performs some checks and can throw EvaluationError
+     * if they fail.
+     */
+    async palloc(size: string) {
+        await this.checkCanAlloc();
 
         if (this.context.hasPalloc) {
             const result = await this.evaluate(`palloc(${size})`);
@@ -1041,6 +1044,32 @@ export abstract class Variable {
         }
 
         throw new EvaluationError(`failed to allocate memory using MemoryContextAlloc: ${result.result}`);
+    }
+    
+    async directFunctionCall(func: string, out: string, arg0: string, ...args: string[]) {
+        await this.checkCanAlloc();
+        const argsCount = 1 + args.length;
+        const trailing = args.map(x => `, (Datum)${x}`).join('');
+        const expr = `(${out})DirectFunctionCall${argsCount}Coll(&${func}, (Oid)${InvalidOid}, (Datum) ${arg0} ${trailing})`;
+        return await this.evaluate(expr);
+    }
+
+    async functionCall(funcOid: string | number, out: string, arg0: string, ...args: string[]) {
+        await this.checkCanAlloc();
+        const argsCount = 1 + args.length;
+        const trailing = args.map(x => `, (Datum)${x}`).join('');
+
+        /* Init FmgrInfo */
+        const fmgrInfo = await this.palloc('sizeof(FmgrInfo)');
+        await this.evaluateVoid(`fmgr_info(${funcOid}, (void *)${fmgrInfo})`);
+
+        /* Invoke function itself */
+        const result = await this.evaluate(
+            `(${out})FunctionCall${argsCount}(((void *)${fmgrInfo}), (Datum)${arg0} ${trailing})`
+        );
+
+        await this.pfree(fmgrInfo);
+        return result;
     }
 
     private async isSafeToAllocateMemory() {
@@ -1301,6 +1330,39 @@ export class RealVariable extends Variable {
 
         this.members = await this.doGetRealMembers();
         return this.members;
+    }
+    
+    async getDescription() {
+        if (this.type !== 'XLogRegPtr' || Number.isInteger(Number(this.value))) {
+            /*
+             * We want to display XLogRecPtr (LSN) in File/Offset form, not
+             * plain integers, but up to 9.3 LSN was represented by a struct,
+             * so add check for integer type.
+             */
+            return super.getDescription();
+        }
+
+        try {
+            const result = await this.directFunctionCall('pg_lsn_out', 'char *', this.value);
+            const ptr = this.debug.extractPtrFromString(result);
+            if (!ptr) {
+                return super.getDescription();
+            }
+
+            await this.pfree(ptr);
+            const format = this.debug.extractString(result);
+            if (!format) {
+                return super.getDescription();
+            }
+
+            return format;
+        } catch (err) {
+            if (!(err instanceof EvaluationError)) {
+                throw err;
+            }
+        }
+        
+        return super.getDescription();
     }
 
     protected async doGetRealMembers() {
@@ -2141,18 +2203,23 @@ class ExprNodeVariable extends NodeVariable {
 
         const legacyOidOutputFunctionCall = async (funcOid: number) => {
             /*
-             * Older systems do not have OidOutputFunctionCall().
-             * But, luckily, it's very simple to write it by ourselves.
+             * Older systems do not have OidOutputFunctionCall(), so use
+             * FunctionCall1() instead.
              */
-
-            const fmgrInfo = await this.palloc('sizeof(FmgrInfo)');
-            /* Init FmgrInfo */
-            const expr = `fmgr_info(${funcOid}, (void *)${fmgrInfo})`;
-            await this.evaluateVoid(expr);
-
             /* Call function */
-            const [str, ptr] = await evalStrWithPtr(`(char *)((Pointer) FunctionCall1(((void *)${fmgrInfo}), ((Const *)${this.getPointer()})->constvalue))`);
+            const result = await this.functionCall(funcOid, '(char *)', `((Const *)${this.getPointer()})->constvalue)`);            
+
+            /* Free allocated string */
+            const ptr = this.debug.extractPtrFromString(result);
+            if (ptr === null) {
+                throw new EvaluationError(`failed to extract pointer from result: "${result.result}"`);
+            }
             await this.pfree(ptr);
+            
+            const str = this.debug.extractString(result);
+            if (str === null) {
+                throw new EvaluationError(`failed to extract string from result: "${result.result}"`);
+            }
             return str;
         }
 
