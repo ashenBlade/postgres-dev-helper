@@ -104,6 +104,15 @@ async function searchBreakpointLocation() {
     return new vscode.Location(sourceFile, new vscode.Position(lineNumber, 0));
 }
 
+async function mapAsync<T1, T2>(arr: T1[], fn: (arg: T1) => Promise<T2>) {
+    /* I did not found async 'Array.map' analog, maybe it exists */
+    const result = [];
+    for (const e of arr) {
+        result.push(await fn(e));
+    }
+    return result;
+}
+
 const sleep = async (ms: number) => await new Promise(r => setTimeout(r, ms));
 
 const intRegexp = (value: number) => new RegExp(`^\\s*${value}\\s*$`);
@@ -273,13 +282,25 @@ suite('Variables', async () => {
         return getMember(children, name);
     }
 
+    const assertExpandable = (x: TreeItemWrapper, who: string) => {
+        assert.equal(x.collapsibleState, CollapsibleState.Collapsed, 
+                     `${who} must be expandable`);
+    }
+    
+    /* #define ARRAY_SIZE 16  */
+    const defaultArraySize = 16;
+    
+    const assertContainsDefaultArray = (elements: VarTreeItemPair[]) => {
+        assert.equal(elements.length, defaultArraySize,
+                    `Predefined arrays contain ${defaultArraySize} elements`);
+        for (const [i, value] of elements.entries()) {
+            assert.match(value.item.description, intRegexp(i + 1),
+                            `Array member at ${i} does not contain expected value`);
+        }
+    }
+
     /* Tests for handling types of variables */
     suite('Variable handling', async () => {    
-        const assertExpandable = (x: TreeItemWrapper, who: string) => {
-            assert.equal(x.collapsibleState, CollapsibleState.Collapsed, 
-                         `${who} must be expandable`);
-        }
-
         const assertNotExpandable = (x: TreeItemWrapper, who: string) => {
             assert.equal(x.collapsibleState, CollapsibleState.None,
                          `${who} must not be expandable`);
@@ -298,13 +319,7 @@ suite('Variables', async () => {
             assertExpandable(item, 'Array');
     
             const arrayMembers = await expand(v);
-            assert.equal(arrayMembers.length, 16, 'Array contains 16 elements');
-
-            for (const [i, value] of arrayMembers.entries()) {
-                assert.match(value.item.description, intRegexp(i + 1),
-                             `Array member at ${i} does not display valid value`);
-            }
-
+            assertContainsDefaultArray(arrayMembers);
             assert.ok(arrayMembers.every(x => !x.item.isExpandable()),
                       'Scalar array elements must not be expandable');
         });
@@ -315,15 +330,12 @@ suite('Variables', async () => {
             assertExpandable(item, 'Array');
 
             const children = await expand(v);
-            assert.equal(children.length, 16, 'Array contains 16 elements');
+            const entries = await mapAsync(children,
+                                    async (x) => await getMemberOf(x, 'value'));
+            assertContainsDefaultArray(entries);
+
             assert.ok(children.every(c => c.item.isExpandable()),
                       'Structure array members must be expandable');
-
-            for (const [i, child] of children.entries()) {
-                const {item} = await getMemberOf(child, 'value');
-                assert.match(item.description, intRegexp(i + 1), 
-                            `Member at ${i} does not displays actual value`);
-            }
         });
 
         /* Array of pointers to structures */
@@ -332,7 +344,7 @@ suite('Variables', async () => {
             assertExpandable(item, 'Array');
 
             const children = await expand(v);
-            assert.equal(children.length, 16, 'Array contains 16 elements');
+            assert.equal(children.length, defaultArraySize, 'Array contains 16 elements');
             assert.ok(children.every(c => c.item.isExpandable()),
                       'Structure array members must be expandable');
 
@@ -403,21 +415,7 @@ suite('Variables', async () => {
             assertExpandable(arrayMember.item, 'Fixed size array');
 
             const arrayElements = await expand(arrayMember);
-            assert.equal(arrayElements.length, 16, 'Array must contain 16 elements');
-
-            for (const [i, element] of arrayElements.entries()) {
-                assert.match(element.item.description, intRegexp(i + 1),
-                             `Array element at ${i} does not contain valid value`);
-            }
-        });
-
-        /* Member is flexible array */
-        test('Member[flexible array]', async () => {
-            const structureVar = await getVarItem('flexible_array_member');
-            assertExpandable(structureVar.item, 'Structure');
-
-            const {item} = await getMemberOf(structureVar, 'array');
-            assertNotExpandable(item, 'Flexible array member');
+            assertContainsDefaultArray(arrayElements);
         });
     });
 
@@ -603,6 +601,18 @@ suite('Variables', async () => {
             assert.deepStrictEqual(['1', '2', '4', '8'], arrayExprElements,
                                     'array_expr contains 4 elements: 1, 2, 4, 8');
         });
+
+        /* Member is flexible array */
+        test('Array members[FLEXIBLE_ARRAY_MEMBER]', async () => {
+            const structureVar = await getVarItem('flexible_array_member');
+
+            const pair = await getMemberOf(structureVar, 'array');
+            // await sleep(1000 * 100);
+            assertExpandable(pair.item, 'Flexible array member');
+            
+            const elements = await expand(pair);
+            assertContainsDefaultArray(elements);
+        });
         
         /* User defined aliases */
         test('Alias', async () => {
@@ -664,6 +674,5 @@ suite('Variables', async () => {
                 ]),
                 'Shown elements of simplehash are not ones that stored');
         });
-
-    })
+    });
 });

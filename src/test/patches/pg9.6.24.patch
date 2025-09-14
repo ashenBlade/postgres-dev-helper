@@ -35,7 +35,7 @@ new file mode 100644
 index 00000000000..358d8795a48
 --- /dev/null
 +++ b/src/backend/optimizer/plan/vscodehelper.c
-@@ -0,0 +1,233 @@
+@@ -0,0 +1,246 @@
 +#include "postgres.h"
 +
 +#include "nodes/relation.h"
@@ -67,11 +67,13 @@ index 00000000000..358d8795a48
 +	int array[ARRAY_SIZE];
 +} TestFixedArray;
 +
-+typedef struct TestFlexibleArrayMember
++typedef struct TestFlexibleArrayMemberData
 +{
-+	int value;
-+	int array[];
-+} TestFlexibleArrayMember;
++	int length;
++	int array[FLEXIBLE_ARRAY_MEMBER];
++} TestFlexibleArrayMemberData;
++
++typedef TestFlexibleArrayMemberData *TestFlexibleArrayMember;
 +
 +typedef struct CustomListElement
 +{
@@ -103,6 +105,7 @@ index 00000000000..358d8795a48
 +static Bitmapset *create_bms(void);
 +static List *create_custom_list(void);
 +static ArrayMember *create_special_array_member(void);
++static TestFlexibleArrayMember create_flex_array_member(void);
 +
 +static HTAB *
 +create_htab(void)
@@ -178,6 +181,14 @@ index 00000000000..358d8795a48
 +	return array;
 +}
 +
++static TestFlexibleArrayMember
++create_flex_array_member(void)
++{
++	TestFlexibleArrayMember member = palloc(offsetof(TestFlexibleArrayMemberData, array) + sizeof(int) * ARRAY_SIZE);
++	member->length = ARRAY_SIZE;
++	return member;
++}
++
 +void
 +vscode_test_helper(PlannerInfo *root)
 +{
@@ -191,7 +202,6 @@ index 00000000000..358d8795a48
 +	TestPointerMember pointer_member;
 +	TestEmbeddedStructure embedded_member;
 +	TestFixedArray fixed_size_array_member;
-+	TestFlexibleArrayMember flexible_array_member;
 +
 +	/* Config file */
 +	ArrayMember *array_member;
@@ -199,6 +209,7 @@ index 00000000000..358d8795a48
 +	CustomListVariable custom_list_variable;
 +	List *custom_list;
 +	HTAB *htab;
++	TestFlexibleArrayMember flexible_array_member;
 +
 +	/* Node variables */
 +	Bitmapset *bms;
@@ -227,6 +238,7 @@ index 00000000000..358d8795a48
 +	expr_alias = expr;
 +	eclass = (EquivalenceClass *) linitial(root->eq_classes);
 +	array_member = create_special_array_member();
++	flexible_array_member = create_flex_array_member();
 +
 +	i = 1;
 +	value_struct.value = 1;
@@ -242,6 +254,7 @@ index 00000000000..358d8795a48
 +		structure_array[j].value = j + 1;
 +		structure_pointer_array[j] = palloc(sizeof(TestStructure));
 +		structure_pointer_array[j]->value = j + 1;
++		flexible_array_member->array[j] = j + 1;
 +	}
 +
 +	UNUSED(bms);

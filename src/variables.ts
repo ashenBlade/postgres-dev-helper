@@ -915,6 +915,23 @@ export abstract class Variable {
                     }
                 }
             }
+            
+            if (debugVariable.type.endsWith('[]')) {
+                if (parent?.type && parent instanceof RealVariable) {
+                    const parentType = Variable.getRealType(parent.type, context);
+                    const specialMember = context.specialMemberRegistry
+                        .getArraySpecialMember(parentType, debugVariable.name);
+                    if (specialMember) {
+                        return new ArraySpecialMember(parent, specialMember, {
+                            ...debugVariable,
+                            frameId: frameId,
+                            parent: parent,
+                            context,
+                            logger,
+                        }) as RealVariable;
+                    }
+                }
+            }
 
             return new RealVariable(args);
         }
@@ -3995,6 +4012,14 @@ export class ArraySpecialMember extends RealVariable {
         super(args);
         this.info = info;
         this.parent = parent;
+    }
+    
+    protected isExpandable(): boolean {
+        /* 
+         * It should be always expandable, because we might be working with
+         * flexible array members
+         */
+        return true;
     }
 
     getLengthExpr() {

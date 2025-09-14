@@ -6,6 +6,10 @@
         {
             "alias": "ExprAlias",
             "type": "Expr *"
+        },
+        {
+            "alias": "TestFlexibleArrayMember",
+            "type": "TestFlexibleArrayMemberData *"
         }
     ],
     "arrays": [
@@ -18,6 +22,11 @@
             "typeName": "ArrayMember",
             "memberName": "array_expr",
             "lengthExpression": "!{}->length + {}->length2"
+        },
+        {
+            "typeName": "TestFlexibleArrayMemberData",
+            "memberName": "array",
+            "lengthExpression": "length"
         }
     ],
     "htab": [

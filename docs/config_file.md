@@ -53,7 +53,7 @@ Each object of this array has 3 fields:
 
 - `typeName` - name of type, which contains ASM.
     This must be name of type without any qualifiers, like 'const' or 'volatile'.
-- `memberName` - name of member of this type.
+- `memberName` - name of member of this type (also can be a flexible array member).
 - `lengthExpression` - expression to be evaluated to get array length.
 
 Length expression can be in 2 forms:
@@ -96,7 +96,7 @@ Examples:
 }
 ```
 
-There are about 36 registered special members - no need to create config
+There are about lots registered special members - no need to create config
 file for them. If you have found special member that has no support - you
 can add it to config file (also [create issue](https://github.com/ashenBlade/postgres-dev-helper/issues)
 to add this to built-ins).

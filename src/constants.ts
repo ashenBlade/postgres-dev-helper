@@ -1339,14 +1339,18 @@ export function getKnownCustomListPtrs(): ListPtrSpecialMemberInfo[] {
  */
 export function getDefaultAliases(): [string, string][] {
     /*
-     * Frequently used pattern, where struct ends with 'Data', and
-     * typedef is a pointer named without 'Data' suffix.
+     * Frequently used pattern, where struct ends with 'Data' and
+     * typedef is a pointer named without that 'Data' suffix, i.e.
+     * 
+     *    typedef RelationData *Relation;
+     * 
      */
-    const data = (alias: string): [string, string] => [alias, `${alias}Data *`];
+    const addDataSuffix = (alias: string): [string, string] => [alias, `${alias}Data *`];
 
     return [
         ['Relids', 'Bitmapset *'],
         ['Form_pg_trigger', 'FormData_pg_trigger *'],
+        ['CheckpointerShmem', 'CheckpointerShmemStruct *'],
 
         ...[
             'MemoryContext',
@@ -1364,7 +1368,14 @@ export function getDefaultAliases(): [string, string][] {
             'TableScanDesc',
             'IndexScanDesc',
             'ScanKey',
-        ].map(data),
+            'TwoPhaseState',
+            'BTVacuumPosting',
+            'MultiSortSupport',
+            'TSVector',
+            'BTVacuumPosting',
+            'SetConstraintState',
+            'ParamListInfo',
+        ].map(addDataSuffix),
     ]
 }
 
@@ -1606,6 +1617,146 @@ export function getArraySpecialMembers(): ArraySpecialMember[] {
         /* src/include/access/gist_private.h */
         _('GISTBuildBuffers', 'buffersOnLevels', 'buffersOnLevelsLen'),
         _('GISTBuildBuffers', 'loadedBuffers', 'loadedBuffersCount'),
+        
+        /* src/include/access/brin_internal.h */
+        _('BrinDesc', 'bd_info', 'bd_tupdesc->natts'),
+        
+        /* src/include/access/gist.h */
+        _('GistEntryVector', 'vector', 'n'),
+
+        /* src/include/access/gistxlog.h */
+        _('gistxlogDelete', 'offsets', 'ntodelete'),
+        
+        /* src/include/access/heapam_xlog.h */
+        _('xl_heap_truncate', 'relids', 'nrelids'),
+        
+        _('xl_heap_mutli_insert', 'offsets', 'ntuples'),
+        
+        _('xlhp_freeze_plans', 'plans', 'nplans'),
+
+        _('xlhp_prune_items', 'data', 'ntargets'),
+        
+        _('xl_heap_inplace', 'msgs', 'nmsgs'),
+        
+        /* src/include/access/hash_xlog.h */
+        _('xl_hash_vacuum_one_page', 'offsets', 'ntuples'),
+        
+        /* src/include/access/multixact.h */
+        _('xl_multixact_create', 'members', 'nmembers'),
+        
+        /* src/include/access/nbtree.h */
+        _('BTVacuumPostingData', 'deletetids', 'ndeletedtids'),
+        
+        /* src/include/access/spgxlog.h */
+        _('spgxlogMoveLeafs', 'offsets', 'nMoves'),
+        
+        _('spgxlogVacuumRoot', 'offsets', 'nDelete'),
+        
+        _('spgxlogVacuumLeaf', 'offsets', '!{}->nDead + {}->nPlaceholder + {}->nMove * 2 + {}->nChain * 2'),
+        
+        _('spgxlogVacuumRedirect', 'offsets', 'nToPlaceholder'),
+        
+        /*
+         * spgxlogPickSplit is not supported, because it contains elements
+         * of different types (OffsetNumber + uint8)
+         */
+        
+        /* src/include/access/tupdesc.h */
+        _('TupleDescData', 'attrs', 'natts'),
+        
+        _('TupleDescData', 'compact_attrs', 'natts'),
+        
+        /* src/include/access/xact.h */
+        _('xl_xact_assignment', 'xsub', 'nsubxacts'),
+        
+        _('xl_xact_subxacts', 'subxacts', 'nsubxacts'),
+        
+        _('xl_xact_relfilenodes', 'xnodes', 'nrels'),
+        
+        _('xl_xact_relfilelocators', 'xlocators', 'nrels'),
+        
+        _('xl_xact_stats_items', 'items', 'nitems'),
+        
+        _('xl_xact_invals', 'msgs', 'nmsgs'),
+        
+        /* src/include/access/xlogreader.h */
+        _('DecodedXLogRecord', 'blocks', 'max_block_id + 1'),
+        
+        /* src/include/catalog/namespace.h */
+        _('FuncCandidateList', 'args', 'nargs'),
+        
+        /* src/include/commands/dbcommands_xlog.h */
+        _('xl_dbase_drop_rec', 'tablespace_ids', 'ntablespaces'),
+        
+        /* src/include/executor/execPartition.h */
+        _('PartitionRelPruningData', 'partrelprunedata', 'num_partrelprunedata'),
+        
+        _('PartitionPruningData', 'partrelprunedata', 'num_partrelprunedata'),
+        
+        /* src/include/jit/jit.h */
+        _('SharedJitInstrumentation', 'jit_instr', 'num_workers'),
+        
+        /* src/include/executor/instrument.h */
+        _('WorkerInstrumentation', 'instrument', 'num_workers'),
+        
+        /* src/include/fe_utils/parallel_slot.h */
+        _('ParallelSlotArray', 'slots', 'numslots'),
+        
+        /* src/include/nodes/execnodes.h */
+        _('SharedMemoizeInfo', 'sinstrument', 'num_workers'),
+        
+        _('SharedSortInfo', 'sinstrument', 'num_workers'),
+        
+        _('SharedIncrementalSortInfo', 'sinfo', 'num_workers'),
+        
+        _('SharedAggInfo', 'sinstrument', 'num_workers'),
+
+        _('SharedHashInfo', 'hinstrument', 'num_workers'),
+        
+        /* src/include/nodes/params.h */
+        _('ParamListInfoData', 'params', 'numParams'),
+        
+        /* src/include/nodes/tidbitmap.h */
+        _('TBMIterateResult', 'offsets', 'ntuples'),
+        
+        /* src/include/statistics/extended_stats_internal.h */
+        _('MultiSortSupportData', 'ssup', 'ndims'),
+        
+        _('SortItem', 'values', 'count'),
+        _('SortItem', 'isnull', 'count'),
+        
+        /* src/include/statistics/statistics.h */
+        _('MVNDistinct', 'items', 'nitems'),
+        
+        _('MVDependency', 'deps', 'ndeps'),
+        _('MVDependency', 'attributes', 'nattributes'),
+
+        _('MVDependencies', 'deps', 'ndeps'),
+
+        _('MCVList', 'items', 'nitems'),
+        
+        /* src/include/storage/standbydefs.h */
+        _('xl_standby_locks', 'locks', 'nlocks'),
+        
+        _('xl_running_xacts', 'xids', 'xcnt'),
+        
+        _('xl_invalidations', 'msgs', 'nsmgs'),
+        
+        /* src/include/tsearch/ts_type.h */
+        _('WordEntryPosVector', 'pos', 'npos'),
+        
+        /* src/include/tsearch/dicts/spell.h */
+        _('SPNode', 'data', 'length'),
+        
+        /* src/include/utils/catcache.h */
+        _('CatCList', 'members', 'n_members'),
+        
+        /* src/include/utils/datetime.h */
+        _('TimeZoneAbbrevTable', 'abbrevs', 'numabbrevs'),
+        
+        /* src/include/utils/geo_decls.h */
+        _('PATH', 'p', 'npts'),
+        _('POLYGON', 'p', 'npts'),
 
         /* src/include/executor/execParallel.h */
         _('ParallelExecutorInfo', 'reader', 'pcxt->nworkers_launched'),
@@ -1670,6 +1821,92 @@ export function getArraySpecialMembers(): ArraySpecialMember[] {
 
         /* src/include/rewrite/prs2lock.h */
         _('RuleLock', 'rules', 'numLocks'),
+        
+        /* src/backend/access/transam/multixact.c */
+        _('mXactCacheEnt', 'members', 'nmembers'),
+        
+        /* src/backend/access/transam/twophase.c */
+        _('TwoPhaseStateData', 'prepXacts', 'numPrepXacts'),
+        
+        /* src/backend/access/transam/xact.c */
+        _('SerializedTransactionState', 'parallelCurrentXids', 'nParallelCurrentXids'),
+        
+        /* src/backend/access/transam/xlogprefetcher.c */
+        _('LsnReadQueue', 'queue', 'size'),
+        
+        /* src/backend/access/nbtree/nbtree.c */
+        _('BTVacInfo', 'vacuums', 'num_vacuums'),
+        
+        /* src/backend/catalog/index.c */
+        _('SerializedReindexState', 'pendingReindexedIndexes', 'numPendingReindexedIndexes'),
+        
+        /* src/backend/commands/tablespace.c */
+        _('temp_tablespaces_extra', 'tblSpcs', 'numSpcs'),
+        
+        /* src/backend/commands/trigger.c */
+        _('SetConstraintStateData', 'trigstates', 'numstates'),
+        
+        /* src/backend/optimizer/plan/setrefs.c */
+        _('indexed_tlist', 'vars', 'num_vars'),
+        
+        /* src/backend/postmaster/bgworker.c */
+        _('BackgroundWorkerArray', 'slot', 'total_slots'),
+        
+        /* src/backend/postmaster/checkpointer.c */
+        _('CheckpointerShmemStruct', 'requests', 'num_requests'),
+        
+        /* src/backend/replication/logical/reorderbuffer.c */
+        _('ReorderBufferIterTXNState', 'entries', 'nr_txns'),
+        
+        /* src/backend/replication/logical/origin.c */
+        _('ReplicationStateCtl', 'states', '!max_active_replication_origins'),
+        
+        /* src/backend/storage/ipc/shm_toc.c */
+        _('shm_toc', 'toc_entry', 'toc_nentry'),
+        
+        /* src/backend/storage/ipc/sinvaladt.c */
+        _('SISeg', 'procState', 'numProcs'),
+        
+        /* src/backend/storage/aio/method_worker.c */
+        _('PgAioWorkerControl', 'workers', '!MAX_IO_WORKERS'),
+        
+        /* src/backend/utils/adt/jsonfuncs.c */
+        _('RecordIOData', 'columns', 'ncolumns'),
+        
+        /* src/backend/utils/adt/rowtypes.c */
+        _('RecordCompareData', 'columns', 'ncolumns'),
+        
+        /* src/backend/utils/adt/tsvector_op.c */
+        _('StatEntry', 'lexeme', 'lenlexeme'),
+        
+        /* src/backend/utils/adt/xid8funcs.c */
+        _('pg_snapshot', 'xip', 'nxip'),
+        
+        /* src/backend/utils/adt/txid.c */
+        _('TxidSnapshot', 'xip', 'nxip'),
+        
+        /* src/backend/utils/adt/jsonb_gin.c */
+        /*
+         * flm is conditional based on enum value, but CodeLLDB requires
+         * special handling of an enum, so here we cast enum to int and
+         * handle in such way.
+         * I hope that binary compatibility will be preserved in all future
+         * versions, at least this part have not changed since original
+         * commit in 12 version.
+         */
+        _('JsonPathGinNode', 'args', '!((int){}->type) == 0 || ((int){}->type) == 1 ? {}->val.nargs : -1'),
+        
+        /* src/backend/utils/cache/typcache.c */
+        _('TypeCacheEnumData', 'enum_values', 'num_values'),
+        
+        /* src/backend/utils/cache/inval.c */
+        _('InvalidationChunk', 'msgs', 'nitems'),
+        
+        /* src/backend/utils/sort/sharedtuplestore.c */
+        _('SharedTuplestore', 'participants', 'nparticipants'),
+        
+        /* src/backend/utils/sort/tuplesort.c */
+        _('Sharedsort', 'tapes', 'nTapes'),
 
         /* src/interfaces/ecpg/ecpglib/ecpglib_extern.h */
         _('statement', 'paramvalues', 'nparams + 1'),
@@ -1733,6 +1970,17 @@ export function getArraySpecialMembers(): ArraySpecialMember[] {
         _('TableInfo', 'checkexprs', 'numatts'),
 
         _('IndxInfo', 'indkeys', 'indnattrs'),
+        
+        _('LoInfo', 'looids', 'numlos'),
+        
+        /* src/bin/pg_rewind/filemap.h */
+        _('filemap_t', 'entries', 'nentries'),
+        
+        /* src/test/modules/test_shm_mq */
+        _('worker_state', 'handle', 'nworkers'),
+        
+        /* contrib/hstore/hstore_io.c */
+        _('RecordIOData', 'columns', 'ncolumns'),
     ];
 }
 
@@ -2056,6 +2304,8 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
             ['XLHL_KEYS_UPDATED', '0x10'],
         ])
     ]);
+    
+    /* TODO: FF_* src/include/tsearch/dicts/spell.h */
 
     /* 
      * In contrast to other features this one actually requires from us
@@ -2161,6 +2411,25 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
                 ['SK_SEARCHNULL',		'0x0020'],
                 ['SK_SEARCHNOTNULL',	'0x0040'],
                 ['SK_ORDER_BY',			'0x0100'],
+            ])
+        ]),
+        
+        /* src/include/statistics/statistics.h */
+        _('MVNDistinct', 'type', [
+            from(10_00_00, [
+                ['STATS_NDISTINCT_TYPE_BASIC', '1'],
+            ]),
+        ]),
+        
+        _('MVDependencies', 'type', [
+            from(10_00_00, [
+                ['STATS_DEPS_TYPE_BASIC', '1'],
+            ]),
+        ]),
+        
+        _('MCVList', 'type', [
+            from(10_00_00, [
+                ['STATS_MCV_TYPE_BASIC', '1'],
             ])
         ]),
 
