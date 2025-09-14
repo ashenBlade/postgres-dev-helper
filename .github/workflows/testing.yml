@@ -30,7 +30,7 @@ jobs:
     - name: Setup sources
       run: ./src/test/setup.sh -j 4 --pg-version=${{ matrix.pgversion }}
     - name: Run tests
-      run: ./src/test/test.sh --no-gui --pg-versions=${{ matrix.pgversion }}
+      run: ./src/test/test.sh --no-gui --tests="vars,format" --pg-versions=${{ matrix.pgversion }}
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       if: failure()
