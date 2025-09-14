@@ -107,6 +107,11 @@ LOGDIR="$PWD/src/test/log"
 LOGFILE="$LOGDIR/test_$(date +%Y%m%d%H%M).log"
 mkdir -p "$LOGDIR"
 
+if [[ -z "$TEST_MODES" ]]; then
+    # MFU test mode
+    TEST_MODES="vars"
+fi
+
 for PGVERSION in $PG_VERSIONS; do
     if [[ -z "$NO_REBUILD" ]]; then
         echo "Setup PostgreSQL $PGVERSION"
