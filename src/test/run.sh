@@ -5,10 +5,11 @@ function print_help {
 Run database and/or PSQL with settings for current installation.
 Log file is written to ./postgresql.log.
 
-Usage: $0 [--run-db] [--stop-db]
+Usage: $0 [--run] --[psql] [--stop]
 
-    --run               Run database
-    --stop              Stop running database
+    --run,  -r          Run database
+    --psql, -p          Run psql and connect to database
+    --stop, -s          Stop database
     --help, -h          Print this help message
 
 Example: $0 --run
@@ -22,15 +23,19 @@ set -e
 
 RUN_DB=""
 STOP_DB=""
+RUN_PSQL=""
 
 while [[ -n "$1" ]]; do
     ARG="$1"
     case "$ARG" in
-        --run)
+        --run|--start|-r)
             RUN_DB="1"
             ;;
-        --stop)
+        --stop|-s)
             STOP_DB="1"
+            ;;
+        --psql|-p)
+            RUN_PSQL="1"
             ;;
         --help|-h) 
             print_help
@@ -58,6 +63,10 @@ if [ "$RUN_DB" ]; then
     # Not 0 exit code can mean DB already running.
     # For tests this is valid
     pg_ctl start -l "$PGDATA/postgresql.log" -w || true
+fi
+
+if [ "$RUN_PSQL" ]; then
+    psql -U postgres
 fi
 
 if [ "$STOP_DB" ]; then

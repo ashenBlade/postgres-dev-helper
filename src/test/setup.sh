@@ -204,7 +204,10 @@ cp "$EXT_ROOT_DIR/src/test/run.sh" "$SRC_PATH"
 
 # Copy extension configuration
 mkdir -p "$SRC_PATH/.vscode"
-cp "$PATCHES_DIR/pgsql_hacker_helper.json" "$SRC_PATH/.vscode"
-cp "$PATCHES_DIR/settings.json" "$SRC_PATH/.vscode"
+cp "$PATCHES_DIR/pgsql_hacker_helper.json" \
+   "$PATCHES_DIR/settings.json"            \
+   "$PATCHES_DIR/launch.json"              \
+   "$SRC_PATH/.vscode"
+
 cp "$PATCHES_DIR/custom.typedefs.list" "$SRC_PATH"
 } 2>&1 | tee "$LOGFILE"
