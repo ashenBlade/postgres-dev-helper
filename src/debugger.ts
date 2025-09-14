@@ -314,13 +314,22 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
 
         const frame = st.stackFrames[0];
 
+        /* cppdbg additionally formats function name: lib.so!func(args) */
+
         /* Remove arguments from function name */
-        const argsIdx = frame.name.indexOf('(');
-        if (argsIdx === -1) {
-            return frame.name;
+        let name = frame.name;
+        const argsIdx = name.indexOf('(');
+        if (argsIdx !== -1) {
+            name = name.substring(0, argsIdx);
         }
 
-        return frame.name.substring(0, argsIdx);
+        /* Remove shlib prefix */
+        const shlibPrefix = name.indexOf('!');
+        if (shlibPrefix !== -1) {
+            name = name.substring(shlibPrefix + 1);
+        }
+
+        return name;
     }
 
     async getScopes(frameId: number): Promise<dap.Scope[]> {

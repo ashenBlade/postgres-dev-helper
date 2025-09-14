@@ -230,11 +230,6 @@ Each object contain:
 
 With this 2 strategies extension detects `List`s with custom types.
 
-> NOTE: if your function is from extension, then you must prepend `EXT_NAME!` to your function name (`EXT_NAME` - name of shared library).
-> Just like you see this extension name in `Call Stack` view in VS Code.
->
-> i.e. for function `pgss_store` in `pg_stat_statements` you will use `pg_stat_statements!pgss_store` (because it's shared library name is `pg_stat_statements.so`).
-
 ### Explore entries in Hash Tables
 
 `HTAB *` Hash Table entries can be traversed using `hash_seq_search`, but it returns `void *` - no information about it's type.

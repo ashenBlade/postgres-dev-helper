@@ -527,6 +527,26 @@ function parseConfigurationFile(configFile: any): ConfigFile | undefined {
             return obj.map(x => x.toString());
         }
     }
+    
+    const normalizeFuncName = (name: string) => {
+        /*
+         * Earlier extension versions used solib prefix in function name
+         * that cppdbg added, but after adding support for CodeLLDB we
+         * have to generalize things.
+         * This part is just to keep at least some kind of compatibility.
+         */
+        const argsIndex = name.indexOf('(');
+        if (argsIndex !== -1) {
+            name = name.substring(0, argsIndex);
+        }
+        
+        let shlibIndex = name.indexOf('!');
+        if (shlibIndex !== -1) {
+            name = name.substring(shlibIndex + 1);
+        }
+        
+        return name;
+    }
 
     const parseListTypes = (obj: any): vars.ListPtrSpecialMemberInfo[] | undefined => {
         /* 
@@ -569,11 +589,18 @@ function parseConfigurationFile(configFile: any): ConfigFile | undefined {
 
             let variableEntry: [string, string] | undefined;
             if (Array.isArray(o.variable) && o.variable.length === 2) {
-                const func = o.variable[0];
-                const variable = o.variable[1];
+                let func = o.variable[0];
+                let variable = o.variable[1];
                 if (!(typeof func === 'string' && typeof variable === 'string' &&
                              func              &&        variable)) {
                     vscode.window.showErrorMessage(`"variable" entry should be array of function name and variable strings. given: [${typeof func}, ${typeof variable}]`);
+                    continue;
+                }
+                
+                func = normalizeFuncName(func.trim());
+                variable = variable.trim();
+                
+                if (!(func && variable)) {
                     continue;
                 }
 
@@ -603,13 +630,19 @@ function parseConfigurationFile(configFile: any): ConfigFile | undefined {
                 return;
             }
 
-            const [parent, member] = o;
-            if (typeof parent === 'string' && typeof member === 'string'
-                    && parent              &&        member) {
-                return [parent, member];
+            let [parent, member] = o;
+            if (!(typeof parent === 'string' && typeof member === 'string'
+                      && parent              &&        member)) {
+                return;
             }
 
-            return;
+            parent = normalizeFuncName(parent.trim());
+            member = member.trim();
+            if (!(parent && member)) {
+                return;
+            }
+
+            return [parent, member];
         }
 
         if (!Array.isArray(obj)) {
