@@ -17,10 +17,13 @@ function getFormattedFile(env: TestEnv) {
     return fs.readFileSync(path, {encoding: "utf8"});
 }
 
-suite('Formatting', async () => {
+suite('Formatting', async function () {
     const env = getTestEnv();
     const unformattedFilePath = env.getWorkspaceFile('unformatted.c');        
     const expected = getFormattedFile(env);
+    
+    /* set big timeout: git clone + make */
+    this.timeout('5m');
 
     suiteSetup(async () => {
         const swallow = async (fn: () => Promise<void>) => {
@@ -67,7 +70,11 @@ suite('Formatting', async () => {
         fs.copyFileSync(originalFile, unformattedFilePath);
     });
 
-    const formatTest = async () => {
+    const formatTest = async (t: Mocha.Context) => {
+        if (!env.pgVersionSatisfies('10')) {
+            t.skip();
+        }
+
         /* Open test file */
         const doc = await vscode.workspace.openTextDocument(unformattedFilePath);
 
@@ -83,11 +90,11 @@ suite('Formatting', async () => {
         assert.equal(actual, expected);
     }
 
-    test('Format clean', async () => {
-        await formatTest();
+    test('Format clean', async function () {
+        await formatTest(this);
     });
 
-    test('Format again', async () => {
-        await formatTest();
+    test('Format again', async function () {
+        await formatTest(this);
     });
 });

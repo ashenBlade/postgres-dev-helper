@@ -4,9 +4,9 @@ import * as util from 'util';
 import * as child_process from 'child_process';
 import { Configuration } from './extension';
 import * as https from 'https';
-import * as fs from 'fs';
 import * as os from 'os';
 import { PghhError } from './error';
+import * as crypto from 'crypto';
 
 const identifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
