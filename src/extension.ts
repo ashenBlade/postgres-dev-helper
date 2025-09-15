@@ -421,7 +421,28 @@ class ConfigFile {
     formatter?: PgindentConfiguration;
 }
 
-function parseConfigurationFile(configFile: any): ConfigFile | undefined {
+export function parseFormatterConfiguration(configFile: any): PgindentConfiguration | undefined {
+    const parseTypedefs = (obj: any): string[] | undefined => {
+        if (!obj) {
+            return;
+        }
+
+        if (typeof obj === 'string') {
+            return [obj.trim()];
+        } else if (Array.isArray(obj)) {
+            return obj.map(x => x.toString());
+        }
+    }
+    const typedefs = parseTypedefs(configFile.typedefs);
+
+    if (typedefs?.length) {
+        return {
+            typedefs,
+        }
+    }
+}
+
+function parseVariablesConfiguration(configFile: any): VariablesConfiguration | undefined {
     const parseArrayMember = (obj: any): vars.ArraySpecialMemberInfo | undefined => {
         if (!(obj && typeof obj === 'object' && obj !== null)) {
             return;
@@ -519,18 +540,6 @@ function parseConfigurationFile(configFile: any): ConfigFile | undefined {
         }
     }
 
-    const parseTypedefs = (obj: any): string[] | undefined => {
-        if (!obj) {
-            return;
-        }
-
-        if (typeof obj === 'string') {
-            return [obj.trim()];
-        } else if (Array.isArray(obj)) {
-            return obj.map(x => x.toString());
-        }
-    }
-    
     const normalizeFuncName = (name: string) => {
         /*
          * Earlier extension versions used solib prefix in function name
@@ -832,16 +841,14 @@ function parseConfigurationFile(configFile: any): ConfigFile | undefined {
     const htabTypes = parseHtabTypes(configFile.htab);
     const simpleHashTableTypes = parseSimplehashTypes(configFile.simplehash);   
     const bitmaskEnumMembers = parseEnumBitmasks(configFile.enums);
-    const typedefs = parseTypedefs(configFile.typedefs);
 
-    let variables = undefined;
     if (   arrayInfos?.length
         || aliasInfos?.length
         || customListTypes?.length
         || htabTypes?.length
         || simpleHashTableTypes?.length
         || bitmaskEnumMembers?.length) {
-        variables = {
+        return {
             arrayInfos,
             aliasInfos,
             customListTypes,
@@ -849,17 +856,6 @@ function parseConfigurationFile(configFile: any): ConfigFile | undefined {
             simpleHashTableTypes,
             bitmaskEnumMembers,
         }
-    }
-    let formatter = undefined;
-    if (typedefs?.length) {
-        formatter = {
-            typedefs,
-        }
-    }
-
-    return {
-        variables,
-        formatter,
     }
 }
 
@@ -1129,6 +1125,41 @@ async function bootstrapExtensionCommand() {
     await vscode.window.showTextDocument(td);
 }
 
+export async function readConfigFile(workspace: vscode.WorkspaceFolder,
+                                     logger: utils.ILogger) {
+    const path = Configuration.getConfigFile(workspace.uri);
+    let document;
+    try {
+        document = await vscode.workspace.openTextDocument(path);
+    } catch (err: any) {
+        /* the file might not exist, this is ok */
+        return;
+    }
+
+    let text;
+    try {
+        text = document.getText();
+    } catch (err: any) {
+        logger.error('could not read settings file %s', document.uri.fsPath, err);
+        return;
+    }
+
+    if (text.length === 0) {
+        /* JSON file can be used as activation event */
+        return;
+    }
+
+    let data;
+    try {
+        data = JSON.parse(text);
+    } catch (err: any) {
+        logger.error('could not parse JSON settings file %s', document.uri.fsPath, err);
+        return;
+    }
+    
+    return data;
+}
+
 export function setupExtension(context: vscode.ExtensionContext,
                                nodeVars: vars.NodeVarRegistry,  logger: utils.ILogger,
                                nodesView: NodePreviewTreeViewProvider) {
@@ -1138,61 +1169,22 @@ export function setupExtension(context: vscode.ExtensionContext,
         context.subscriptions.push(disposable);
     }
 
-    const processSingleConfigFile = async (pathToFile: vscode.Uri) => {
-        let doc = undefined;
-        try {
-            doc = await vscode.workspace.openTextDocument(pathToFile);
-        } catch (err: any) {
-            logger.error('failed to read settings file %s', pathToFile, err);
+    const refreshWorkspaceConfiguration = async (workspace: vscode.WorkspaceFolder) => {
+        const config = await readConfigFile(workspace, logger);
+        if (!config) {
             return;
         }
 
-        let text;
-        try {
-            text = doc.getText();
-        } catch (err: any) {
-            logger.error('failed to read settings file %s', doc.uri.fsPath, err);
-            return;
-        }
-
-        if (text.length === 0) {
-            /* JSON file can be used as activation event */
-            logger.debug('JSON settings file %s is empty', doc.uri.fsPath);
-            return;
-        }
-
-        let data;
-        try {
-            data = JSON.parse(text);
-        } catch (err: any) {
-            logger.error('failed to parse JSON settings file %s', doc.uri.fsPath, err);
-            return;
-        }
-
-        let parsedConfigFile: ConfigFile | undefined;
-        try {
-            parsedConfigFile = parseConfigurationFile(data);
-        } catch (err: any) {
-            logger.error('failed to parse JSON settings file %s', doc.uri.fsPath, err);
-            return;
-        }
-        
-        if (parsedConfigFile?.variables) {
-            nodesView.configFile = parsedConfigFile.variables;
-        }
-
-        if (parsedConfigFile?.formatter) {
-            FormatterConfiguration.typedefs = parsedConfigFile.formatter.typedefs;
-        }
+        let parsedConfigFile = parseVariablesConfiguration(config);
+        nodesView.configFile = parsedConfigFile;
     }
-
+    
     const refreshConfigurationFromFolders = async (folders: readonly vscode.WorkspaceFolder[]) => {
         for (const folder of folders) {
-            const pathToFile = utils.joinPath(
-                folder.uri, '.vscode', Configuration.ExtensionSettingsFileName);
-
-            if (await utils.fileExists(pathToFile)) {
-                await processSingleConfigFile(pathToFile);
+            try {
+                await refreshWorkspaceConfiguration(folder);
+            } catch (err) {
+                logger.error('could not refresh configuration in workspace %s', folder.uri.fsPath);
             }
         }
     }
@@ -1335,29 +1327,7 @@ export function setupExtension(context: vscode.ExtensionContext,
         }
 
         logger.info('refreshing config file due to command execution');
-        for (const folder of vscode.workspace.workspaceFolders) {
-            const configFilePath = utils.joinPath(
-                folder.uri,
-                '.vscode',
-                Configuration.ExtensionSettingsFileName);
-            if (!await utils.fileExists(configFilePath)) {
-                const answer = await vscode.window.showWarningMessage(
-                    'Config file does not exist. Create?',
-                    'Yes', 'No');
-                if (answer !== 'Yes') {
-                    return;
-                }
-
-                await vscode.commands.executeCommand(Configuration.Commands.OpenConfigFile);
-                return;
-            }
-
-            try {
-                await processSingleConfigFile(configFilePath);
-            } catch (err: any) {
-                logger.error('failed to update config file', err);
-            }
-        }
+        await refreshConfigurationFromFolders(vscode.workspace.workspaceFolders);
     };
 
     const refreshVariablesCmd = () => {
@@ -1544,6 +1514,10 @@ export class Configuration {
         NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`,
     };
     static ExtensionSettingsFileName = 'pgsql_hacker_helper.json';
+    
+    static getConfigFile(workspace: vscode.Uri) {
+        return vscode.Uri.joinPath(workspace, '.vscode', this.ExtensionSettingsFileName);
+    }
 
     static getLogLevel() {
         return this.getConfig<string>(this.ConfigSections.LogLevel);

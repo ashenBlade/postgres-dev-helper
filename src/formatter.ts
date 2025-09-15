@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import {languages} from 'vscode';
 import * as utils from './utils';
-import { Configuration } from './extension';
+import { Configuration, parseFormatterConfiguration, readConfigFile } from './extension';
 import { PghhError } from './error';
 import * as path from 'path';
 import * as os from 'os';
@@ -260,21 +260,31 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         await utils.writeFile(typedefsFile, content);
     }
 
-    private async getListOfTypedefs(workspace: vscode.WorkspaceFolder) {
-        const files = FormatterConfiguration.typedefs;
-        if (!files?.length) {
-            return '';
+    private async getCustomTypedefs(workspace: vscode.WorkspaceFolder) {
+        const configObj = await readConfigFile(workspace, this.logger);
+        if (!configObj) {
+            return [];
         }
 
+        const config = parseFormatterConfiguration(configObj);
+        if (!config?.typedefs?.length) {
+            return [];
+        }
+
+        /*
+         * pgindent accepts multiple --typedefs=s arguments. There is
+         * another argument `--list-of-typedefs` - this is content of
+         * a file itself and we do not use it.
+         */
         const typedefs = [];
-        for (const f of files) {
+        for (const t of config.typedefs) {
             let typedefFile;
-            if (path.isAbsolute(f)) {
-                typedefFile = vscode.Uri.file(f);
+            if (path.isAbsolute(t)) {
+                typedefFile = vscode.Uri.file(t);
             } else {
-                typedefFile = utils.getWorkspacePgSrcFile(workspace.uri, f);
+                typedefFile = utils.getWorkspacePgSrcFile(workspace.uri, t);
             }
-            
+
             if (!await utils.fileExists(typedefFile)) {
                 this.logger.warn('could not find file %s', typedefFile);
                 continue;
@@ -325,7 +335,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
                                       pg_bsd_indent: vscode.Uri,
                                       pgindent: vscode.Uri,
                                       workspace: vscode.WorkspaceFolder) {
-        const typedefs = await this.getListOfTypedefs(workspace);
+        const typedefs = await this.getCustomTypedefs(workspace);
 
         /* Work in pgindent dir, so it can find default typedefs.list */
         const cwd = path.resolve(pgindent.fsPath, '..');
@@ -425,43 +435,6 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         }
     }
 
-    private async getDefaultTypedefs(workspace: vscode.WorkspaceFolder) {
-        /* 
-         * Newer pg versions have 'src/tools/pgindent/typedefs.list' already
-         * present in repository, so just read it. But older versions does not
-         * have it installed, so we must download it manually.
-         * 
-         * NOTE: extension's supported pg versions start from 9.6 which have
-         *       it installed - logic for downloading it is not tested, so I
-         *       expect that it is working (tested only once, manually on my PC)
-         */
-        const typedefsFile = utils.getWorkspacePgSrcFile(
-                    workspace.uri, 'src', 'tools', 'pgindent', 'typedefs.list');
-        if (await utils.fileExists(typedefsFile)) {
-            this.logger.info('found default typedefs.list in %s', typedefsFile.fsPath);
-            return await utils.readFile(typedefsFile);
-        }
-
-        /* Version is not known, so just download latest */
-        const url = 'https://buildfarm.postgresql.org/cgi-bin/typedefs.pl';
-        this.logger.info('downloading typedefs file from %s', url);
-        let content;
-        try {
-            content = await utils.downloadFile(url);
-        } catch (err) {
-            throw new Error(`failed to download typedefs: ${err}`);
-        }
-
-        this.logger.info('saving typedefs.list to file %s', typedefsFile.fsPath);
-        try {
-            await utils.writeFile(typedefsFile, content);
-        } catch (err) {
-            throw new Error(`could not save typedef file: ${err}`);
-        }
-
-        return content;
-    }
-    
     private getWholeDocumentRange(document: vscode.TextDocument) {
         const start = new vscode.Position(0, 0);
         const lastLine = document.lineAt(document.lineCount - 1);
