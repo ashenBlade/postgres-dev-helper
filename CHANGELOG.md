@@ -5,6 +5,34 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0]
+
+### Added
+
+Support flexible array members as array members, so they are expanded as normal arrays.
+
+Display `XLogRecPtr` in `File/Offset` hex form (like PG does), not integer.
+
+Support for integer enums which elements defined using `#define` preprocessor.
+
+Tests for formatter module.
+
+### Fixed
+
+Normalize function names passed to configuration files, so cppdbg and CodeLLDB notations do not conflict.
+
+Some array members with scalar types are not displayed for CodeLLDB.
+
+### Changed
+
+Formatter module now works with `pgindent` instead of invoking `pg_bsd_indent` directly.
+
+Array members now specified in `"arrays"` section in configuration, instead of `"specialMembers" -> "array"`.
+
+Internal state initialization using knowledge of pg version using `server_version_num` GUC parameter. This is for initialization of internal runtime properties and acquiring enum members according to version.
+
+Internal state reinitialized each debug session start with configuration file updates.
+
 ## [1.13.0]
 
 ### Added

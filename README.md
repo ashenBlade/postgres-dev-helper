@@ -16,6 +16,7 @@ Extension provides assistance with postgres variables:
 - View `Node *` variables with real type according to `NodeTag`
 - Get the contents of container types: `List *`, `HTAB *`, `Bitmapset *`
 - Render `Expr` nodes by the original expression
+- Show integer enums as enum values, not integers
 
 > More info you can find in documentation for [`PG Variables` view](docs/pg_variables.md).
 
@@ -33,6 +34,7 @@ Extension creates separate view in debug section - `PG Variables`. It contains p
 - `Bitmapset *` elements (numbers) store references to which they point, i.e. `Relids` will store `RelOptInfo` and `RangeTable` references
 - `List *` can support custom pointer types (not `Node *` types)
 - Some scalar types are rendered in more convenient way, i.e. `XLogRecPtr` displayed in `File/Offset` form - not integer
+- Enum values, which defined using preprocessor (`#define`) are shown as enum values, not integers.
 
 ### Configuration file
 
@@ -215,7 +217,23 @@ Known issues:
 
 ## Release Notes
 
-## 1.13.0
+### 1.14.0
+
+Support flexible array members as array members, so they are expanded as normal arrays.
+
+Array members now specified in `"arrays"` section in configuration, instead of `"specialMembers" -> "array"`.
+
+Formatter module now works with `pgindent` instead of invoking `pg_bsd_indent` directly.
+
+Display `XLogRecPtr` in `File/Offset` hex form (like PG does), not integer.
+
+Normalize function names passed to configuration files, so cppdbg and CodeLLDB notations do not conflict.
+
+Fix some array members with scalar types are not displayed for CodeLLDB.
+
+Support for integer enums, defined using preprocessor (`#define ENUM_VALUE 1`).
+
+### 1.13.0
 
 Add some more array special members.
 
@@ -227,13 +245,13 @@ Cached `typedefs.list` file now stored in `.vscode` directory instead of global 
 
 Add command `Find custom typedefs.list in repository` to quickly find `typedefs.list` files in repository.
 
-## 1.12.1
+### 1.12.1
 
 Improve performance by caching current context properties, i.e. if it is safe to call `palloc`, etc...
 
 Handle `ROWID` special varno when rendering Var expression.
 
-## 1.12.0
+### 1.12.0
 
 Support for generic expressions for length expression in array special members.
 
@@ -243,11 +261,11 @@ Check length in array special members not greater than 1024 to prevent errors/bu
 
 Show expression in `PlaceHolderVar` instead of `EXPR` placeholder.
 
-## 1.11.2
+### 1.11.2
 
 Fix invalid attribute rendering if it does not have `alias` member set.
 
-## 1.11.1
+### 1.11.1
 
 Search `context` or `cxt` variable in walkers/mutators to find `rtable` and render attributes in `Expr` variables.
 
