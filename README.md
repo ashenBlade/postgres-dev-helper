@@ -2,173 +2,70 @@
 
 ![Logo](resources/logo.png)
 
-This is a Visual Studio Code extension to assist PostgreSQL source code
-developers. It allows to investigate `Node *` variables to obtain it's real type
-based on `NodeTag` and provide some other utilities.
+This is a Visual Studio Code extension to assist PostgreSQL source code developers:
+
+- Exploring Postgres variables (`Node *`, container types, etc...)
+- Format code with `pgindent`
 
 ## Features
 
-More info you can find in documentation for [`PG Variables` view](docs/pg_variables.md).
+### Postgres Variables
 
-### Investigate real type of `Node *`
+Extension provides assistance with postgres variables:
 
-While debugging you can observe variables of `Node *` type with it's real type.
-They appear in separate action view.
+- View `Node *` variables with real type according to `NodeTag`
+- Get the contents of container types: `List *`, `HTAB *`, `Bitmapset *`
+- Render `Expr` nodes by the original expression
+
+> More info you can find in documentation for [`PG Variables` view](docs/pg_variables.md).
+
+Extension creates separate view in debug section - `PG Variables`. It contains postgres variables - extended with knowledge of source code.
 
 ![Overview of extension](resources/overview.gif)
 
-It behaves like Debug->Variables view, but no colorization (limitations of VS
-Code Extension framework) and automatically detects real type of `Node *`
-variables.
+- `Node *` variables casted to types according to `NodeTag`
+- Container types show their elements:
+  - `List *` (with support for scalars)
+  - `HTAB *`
+  - simplehash (`lib/simplehash.h`)
+  - `Bitmapset *`
+- Render `Expr` nodes by the original expression
+- `Bitmapset *` elements (numbers) store references to which they point, i.e. `Relids` will store `RelOptInfo` and `RangeTable` references
+- `List *` can support custom pointer types (not `Node *` types)
+- Some scalar types are rendered in more convenient way, i.e. `XLogRecPtr` displayed in `File/Offset` form - not integer
 
-### Show contents of containers
+### Configuration file
 
-Extension support showing contents of containers: `List` (including `Oid`, `TransactionId`, `int` and non-Node types) and `Bitmapset`.
-
-![List * expansion](resources/list.gif)
-
-`Bitmapset` elements are displayed:
-
-- `$elements$` - elements of set (array of integers)
-- `$length$` - number of entries in set
-
-![Bitmapset expansion](resources/bitmapset.gif)
-
-Also, there is support for C-arrays (like `PlannerInfo->simple_rel_array`) - array is displayed using it's length.
-
-![Array special member](resources/array-special-member.gif)
-
-Currently, there are 36 registered array members, but you can add your own using [pgsql_hacker_helper.json](#pgsql_hacker_helperjson) configuration file.
-
-Another containers - Hash Tables. There is support for both `HTAB *` and `simplehash` (from `lib/simplehash.h`) - you can see their elements in separate `$elements$` member.
-
-![TIDBitmap simplehash elements](resources/simplehash.gif)
-
-> NOTE: most `HTAB *` stored in `static` variables, so they are not shown in variables UI
->
-> NOTE2: simplehashes have limitation due to compiler unused symbol pruning optimization (more in [configuration file documentation](./docs/config_file.md))
-
-### Show where Bitmapset references
-
-`Bitmapset` and `Relids` often store indexes of other elements in other places.
-Extension knows 53 such elements. I.e. `PlannerInfo->all_relids` or `RelOptInfo->eclass_indexes`.
-
-![Bitmapset references](resources/bitmapset-refs.gif)
-
-### Show Expr in their text representation
-
-In members of `Expr` nodes you can see their text representation.
-I.e. for `OpExpr` you will see something like `a.x = 1`.
-This works for most of `Exprs`, except *bulky* (`SubPlan`, `Case`, ...).
-
-![Show Exprs text representation](./resources/expr_repr.gif)
-
-Also, there are shortcuts for: `EquivalenceMember`, `RestrictInfo` and `TargetEntry`.
-Their expressions are displayed right after their member, so you will not have to keep opening and closing variables to see what's inside.
-A quick glance will make it clear what's inside!
-
-![Expressions of equivalence members displayed immediately](./resources/ec_members_exprs.png)
-
-> NOTE: not all and not always `Expr`s will be displayed.
-> Some of subtypes just not supported (i.e. `SubPlan` or `Case`).
-> Also, for displaying representation it's required to have range table.
-> In such cases placeholder is displayed.
-
-### Dump `Node *`
-
-In PostgreSQL there is `pprint(Node *)` which dumps passed Node variable to
-stdout with pretty printing it. Using 'Dump Node to log' option in variable
-context menu you also will be able to do so.
-
-![call pprint](resources/dump.gif)
-
-Also, you can dump `Node *` into newly created document and work with it as text file.
-There is `Dump Node to document` option in variable context menu.
-
-### Formatting
-
-Extension uses `pgindent` for formatting C code. It integrates with VS Code
-extension and available with `Format Document` or `Ctrl + Shift + I` shortcut
-(or another key binding if overridden).
-
-To enable this set formatter for C in settings (i.e. `.vscode/settings.json`
-for workspace):
-
-```json
-{
-    "[c]": {
-        "editor.defaultFormatter": "ash-blade.postgresql-hacker-helper"
-    }
-}
-```
-
-Or specify formatter manually using `Format Document With...`. Select
-`PostgreSQL Hacker Helper` in pick up box.
-
-![Formatter work](resources/formatter-work.gif)
-
-Feature supported for PostgreSQL starting from 10 version.
-
-> This feature using tools from `src/tools`. If they are unavailable extension
-> will try to build or download them.
->
-> Primary tool required is `pg_bsd_indent` - extension will try to build it.
-> For this `pg_config` is used, but if extension fails to find it you will be
-> prompted to enter path to it.
-
-Using command `PgSQL: Show diff preview for PostgreSQL formatter` you can
-preview changes made by formatter.
-
-Also, you can add your custom `typedefs.list` files and extension will use it
-during formatting. For more info check [documentation](docs/config_file.md#custom-typedefslist-files).
-
-### Extension bootstrapping
-
-Extension can help with creation of basic PostgreSQL extension files: Makefile,
-control file, source files (C, SQL) and tests.
-
-Just run command `Bootstrap extension` and enter initial values (extension
-name, description, required files). Extension will be created inside `contrib`
-directory.
-
-## Customization
-
-### pgsql_hacker_helper.json
-
-This is a configuration file for extension.
-It stored inside `.vscode` directory in your repository - `.vscode/pgsql_hacker_helper.json`. You can use config file to extend built-in capabilities if there is no support for something yet.
+Extension has configuration file - `.vscode/pgsql_hacker_helper.json`.
+Main purpose is to allow to define container elements custom types, i.e. when you are developing a contrib.
 
 Example json:
 
 ```json
 {
-    "version": 5,
-    "specialMembers": {
-        "array": [
-            {
-                "typeName": "PlannerInfo",
-                "memberName": "simple_rel_array",
-                "lengthExpression": "simple_rel_array_size"
-            },
-            {
-                "typeName": "RelOptInfo",
-                "memberName": "partexprs",
-                "lengthExpression": "part_scheme->partnatts"
-            },
-            {
-                "typeName": "GatherMergeState",
-                "memberName": "gm_slots",
-                "lengthExpression": "nreaders + 1"
-            }
-        ]
-    },
+    "arrays": [
+        {
+            "typeName": "PlannerInfo",
+            "memberName": "simple_rel_array",
+            "lengthExpression": "simple_rel_array_size"
+        },
+        {
+            "typeName": "RelOptInfo",
+            "memberName": "partexprs",
+            "lengthExpression": "part_scheme->partnatts"
+        },
+        {
+            "typeName": "GatherMergeState",
+            "memberName": "gm_slots",
+            "lengthExpression": "nreaders + 1"
+        }
+    ],
     "aliases": [
         {
             "alias": "PlannerRef",
             "type": "PlannerInfo *"
         }
     ],
-    "typedefs": "my.typedefs.file",
     "customListTypes": [
         {
             "type": "char *",
@@ -190,28 +87,58 @@ Example json:
             "prefix": "userdata",
             "type": "UserDataHashEntry *"
         }
-    ]
+    ],
+    "typedefs": "my.typedefs.file"
 }
 ```
 
 Features:
 
-- 3 *array* special members (pointer field used as array) - `"typeName"->"memberName"` will be shown with length `"typeName"->"lengthExpression"`, not as simple pointers.
-
-- `PlannerRef` - custom user typedef for `PlannerInfo *`.
-
+- 3 array members (pointer field used as array) - `"typeName"->"memberName"` will be shown with length `"typeName"->"lengthExpression"`, not as simple pointers.
+- `PlannerRef` - custom user typedef for `PlannerInfo *` (used to correctly handle types).
 - `UserData->knownNames` is a `List *` that contains pointer elements not `Node *`, but `char *` (`List` of strings).
 Variable `chunks` in function `ProcessFileChunks` is a `List` that contains pointer elements not `Node *`, but `struct FileChunks *`.
-
+- `List *UserData->knownNames` contains pointers to `char *` (not Node), and variable `List *chunks` in function `ProcessFileChunks()` contains pointers to `struct FileChunks` (not Node)
+- Hash Table member `HTAB *hashtable` of struct `ParentStruct` contains entries of type `HashTableEntry *`
+- Simplehash struct `hashtable_hash` contains entries of type `UserDataHashEntry *`.
 - User provided custom `typedefs` list (used by formatter).
 
-- `List *UserData->knownNames` contains pointers to `char *` (not Node), and variable `List *chunks` in function `ProcessFileChunks()` contains pointers to `struct FileChunks` (not Node)
-
-- Hash Table member `HTAB *hashtable` of struct `ParentStruct` contains entries of type `HashTableEntry *`
-
-- Simplehash struct `hashtable_hash` contains entries of type `UserDataHashEntry *`.
-
 For more info check [configuration file documentation](./docs/config_file.md).
+
+### Formatting
+
+Extension uses `pgindent` for formatting C code. It integrates with VS Code extension and available with `Format Document` or `Ctrl + Shift + I` shortcut (or another key binding if overridden). Or you can just specify formatter manually using `Format Document With...` - select `PostgreSQL Hacker Helper` in pick up box.
+
+![Formatter work](resources/formatter-work.gif)
+
+Feature supported for PostgreSQL starting from 10 version.
+
+> This feature using tools from `src/tools`. If they are unavailable extension will try to build or download them.
+>
+> Primary tool required is `pg_bsd_indent` - extension will try to build it.
+> For this `pg_config` is used, but if extension fails to find it you will be prompted to enter path to it.
+
+Using command `PgSQL: Show diff preview for PostgreSQL formatter` you can
+preview changes made by formatter.
+
+Also, you can add your custom `typedefs.list` files and extension will use it during formatting (`"typedefs"`). For more info check [documentation](docs/config_file.md#custom-typedefslist-files).
+
+### Dump `Node *`
+
+In PostgreSQL there is `pprint(Node *)` which dumps passed Node variable to
+stdout with pretty printing it. Using 'Dump Node to log' option in variable
+context menu you also will be able to do so.
+
+![call pprint](resources/dump.gif)
+
+Also, you can dump `Node *` into newly created document and work with it as text file.
+There is `Dump Node to document` option in variable context menu.
+
+### Extension bootstrapping
+
+Extension can help with creation of basic PostgreSQL extension files: Makefile, control file, source files (C, SQL) and tests.
+
+Just run command `Bootstrap extension` and enter initial values (extension name, description, required files). Extension will be created inside `contrib` directory.
 
 ## Extension Settings
 
@@ -246,12 +173,10 @@ There are 4 settings:
 
   - If not specified, it will be searched in `*SrcPath*/src/tools` directory.
   - If specified, and failed to run extension will try to build it.
-  NOTE: If required, it will be downloaded and built.
 
 ## Compatibility
 
 Compatibility is ensured using testing. Minimal supported versions are **PostgreSQL 9.6** and **VS Code 1.70**.
-But actually it can support PostgreSQL down to 8.0 and VS Code 1.30, but testing is not done due to large test matrix - for these versions testing is done manually.
 
 There are 2 supported debugger extensions: [C/C++](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools) and [CodeLLDB](https://marketplace.visualstudio.com/items?itemName=vadimcn.vscode-lldb).
 Extension always tested on *latest version of debugger* and do not tries to be compatible with old ones due to *possible* large/breaking changes in behavior (most features implemented using hacks).
@@ -264,8 +189,10 @@ For using formatter minimal supported version Postgres is `10`.
 Directory [`./src/test`](./src/test) contains multiple staff for extension testing.
 You can read [README](./src/test/README.md) to look at testing process.
 
-In short, only variable expansion is tested using large test matrix: PG Version x VS Code Version x Debugger.
+For variables testing is performed using matrix: PG Version x VS Code Version x Debugger.
 Each dimension contains all supported values: 9 (PG Versions) x 4 (VS Code Versions) x 2 (Debuggers) = 72 tests in total.
+
+For formatting testing is performed using matrix: PG Version x VS Code Version (36 tests in total).
 
 ## Known Issues
 
@@ -277,8 +204,8 @@ Known issues:
   but these files may be not created (./configure or make not run). I assume by
   time of debugging start files will be created, so extension catch them and process.
 - Sometimes formatting can misbehave. This is due to `pg_bsd_indent` internal
-  logic. If formatting is not applied try run command again. If file after
-  formatting is a mess this can be due to errors in logic.
+  logic. If formatting is not applied check logs of an extension - it may contain
+  error messages.
 - Some operations require data to be allocated (usually, for function invocation).
   For this, `palloc` and `pfree` are used. So if you are debugging memory subsystem
   you may want to disable extension, because it may affect debugging process.

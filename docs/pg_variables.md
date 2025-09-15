@@ -22,15 +22,14 @@ not initialized stack allocated) with value like `0x4`. Extension
 treat it like normal and tries to expand. No errors observed yet,
 but be careful.
 
-## Type investigation
+## Type exploring
 
-Main feature of this extension is investigation of variables in PostgreSQL source code.
-
-It involves several cases (kind of types):
+Main feature of this extension is exploration of variables in PostgreSQL source code. It involves several cases (kind of types):
 
 - Node type
-- Special member
+- Array members
 - Simple type (or member)
+- Hash tables
 
 ### Simple type
 
@@ -147,7 +146,6 @@ You should add this to config file:
 
 ```json
 {
-    "version": 2,
     "alises": [
         {
             "alias": "Sample",
@@ -159,50 +157,37 @@ You should add this to config file:
 
 > NOTE: this only works if `type` is Node type
 
-### Special members
+### Array members
 
-Special member - is a member of type that must be handled in special way
-(with custom logic).
-
-All special members info stored in `"specialMembers"` field in config file.
-
-For now, there is only 1 kind of special member - array special member (asm).
-
-ASM - is a member of some struct that stored pointer to array of some type
-with it's length stored in another member.
-It stored in `"array"` field in config file.
+Array member - is a member of some struct that stores pointer to array with it's length stored in another member.
 
 Example:
-
-You have this struct:
 
 ```c
 struct Sample
 {
+    /* Array of structs */
     struct PlannerInfo **planners;
+    /* Contains length of 'planners' array */
     int planners_count;
 }
 ```
 
-`planners` - is an array with length of `planners_count`. To add support for
-this you should update config file like this:
+To add support for this you can use this configuration:
 
 ```json
 {
-    "version": 2,
-    "specialMembers": {
-        "array": [
-            {
-                "typeName": "Sample",
-                "memberName": "planners",
-                "lengthExpression": "planners_count"
-            }
-        ]
-    }
+    "arrays": [
+        {
+            "typeName": "Sample",
+            "memberName": "planners",
+            "lengthExpression": "planners_count"
+        }
+    ]
 }
 ```
 
-There are about 36 supported ASM. For example, `simple_rel_array` for `PlannerInfo`
+There are lots of builtin supported array members. For example, `simple_rel_array` for `PlannerInfo`
 
 ![PlannerInfo->simple_rel_array](../resources/tutorial_array_sm.png)
 
