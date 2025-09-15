@@ -81,7 +81,7 @@ async function searchBreakpointLocation() {
      * so search it manually.
      */
     const files = await vscode.workspace.findFiles('**/vscodehelper.c');
-    if (!files || files.length === 0) {
+    if (!files.length) {
         throw new Error('failed to find vscodehelper.c file');
     }
     const sourceFile = files[0];
@@ -121,7 +121,7 @@ const execGetVariables = async () => {
                                 Configuration.Commands.GetVariables);
 }
 
-suite('Variables', async () => {
+suite('Variables', async function () {
     let variables: vars.Variable[] | undefined;
     const env = getTestEnv();
     const client = new pg.Client({
@@ -154,7 +154,7 @@ suite('Variables', async () => {
     /* There must be only 1 workspace */
     const workspace = vscode.workspace.workspaceFolders![0];
 
-    suiteSetup(async () => {
+    suiteSetup('Stop at breakpoint and get variables', async () => {
         /* Run DB */
         cp.spawnSync('/bin/bash', ['./run.sh', '--run'], {
             cwd: env.getWorkspaceFile(),
@@ -173,17 +173,13 @@ suite('Variables', async () => {
         }
 
         /* Run debug session */
-        if (!await vscode.debug.startDebugging(workspace, getDebugConfiguration(env, pid))) {
-            throw new Error('Failed to start debug session');
-        }
-
-        /* Set breakpoint in special function */
         vscode.debug.addBreakpoints([
             new vscode.SourceBreakpoint(await searchBreakpointLocation(), true)
         ]);
 
-        /* Wait before breakpoint enables and run query */
-        await sleep(1000);
+        if (!await vscode.debug.startDebugging(workspace, getDebugConfiguration(env, pid))) {
+            throw new Error('Failed to start debug session');
+        }
 
         client.query(query);
 
@@ -195,7 +191,7 @@ suite('Variables', async () => {
          */
         let attempt = 0;
         const maxAttempt = 5;
-        const timeout = 3 * 1000;
+        const timeout = 2 * 1000;
         while (attempt < maxAttempt) {
             await sleep(timeout);
             try {
@@ -210,7 +206,7 @@ suite('Variables', async () => {
             attempt++;
         }
 
-        if (!variables) {
+        if (!variables?.length) {
             throw new Error('failed to obtain postgres variables');
         }
     });
@@ -223,7 +219,7 @@ suite('Variables', async () => {
 
         /* Disconnect from server */
         await client.end();
-        
+
         /* Stop database */
         cp.spawnSync('/bin/bash', ['./run.sh', '--stop'], {
             cwd: env.getWorkspaceFile(),
