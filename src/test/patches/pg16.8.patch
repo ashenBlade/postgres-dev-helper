@@ -36,7 +36,7 @@ new file mode 100644
 index 00000000000..76f2903e179
 --- /dev/null
 +++ b/src/backend/optimizer/plan/vscodehelper.c
-@@ -0,0 +1,290 @@
+@@ -0,0 +1,288 @@
 +#include "postgres.h"
 +
 +#include "nodes/bitmapset.h"
@@ -69,13 +69,11 @@ index 00000000000..76f2903e179
 +	int array[ARRAY_SIZE];
 +} TestFixedArray;
 +
-+typedef struct TestFlexibleArrayMemberData
++typedef struct TestFlexibleArrayMember
 +{
 +	int length;
 +	int array[FLEXIBLE_ARRAY_MEMBER];
-+} TestFlexibleArrayMemberData;
-+
-+typedef TestFlexibleArrayMemberData *TestFlexibleArrayMember;
++} TestFlexibleArrayMember;
 +
 +typedef struct CustomListElement
 +{
@@ -128,7 +126,7 @@ index 00000000000..76f2903e179
 +static testhash_hash *create_simplehash(void);
 +static List *create_custom_list(void);
 +static ArrayMember *create_special_array_member(void);
-+static TestFlexibleArrayMember create_flex_array_member(void);
++static TestFlexibleArrayMember *create_flex_array_member(void);
 +
 +static HTAB *
 +create_htab(void)
@@ -213,10 +211,10 @@ index 00000000000..76f2903e179
 +	return array;
 +}
 +
-+static TestFlexibleArrayMember
++static TestFlexibleArrayMember *
 +create_flex_array_member(void)
 +{
-+	TestFlexibleArrayMember member = palloc(offsetof(TestFlexibleArrayMemberData, array) + sizeof(int) * ARRAY_SIZE);
++	TestFlexibleArrayMember *member = palloc(offsetof(TestFlexibleArrayMember, array) + sizeof(int) * ARRAY_SIZE);
 +	member->length = ARRAY_SIZE;
 +	return member;
 +}
@@ -252,7 +250,7 @@ index 00000000000..76f2903e179
 +	testhash_hash *simplehash;
 +	List *custom_list;
 +	HTAB *htab;
-+	TestFlexibleArrayMember flexible_array_member;
++	TestFlexibleArrayMember *flexible_array_member;
 +
 +	/* Node variables */
 +	Bitmapset *bms;

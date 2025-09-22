@@ -603,7 +603,6 @@ suite('Variables', async function () {
         test('Array members[FLEXIBLE_ARRAY_MEMBER]', async () => {
             const structureVar = await getVarItem('flexible_array_member');
 
-            /* TODO: use separate type without 'Data *' typedef */
             const pair = await getMemberOf(structureVar, 'array');
             assertExpandable(pair.item, 'Flexible array member');
             
