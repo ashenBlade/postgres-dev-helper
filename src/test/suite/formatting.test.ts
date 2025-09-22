@@ -31,7 +31,7 @@ suite('Formatting', async function () {
             } catch {
                 /* skip */
             }
-        }
+        };
 
         /* Remove cloned pg_bsd_indent */
         await swallow(async () => {
@@ -79,7 +79,7 @@ suite('Formatting', async function () {
 
         const actual = doc.getText();
         assert.equal(actual, expected);
-    }
+    };
 
     test('Format clean', async function () {
         await formatTest(this);

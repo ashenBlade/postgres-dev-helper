@@ -5,7 +5,8 @@ import * as vars from './variables';
 import * as constants from './constants';
 import * as dbg from './debugger';
 import * as dap from './dap';
-import { FormatterConfiguration, PgindentConfiguration } from './formatter';
+import { unnullify } from './error';
+import { PgindentConfiguration } from './formatter';
 
 
 function createDebuggerFacade(type: string, provider: NodePreviewTreeViewProvider): dbg.GenericDebuggerFacade | undefined {
@@ -69,7 +70,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
                     this.debug = debug;
                 }
             }),
-            vscode.debug.onDidTerminateDebugSession(s => {
+            vscode.debug.onDidTerminateDebugSession(_ => {
                 if (this.debug) {
                     this.context = undefined;
 
@@ -81,7 +82,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
     }
 
     /* https://code.visualstudio.com/api/extension-guides/tree-view#updating-tree-view-content */
-    private _onDidChangeTreeData = new vscode.EventEmitter<vars.Variable | undefined | null | void>();
+    private _onDidChangeTreeData = new vscode.EventEmitter<void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
     refresh(): void {
         this.context?.step.reset();
@@ -90,6 +91,10 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
 
     async getTreeItem(variable: vars.Variable) {
         return variable.getTreeItem();
+    }
+    
+    getDebug() {
+        return unnullify(this.debug, 'this.debug');
     }
     
     initializeExecContextFromConfig(context: vars.ExecContext) {
@@ -156,7 +161,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
 
     async tryGetPgVersion(frameId: number) {
         try {
-            const result = await this.debug!.evaluate('server_version_num', frameId);
+            const result = await this.getDebug().evaluate('server_version_num', frameId);
             const version = Number(result.result);
             if (!Number.isInteger(version) || !(0 <= version && version <= 999999)) {
                 this.log.warn('server_version_num has unexpected result: %s', result.result);
@@ -171,7 +176,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
     }
 
     async createExecContext(frameId: number) {
-        const context = new vars.ExecContext(this.nodeVars, this.debug!);
+        const context = new vars.ExecContext(this.nodeVars, this.getDebug());
 
         /* Initialize using default builtin values */
         const sm = context.specialMemberRegistry;
@@ -213,7 +218,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
             return await element.getChildren();
         }
 
-        const frameId = await this.debug!.getCurrentFrameId();
+        const frameId = await this.getDebug().getCurrentFrameId();
         if (frameId == undefined) {
             return;
         }
@@ -280,7 +285,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
     }
 }
 
-export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
+export async function dumpVariableToLogCommand(args: unknown, log: utils.ILogger,
                                                debug: dbg.IDebuggerFacade) {
     const session = vscode.debug.activeDebugSession;
     if (!session) {
@@ -288,7 +293,11 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
         return;
     }
 
-    const variable: dap.DebugVariable = args.variable;
+    if (!(typeof args === 'object' && args !== null && 'variable' in args)) {
+        return;
+    }
+
+    const variable = args.variable as dap.DebugVariable;
 
     const frameId = await debug.getCurrentFrameId();
     if (frameId === undefined) {
@@ -307,7 +316,7 @@ export async function dumpVariableToLogCommand(args: any, log: utils.ILogger,
                              frameId, 
                              undefined  /* context */, 
                              true       /* no return */);
-    } catch (err: any) {
+    } catch (err: unknown) {
         log.error('could not dump variable %s to log', variable.name, err);
         vscode.window.showErrorMessage(`Could not dump variable ${variable.name}. `
                                      + 'See errors in Output log');
@@ -346,7 +355,7 @@ export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable,
     let response;
     try {
         response = await debug.evaluate(nodeToStringExpr, frameId);
-    } catch (err: any) {
+    } catch (err: unknown) {
         log.error('could not dump variable %s to string', variable.name, err);
         vscode.window.showErrorMessage(`Could not dump variable ${variable.name}. `
                                      + 'See errors in Output log');
@@ -359,7 +368,7 @@ export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable,
     const prettyFormatExpr = `pretty_format_node_dump((const char *) ${response.memoryReference})`;
     try {
         response = await debug.evaluate(prettyFormatExpr, frameId);
-    } catch (err: any) {
+    } catch (err: unknown) {
         log.error('could not pretty print node dump', variable.name, err);
         vscode.window.showErrorMessage(`Could pretty print variable ${variable.name}. `
                                      + 'See errors in Output log');
@@ -370,7 +379,7 @@ export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable,
         type: response.type,
         value: response.result,
         memoryReference: response.memoryReference,
-    }
+    };
     const ptr = debug.extractPtrFromString(debugVariable);
     const node = await debug.extractLongString(debugVariable, frameId);
 
@@ -383,9 +392,11 @@ export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable,
                              undefined, true);
         await debug.evaluate(`pfree((const void *) ${savedNodeToStringPtr})`, frameId,
                              undefined, true);           
-    } catch (err: any) {
+    } catch (err: unknown) {
         /* This is not critical error actually, so just log and continue */
         log.error('could not dump variable %s to log', variable.name, err);
+        
+        /* continue */
     }
 
     if (node === null) {
@@ -416,129 +427,156 @@ interface VariablesConfiguration {
     bitmaskEnumMembers?: vars.BitmaskMemberInfo[];
 }
 
-class ConfigFile {
-    variables?: VariablesConfiguration;
-    formatter?: PgindentConfiguration;
-}
-
-export function parseFormatterConfiguration(configFile: any): PgindentConfiguration | undefined {
-    const parseTypedefs = (obj: any): string[] | undefined => {
+export function parseFormatterConfiguration(configFile: unknown): PgindentConfiguration | undefined {
+    const parseTypedefs = (obj: unknown): string[] | undefined => {
         if (!obj) {
             return;
         }
 
+        let arr: string[] | undefined;
         if (typeof obj === 'string') {
-            return [obj.trim()];
+            arr = [obj.trim()];
         } else if (Array.isArray(obj)) {
-            return obj.map(x => x.toString());
+            arr = obj.map(x => x.toString());
         }
+        
+        if (!arr?.length) {
+            return;
+        }
+        
+        return arr.filter(x => x.length > 0);
+    };
+    
+    if (!(typeof configFile === 'object' && configFile && 'typedefs' in configFile)) {
+        return;
     }
     const typedefs = parseTypedefs(configFile.typedefs);
 
     if (typedefs?.length) {
         return {
             typedefs,
-        }
+        };
     }
 }
 
-function parseVariablesConfiguration(configFile: any): VariablesConfiguration | undefined {
-    const parseArrayMember = (obj: any): vars.ArraySpecialMemberInfo | undefined => {
-        if (!(obj && typeof obj === 'object' && obj !== null)) {
+function parseVariablesConfiguration(configFile: unknown): VariablesConfiguration | undefined {
+    const parseArrayMember = (obj: unknown): vars.ArraySpecialMemberInfo | undefined => {
+        if (!(typeof obj === 'object' && obj)) {
             return;
+        }
+
+        let typeName;
+        if ('typeName' in obj) {
+            typeName = obj.typeName;
+            if (!typeName) {
+                vscode.window.showErrorMessage('"typeName" field not provided');
+                return;
+            }
+    
+            if (typeof typeName !== 'string') {
+                vscode.window.showErrorMessage(`"typeName" type must be string, given: ${typeof typeName}`);
+                return;
+            }
+            typeName = typeName.trim();
+
+            /* NodeTag used also as type name, so it must be valid identifier */
+            if (!utils.isValidIdentifier(typeName)) {
+                vscode.window.showErrorMessage(`typeName must be valid identifier. given: ${typeName}`);
+                return;
+            }
+        }
+
+
+        let memberName;
+        if ('memberName' in obj) {
+            memberName = obj.memberName;
+            if (!memberName) {
+                vscode.window.showErrorMessage(`memberName field not provided for type: ${typeName}`);
+                return;
+            }
+    
+            if (typeof memberName !== 'string') {
+                vscode.window.showErrorMessage(`memberName field must be string for type: ${typeName}`);
+                return;
+            }
+    
+            memberName = memberName.trim();
+            if (!utils.isValidIdentifier(memberName)) {
+                vscode.window.showErrorMessage(`memberName field ${memberName} is not valid identifier`);
+                return;
+            }
+        }
+
+        let lengthExpr;
+        if ('lengthExpression' in obj) {
+            lengthExpr = obj.lengthExpression;
+            if (!lengthExpr) {
+                vscode.window.showErrorMessage(`lengthExpression not provided for: ${typeName}->${memberName}`);
+                return;
+            }
+    
+            if (typeof lengthExpr !== 'string') {
+                vscode.window.showErrorMessage(`lengthExpression field must be string for: ${typeName}->${memberName}`);
+                return;
+            }
+    
+            lengthExpr = lengthExpr.trim();
+            if (!lengthExpr.length) {
+                vscode.window.showErrorMessage('lengthExpression can not be empty string');
+                return;
+            }
+        }
+
+        if (typeName && memberName && lengthExpr) {
+            return {
+                typeName,
+                memberName,
+                lengthExpr,
+            };
+        }
+    };
+
+    const parseSingleAlias = (obj: unknown): vars.AliasInfo | undefined => {
+        if (!(typeof obj === 'object' && obj)) {
+            return;
+        }
+
+        let alias;
+        if ('alias' in obj) {
+            alias = obj.alias;
+            if (!(typeof alias === 'string' && alias.length)) {
+                vscode.window.showErrorMessage(`"alias" field must be string. given: ${typeof obj.alias}`);
+                return;
+            }
+    
+            alias = alias.trim();
+            if (!alias) {
+                vscode.window.showErrorMessage(`"alias" field must not be empty`);
+                return;
+            }
         }
         
-        let typeName = obj.typeName;
-        if (!typeName) {
-            vscode.window.showErrorMessage('"typeName" field not provided');
-            return;
+        let type;
+        if ('type' in obj) {
+            type = obj.type;
+            if (!(typeof type === 'string' && type.length)) {
+                vscode.window.showErrorMessage(`"type" field must be string. given: ${typeof obj.type}`);
+                return;
+            }
+            type = type.trim();
+            if (!type) {
+                vscode.window.showErrorMessage(`"type" field must not be empty`);
+                return;
+            }
         }
 
-        if (typeof typeName !== 'string') {
-            vscode.window.showErrorMessage(`"typeName" type must be string, given: ${typeof typeName}`);
-            return;
+        if (alias && type) {
+            return {
+                alias,
+                type,
+            };
         }
-
-        typeName = typeName.trim();
-
-        /* NodeTag used also as type name, so it must be valid identifier */
-        if (!utils.isValidIdentifier(typeName)) {
-            vscode.window.showErrorMessage(`typeName must be valid identifier. given: ${typeName}`);
-            return;
-        }
-
-        let memberName = obj.memberName;
-        if (!memberName) {
-            vscode.window.showErrorMessage(`memberName field not provided for type: ${typeName}`);
-            return;
-        }
-
-        if (typeof memberName !== 'string') {
-            vscode.window.showErrorMessage(`memberName field must be string for type: ${typeName}`);
-            return;
-        }
-
-        memberName = memberName.trim();
-        if (!utils.isValidIdentifier(memberName)) {
-            vscode.window.showErrorMessage(`memberName field ${memberName} is not valid identifier`);
-            return;
-        }
-
-        let lengthExpr = obj.lengthExpression;
-        if (!lengthExpr) {
-            vscode.window.showErrorMessage(`lengthExpression not provided for: ${typeName}->${memberName}`);
-            return;
-        }
-
-        if (typeof lengthExpr !== 'string') {
-            vscode.window.showErrorMessage(`lengthExpression field must be string for: ${typeName}->${memberName}`);
-            return;
-        }
-
-        lengthExpr = lengthExpr.trim();
-        if (!lengthExpr) {
-            vscode.window.showErrorMessage('lengthExpression can not be empty string');
-            return;
-        }
-        return {
-            typeName,
-            memberName,
-            lengthExpr,
-        }
-    }
-
-    const parseSingleAlias = (obj: any): vars.AliasInfo | undefined => {
-        if (typeof obj !== 'object') {
-            return;
-        }
-
-        if (!(obj.alias && typeof obj.alias === 'string')) {
-            vscode.window.showErrorMessage(`"alias" field must be string. given: ${typeof obj.alias}`);
-            return;
-        }
-
-        const alias = obj.alias.trim();
-        if (!alias) {
-            vscode.window.showErrorMessage(`"alias" field must not be empty`);
-            return;
-        }
-
-        if (!(obj.type && typeof obj.type === 'string')) {
-            vscode.window.showErrorMessage(`"type" field must be string. given: ${typeof obj.type}`);
-            return;
-        }
-
-        const type = obj.type.trim();
-        if (!type) {
-            vscode.window.showErrorMessage(`"type" field must not be empty`);
-            return;
-        }
-
-        return {
-            alias,
-            type,
-        }
-    }
+    };
 
     const normalizeFuncName = (name: string) => {
         /*
@@ -552,15 +590,15 @@ function parseVariablesConfiguration(configFile: any): VariablesConfiguration | 
             name = name.substring(0, argsIndex);
         }
         
-        let shlibIndex = name.indexOf('!');
+        const shlibIndex = name.indexOf('!');
         if (shlibIndex !== -1) {
             name = name.substring(shlibIndex + 1);
         }
         
         return name;
-    }
+    };
 
-    const parseListTypes = (obj: any): vars.ListPtrSpecialMemberInfo[] | undefined => {
+    const parseListTypes = (obj: unknown): vars.ListPtrSpecialMemberInfo[] | undefined => {
         /* 
          * [
          *     {
@@ -580,12 +618,11 @@ function parseVariablesConfiguration(configFile: any): VariablesConfiguration | 
                 continue;
             }
 
-            const type = o.type;
-            if (typeof type !== 'string' && type) {
-                vscode.window.showErrorMessage(`"type" field must be non-empty string. given ${typeof type}`);
+            if (!('type' in o && typeof o.type === 'string' && o.type)) {
                 continue;
             }
 
+            const type = o.type;
             let memberEntry: [string, string] | undefined;
             if (Array.isArray(o.member) && o.member.length === 2) {
                 const struct = o.member[0];
@@ -623,13 +660,13 @@ function parseVariablesConfiguration(configFile: any): VariablesConfiguration | 
                 type,
                 member: memberEntry,
                 variable: variableEntry
-            })
+            });
         }
 
         return elements;
-    }
+    };
 
-    const parseHtabTypes = (obj: any): vars.HtabEntryInfo[] | undefined => {
+    const parseHtabTypes = (obj: unknown): vars.HtabEntryInfo[] | undefined => {
         /*
          * {
          *     "parent": "string",
@@ -637,7 +674,7 @@ function parseVariablesConfiguration(configFile: any): VariablesConfiguration | 
          *     "variable": ["string", "string"]
          * }
          */
-        const extractParentMember = (o: any): [string, string] | undefined => {
+        const extractParentMember = (o: unknown): [string, string] | undefined => {
             if (!(Array.isArray(o) && o.length === 2)) {
                 return;
             }
@@ -655,7 +692,7 @@ function parseVariablesConfiguration(configFile: any): VariablesConfiguration | 
             }
 
             return [parent, member];
-        }
+        };
 
         if (!Array.isArray(obj)) {
             return;
@@ -689,9 +726,9 @@ function parseVariablesConfiguration(configFile: any): VariablesConfiguration | 
         }
 
         return elements;
-    }
+    };
 
-    const parseSimplehashTypes = (obj: any): vars.SimplehashEntryInfo[] | undefined => {
+    const parseSimplehashTypes = (obj: unknown): vars.SimplehashEntryInfo[] | undefined => {
         /* 
          * [
          *     {
@@ -728,9 +765,9 @@ function parseVariablesConfiguration(configFile: any): VariablesConfiguration | 
         }
         
         return elements;
-    }
+    };
     
-    const parseEnumBitmasks = (obj: any): vars.BitmaskMemberInfo[] | undefined => {
+    const parseEnumBitmasks = (obj: unknown): vars.BitmaskMemberInfo[] | undefined => {
         /* 
          * "enums": [
          *      {
@@ -821,26 +858,38 @@ function parseVariablesConfiguration(configFile: any): VariablesConfiguration | 
         }
         
         return members;
-    }
+    };
 
     if (!(typeof configFile === 'object' && configFile)) {
         return;
     }
 
-    const arrayInfos = Array.isArray(configFile.arrays) &&
-                       configFile.arrays.length > 0
-                ? configFile.arrays.map(parseArrayMember).filter((a: any) => a !== undefined)
+    const nonUndefined = <T>(arg: T | undefined) => arg !== undefined;
+
+    const arrayInfos = 'arrays' in configFile &&
+                        Array.isArray(configFile.arrays) &&
+                        configFile.arrays.length > 0
+                ? configFile.arrays.map(parseArrayMember).filter(nonUndefined)
                 : undefined;
 
-    const aliasInfos = Array.isArray(configFile.aliases) &&
-                       configFile.aliases.length > 0
-                ? configFile.aliases.map(parseSingleAlias).filter((a: any) => a !== undefined)
+    const aliasInfos = 'aliases' in configFile &&
+                        Array.isArray(configFile.aliases) &&
+                        configFile.aliases.length > 0
+                ? configFile.aliases.map(parseSingleAlias).filter(nonUndefined)
                 : undefined;
 
-    const customListTypes = parseListTypes(configFile.customListTypes);
-    const htabTypes = parseHtabTypes(configFile.htab);
-    const simpleHashTableTypes = parseSimplehashTypes(configFile.simplehash);   
-    const bitmaskEnumMembers = parseEnumBitmasks(configFile.enums);
+    const customListTypes = 'customListTypes' in configFile
+                                ? parseListTypes(configFile.customListTypes)
+                                : undefined;
+    const htabTypes = 'htab' in configFile
+                        ? parseHtabTypes(configFile.htab)
+                        : undefined;
+    const simpleHashTableTypes = 'simplehash' in configFile
+                                    ? parseSimplehashTypes(configFile.simplehash)
+                                    : undefined;
+    const bitmaskEnumMembers = 'enums' in configFile 
+                                    ? parseEnumBitmasks(configFile.enums)
+                                    : undefined;
 
     if (   arrayInfos?.length
         || aliasInfos?.length
@@ -855,7 +904,7 @@ function parseVariablesConfiguration(configFile: any): VariablesConfiguration | 
             htabTypes,
             simpleHashTableTypes,
             bitmaskEnumMembers,
-        }
+        };
     }
 }
 
@@ -877,7 +926,12 @@ async function promptWorkspace() {
         throw new Error('No workspaces chosen');
     }
 
-    return vscode.workspace.workspaceFolders.find(wf => wf.name === name)!;
+    const workspace = vscode.workspace.workspaceFolders.find(wf => wf.name === name);
+    if (!workspace) {
+        throw new Error(`Workspace named ${name} not found`);
+    }
+
+    return workspace;
 }
 
 async function promptExtensionName() {
@@ -921,7 +975,7 @@ async function promptExtensionFlags() {
         tap: await promptFlag('Include TAP tests?'),
         regress: await promptFlag('Include regress tests?'),
         comment: await promptString('Enter extension description'),
-    }
+    };
 }
 
 async function bootstrapExtensionCommand() {
@@ -1107,7 +1161,7 @@ async function bootstrapExtensionCommand() {
                 'my $node = PostgreSQL::Test::Cluster->new(\'main\');',
                 '$node->init;',
                 flags.c 
-                    ? `$node->append_conf(\'postgresql.conf\', qq{shared_preload_libraries=\'${name}\'});` 
+                    ? `$node->append_conf('postgresql.conf', qq{shared_preload_libraries='${name}'});` 
                     : '',
                 '$node->start;',
                 '',
@@ -1131,7 +1185,7 @@ export async function readConfigFile(workspace: vscode.WorkspaceFolder,
     let document;
     try {
         document = await vscode.workspace.openTextDocument(path);
-    } catch (err: any) {
+    } catch {
         /* the file might not exist, this is ok */
         return;
     }
@@ -1139,7 +1193,7 @@ export async function readConfigFile(workspace: vscode.WorkspaceFolder,
     let text;
     try {
         text = document.getText();
-    } catch (err: any) {
+    } catch (err: unknown) {
         logger.error('could not read settings file %s', document.uri.fsPath, err);
         return;
     }
@@ -1152,7 +1206,7 @@ export async function readConfigFile(workspace: vscode.WorkspaceFolder,
     let data;
     try {
         data = JSON.parse(text);
-    } catch (err: any) {
+    } catch (err: unknown) {
         logger.error('could not parse JSON settings file %s', document.uri.fsPath, err);
         return;
     }
@@ -1164,7 +1218,7 @@ export function setupExtension(context: vscode.ExtensionContext,
                                nodeVars: vars.NodeVarRegistry,  logger: utils.ILogger,
                                nodesView: NodePreviewTreeViewProvider) {
 
-    function registerCommand(name: string, command: (...args: any[]) => void) {
+    function registerCommand(name: string, command: (...args: unknown[]) => void) {
         const disposable = vscode.commands.registerCommand(name, command);
         context.subscriptions.push(disposable);
     }
@@ -1175,42 +1229,42 @@ export function setupExtension(context: vscode.ExtensionContext,
             return;
         }
 
-        let parsedConfigFile = parseVariablesConfiguration(config);
+        const parsedConfigFile = parseVariablesConfiguration(config);
         nodesView.configFile = parsedConfigFile;
-    }
+    };
     
     const refreshConfigurationFromFolders = async (folders: readonly vscode.WorkspaceFolder[]) => {
         for (const folder of folders) {
             try {
                 await refreshWorkspaceConfiguration(folder);
-            } catch (err) {
-                logger.error('could not refresh configuration in workspace %s', folder.uri.fsPath);
+            } catch (err: unknown) {
+                logger.error('could not refresh configuration in workspace %s', folder.uri.fsPath, err);
             }
         }
-    }
+    };
 
     /* Refresh config files when debug session starts */
     vscode.debug.onDidStartDebugSession(async _ => {
         if (vscode.workspace.workspaceFolders?.length) {
-            logger.info('refreshing configuration files due to debug session start')
+            logger.info('refreshing configuration files due to debug session start');
             await refreshConfigurationFromFolders(vscode.workspace.workspaceFolders);
         }
     }, undefined, context.subscriptions);
 
     /* Register command to dump variable to log */
-    const pprintVarToLogCmd = async (args: any) => {
+    const pprintVarToLogCmd = async (args: unknown) => {
         try {
             if (!nodesView.context) {
                 return;
             }
 
             await dumpVariableToLogCommand(args, logger, nodesView.context.debug);
-        } catch (err: any) {
+        } catch (err: unknown) {
             logger.error('error while dumping node to log', err);
         }
     };
 
-    const dumpNodeToDocCmd = async (args: any) => {
+    const dumpNodeToDocCmd = async (args: unknown) => {
         try {
             if (!nodesView.context) {
                 return;
@@ -1231,16 +1285,19 @@ export function setupExtension(context: vscode.ExtensionContext,
                     evaluateName: nodeVar.name,
                     variablesReference: nodeVar.variablesReference,
                     memoryReference: nodeVar.memoryReference
-                }
+                };
+            } else if (typeof args === 'object' && args && 'variable' in args) {
+                variable = args.variable as dap.DebugVariable;
             } else {
-                variable = args.variable;
+                logger.error('could not get DebugVariable from given "args" = %o', args);
+                return;
             }
 
             await dumpVariableToDocumentCommand(variable, logger, nodesView.context.debug);
-        } catch (err: any) {
+        } catch (err: unknown) {
             logger.error('error while dumping node to log', err);
         }
-    }
+    };
 
     const openConfigFileCmd = async () => {
         if (!vscode.workspace.workspaceFolders?.length) {
@@ -1285,7 +1342,7 @@ export function setupExtension(context: vscode.ExtensionContext,
                             typedefs: [],
                         },
                         undefined, '    '));
-                } catch (err: any) {
+                } catch (err: unknown) {
                     logger.error('Could not write default configuration file', err);
                     vscode.window.showErrorMessage('Error creating configuration file');
                     return;
@@ -1295,14 +1352,14 @@ export function setupExtension(context: vscode.ExtensionContext,
             let doc;
             try {
                 doc = await vscode.workspace.openTextDocument(configFilePath);
-            } catch (err: any) {
+            } catch (err: unknown) {
                 logger.error('failed to open configuration file', err);
                 return;
             }
 
             try {
                 await vscode.window.showTextDocument(doc);
-            } catch (err: any) {
+            } catch (err: unknown) {
                 logger.error('failed to show configuration file', err);
                 return;
             }
@@ -1318,7 +1375,7 @@ export function setupExtension(context: vscode.ExtensionContext,
         } catch (err) {
             logger.error('Failed to bootstrap extension', err);
         }
-    }
+    };
 
     /* Refresh config file command register */
     const refreshConfigCmd = async () => {
@@ -1331,11 +1388,11 @@ export function setupExtension(context: vscode.ExtensionContext,
     };
 
     const refreshVariablesCmd = () => {
-        logger.info('refreshing variables view due to command')
+        logger.info('refreshing variables view due to command');
         nodesView.refresh();
     };
 
-    const addVariableToWatchCmd = async (args: any) => {
+    const addVariableToWatchCmd = async (args: unknown) => {
         const expr = await vars.getWatchExpressionCommandHandler(args);
         if (!expr) {
             return;
@@ -1346,14 +1403,14 @@ export function setupExtension(context: vscode.ExtensionContext,
                 evaluateName: expr
             }
         });
-    }
+    };
     
-    const findCustomTypedefsListCmd = async (args: any) => {
+    const findCustomTypedefsListCmd = async (_: unknown) => {
         const cmd = "find . -name '*typedefs.list' | grep -vE '^\\./(src|\\.vscode)'";
         const terminal = vscode.window.createTerminal();
         terminal.sendText(cmd, true /* shouldExecute */);
         terminal.show();
-    }
+    };
 
     /* Used for testing only */
     const getVariablesCmd = async () => {
@@ -1362,11 +1419,11 @@ export function setupExtension(context: vscode.ExtensionContext,
         } catch (err) {
             logger.error('failed to get variables', err);
         }
-    }
+    };
 
     const getNodeTreeProviderCmd = async () => {
         return nodesView;
-    }
+    };
 
     registerCommand(Configuration.Commands.RefreshConfigFile, refreshConfigCmd);
     registerCommand(Configuration.Commands.OpenConfigFile, openConfigFileCmd);
@@ -1383,9 +1440,8 @@ export function setupExtension(context: vscode.ExtensionContext,
     if (vscode.workspace.workspaceFolders) {
         refreshConfigurationFromFolders(vscode.workspace.workspaceFolders);
     } else {
-        let disposable: vscode.Disposable | undefined;
         /* Wait for folder open */
-        disposable = vscode.workspace.onDidChangeWorkspaceFolders(e => {
+        const disposable = vscode.workspace.onDidChangeWorkspaceFolders(e => {
             refreshConfigurationFromFolders(e.added);
 
             /*
@@ -1401,7 +1457,7 @@ export function setupExtension(context: vscode.ExtensionContext,
 }
 
 async function setupNodeTagFiles(log: utils.ILogger, nodeVars: vars.NodeVarRegistry,
-    context: vscode.ExtensionContext): Promise<undefined> {
+                                 context: vscode.ExtensionContext): Promise<undefined> {
 
     const getNodeTagFiles = () => {
         const customNodeTagFiles = Configuration.getCustomNodeTagFiles();
@@ -1412,8 +1468,8 @@ async function setupNodeTagFiles(log: utils.ILogger, nodeVars: vars.NodeVarRegis
         return [
             utils.getPgSrcFile('src', 'include', 'nodes', 'nodes.h'),
             utils.getPgSrcFile('src', 'include', 'nodes', 'nodetags.h'),
-        ]
-    }
+        ];
+    };
     
     const handleNodeTagFile = async (path: vscode.Uri) => {
         if (!await utils.fileExists(path)) {
@@ -1425,10 +1481,10 @@ async function setupNodeTagFiles(log: utils.ILogger, nodeVars: vars.NodeVarRegis
         try {
             const added = nodeVars.updateNodeTypesFromFile(document);
             log.debug('added %i NodeTags from %s file', added, path.fsPath);
-        } catch (err: any) {
+        } catch (err: unknown) {
             log.error('could not initialize node tags array', err);
         }
-    }
+    };
 
     const setupSingleFolder = async (folder: vscode.WorkspaceFolder) => {
         const nodeTagFiles = getNodeTagFiles();
@@ -1451,7 +1507,7 @@ async function setupNodeTagFiles(log: utils.ILogger, nodeVars: vars.NodeVarRegis
     
             context.subscriptions.push(watcher);
         }
-    }
+    };
 
     if (vscode.workspace.workspaceFolders?.length) {
         await Promise.all(
@@ -1462,8 +1518,7 @@ async function setupNodeTagFiles(log: utils.ILogger, nodeVars: vars.NodeVarRegis
     }
 
     vscode.workspace.onDidChangeWorkspaceFolders(async e => {
-        for (let i = 0; i < e.added.length; i++) {
-            const folder = e.added[i];
+        for (const folder of e.added) {
             await setupSingleFolder(folder);
         }
     }, undefined, context.subscriptions);
@@ -1536,7 +1591,7 @@ export class Configuration {
     }
 
     static getConfig<T>(section: string) {
-        const topLevelSection = this.ConfigSections.TopLevelSection
+        const topLevelSection = this.ConfigSections.TopLevelSection;
         const config = vscode.workspace.getConfiguration(topLevelSection);
         return config.get<T>(section);
     };

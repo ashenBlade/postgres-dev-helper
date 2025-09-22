@@ -5,6 +5,7 @@ import { downloadAndUnzipVSCode,
          resolveCliArgsFromVSCodeExecutablePath,
          runTests } from '@vscode/test-electron';
 import { getTestEnv } from './suite/env';
+import { unnullify } from '../error';
 
 function getDebuggerExtensionId(debuggerType: string) {
     if (debuggerType === 'cppdbg') {
@@ -36,7 +37,7 @@ async function main() {
     /* Install required debugger extension */
     let extraArgs: string[] = [];
     if (testEnv.testDebugger()) {
-        const dbgExtId = getDebuggerExtensionId(testEnv.debugger!);
+        const dbgExtId = getDebuggerExtensionId(unnullify(testEnv.debugger, 'testEnv.debugger'));
         cp.spawnSync(cliPath, [...args, '--install-extension', dbgExtId],
             { encoding: 'utf-8', stdio: 'inherit'});
         /* Disable warnings if any */

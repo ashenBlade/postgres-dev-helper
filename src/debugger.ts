@@ -193,7 +193,7 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
                 this.session = s;
                 this.isInDebug = true;
             }),
-            vscode.debug.onDidTerminateDebugSession(s => {
+            vscode.debug.onDidTerminateDebugSession(_ => {
                 this.session = undefined;
                 this.isInDebug = false;
                 this.threadId = undefined;
@@ -252,7 +252,7 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
     getCurrentFrameId = async () => {
         /* debugFocus API */
         return (vscode.debug.activeStackItem as vscode.DebugStackFrame | undefined)?.frameId;
-    }
+    };
 
     switchToEventBasedRefresh() {
         this.getCurrentFrameId = async () => {
@@ -265,7 +265,7 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
 
             const threadId = await this.getThreadId();
             return await this.getTopStackFrameId(threadId);
-        }
+        };
     }
 
     getSession(): vscode.DebugSession {
@@ -453,7 +453,7 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
         }
 
         return await this.getMembers(evalResponse.variablesReference);
-    }
+    };
 
     switchToManualArrayExpansion() {
         this.getArrayVariables = super.getArrayVariables;
@@ -542,7 +542,7 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
              * string value itself, so check 'result' member.
              */
             return response.endsWith('...');
-        }
+        };
 
         const normalize = (str: string) => {
             /* Replace escape characters */
@@ -574,7 +574,7 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
             }
             
             return str;
-        }
+        };
 
         const extractStringExtended = (value: string) => {
             /* 
@@ -615,7 +615,7 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
             }
 
             return str;
-        }
+        };
 
         let chunk = extractStringExtended(variable.value);
         if (chunk == null) {
@@ -753,7 +753,7 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
                         result: '',
                         type: '',
                         variablesReference: -1
-                    }
+                    };
                 }
 
                 throw new EvaluationError(err.message);
@@ -836,7 +836,7 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
              * string value itself, so check 'result' member.
              */
             return response.endsWith('...');
-        }
+        };
 
         const normalize = (str: string) => {
             /* Replace escape characters */
@@ -846,7 +846,7 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
 
             /* Unlike cppdbg it does not render <repeats XXX> */
             return str;
-        }
+        };
 
         const extractStringExtended = (str: string) => {
             if (str.endsWith('...')) {
@@ -854,7 +854,7 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
             }
             
             return this.extractStringInternal(str);
-        }
+        };
 
         let chunk = extractStringExtended(variable.value);
         if (chunk == null) {
@@ -988,7 +988,7 @@ export function setupDebugger(variablesView: NodePreviewTreeViewProvider,
                         /* Debug session terminates - clear */
                         variablesView.refresh();
                     },
-                }
+                };
             },
         });
         context.subscriptions.push(disposable);

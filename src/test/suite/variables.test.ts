@@ -6,6 +6,7 @@ import { Configuration } from '../../extension';
 import * as vars from '../../variables';
 import {getTestEnv, TestEnv} from './env';
 import * as cp from 'child_process';
+import { unnullify } from '../../error';
 
 class TreeItemWrapper {
     item: vscode.TreeItem;
@@ -119,7 +120,7 @@ const intRegexp = (value: number) => new RegExp(`^\\s*${value}\\s*$`);
 const execGetVariables = async () => {
     return await vscode.commands.executeCommand<vars.Variable[] | undefined>(
                                 Configuration.Commands.GetVariables);
-}
+};
 
 suite('Variables', async function () {
     let variables: vars.Variable[] | undefined;
@@ -152,7 +153,7 @@ suite('Variables', async function () {
                    WHERE t1.y > power(10, random()) AND t2.x = t1.y;`;
     
     /* There must be only 1 workspace */
-    const workspace = vscode.workspace.workspaceFolders![0];
+    const workspace = unnullify(vscode.workspace.workspaceFolders?.[0], 'workspace');
 
     suiteSetup('Stop at breakpoint and get variables', async () => {
         /* Run DB */
@@ -199,7 +200,7 @@ suite('Variables', async function () {
                 if (variables && 0 < variables.length) {
                     break;
                 }
-            } catch (err) {
+            } catch {
                 /* nothing */
             }
 
@@ -234,7 +235,7 @@ suite('Variables', async function () {
             throw new Error(`failed to get variable ${name}`);
         }
         return v;
-    }
+    };
 
     const getVarItem = async (name: string, vars?: vars.Variable[]) => {
         const v = getVar(name, vars);
@@ -242,7 +243,7 @@ suite('Variables', async function () {
             var: v,
             item: new TreeItemWrapper(await v.getTreeItem())
         } as VarTreeItemPair;
-    }
+    };
 
     const expand = async (x: vars.Variable | VarTreeItemPair) => {
         const v = x instanceof vars.Variable ? x : x.var;
@@ -264,24 +265,24 @@ suite('Variables', async function () {
         }
 
         return items;
-    }
+    };
 
     
     const getMember = (pairs: VarTreeItemPair[], name: string) => {
         const pair = pairs.find(pair => pair.item.getName() === name);
         assert.ok(pair, `Failed to find ${name} member`);
         return pair;
-    }
+    };
     
     const getMemberOf = async (x: vars.Variable | VarTreeItemPair, name: string) => {
         const children = await expand(x);
         return getMember(children, name);
-    }
+    };
 
     const assertExpandable = (x: TreeItemWrapper, who: string) => {
         assert.equal(x.collapsibleState, CollapsibleState.Collapsed, 
                      `${who} must be expandable`);
-    }
+    };
     
     /* #define ARRAY_SIZE 16  */
     const defaultArraySize = 16;
@@ -293,14 +294,14 @@ suite('Variables', async function () {
             assert.match(value.item.description, intRegexp(i + 1),
                             `Array member at ${i} does not contain expected value`);
         }
-    }
+    };
 
     /* Tests for handling types of variables */
     suite('Variable handling', async () => {    
         const assertNotExpandable = (x: TreeItemWrapper, who: string) => {
             assert.equal(x.collapsibleState, CollapsibleState.None,
                          `${who} must not be expandable`);
-        }
+        };
         
         /* Scalar variable is not expandable */
         test('Scalar', async () => {
@@ -359,7 +360,7 @@ suite('Variables', async function () {
             const structureVar = await getVarItem('value_struct');
             assertExpandable(structureVar.item, 'Value structure');
 
-            const valueVar = await getMemberOf(structureVar, 'value')
+            const valueVar = await getMemberOf(structureVar, 'value');
             assert.match(valueVar.item.description, intRegexp(1),
                          'Displayed value of "value" member is not valid');
             assertNotExpandable(valueVar.item, 'Scalar members');
@@ -440,7 +441,7 @@ suite('Variables', async function () {
                 const item = listElements[index].item;
                 assert.match(item.getType(), new RegExp(type), 
                             `List element at ${index} is not of actual type`);
-            }
+            };
 
             await isOfNodeType(0, 'PlannerInfo');
             await isOfNodeType(1, 'Query');
@@ -503,7 +504,7 @@ suite('Variables', async function () {
 
             const lengthMember = getMember(allBaseRelsChildren, '$length$');
             assert.match(lengthMember.item.description, intRegexp(2),
-                         'Number of elements must be 2')
+                         'Number of elements must be 2');
 
             const elementsMember = getMember(allBaseRelsChildren, '$elements$');
             const allBaseRelsElements = await expand(elementsMember);
@@ -587,7 +588,7 @@ suite('Variables', async function () {
                 const arrayMember = await getMemberOf(arrayMemberVar, field);
                 const elements = await expand(arrayMember);
                 return elements.map(x => x.item.description.trim());
-            }
+            };
 
             const arrayFieldElements = await getArrayElementsOf('array_field');
             assert.deepStrictEqual(['1', '2'], arrayFieldElements,
@@ -602,8 +603,8 @@ suite('Variables', async function () {
         test('Array members[FLEXIBLE_ARRAY_MEMBER]', async () => {
             const structureVar = await getVarItem('flexible_array_member');
 
+            /* TODO: use separate type without 'Data *' typedef */
             const pair = await getMemberOf(structureVar, 'array');
-            // await sleep(1000 * 100);
             assertExpandable(pair.item, 'Flexible array member');
             
             const elements = await expand(pair);

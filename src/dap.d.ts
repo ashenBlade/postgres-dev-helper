@@ -187,7 +187,7 @@ export interface ProtocolMessage {
     /**
      * Event-specific information.
      */
-    body?: any;
+    body?: unknown;
 }
 
 export interface StackTraceArguments {

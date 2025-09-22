@@ -26,7 +26,7 @@ function findSuitableWorkspace(document: vscode.TextDocument) {
 export interface PgindentConfiguration {
     typedefs?: string[];
 }
-export const FormatterConfiguration: PgindentConfiguration = {}
+export const FormatterConfiguration: PgindentConfiguration = {};
 
 class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEditProvider {
     private savedPgindentPath?: vscode.Uri;
@@ -83,7 +83,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             }
             
             return result[1];
-        }
+        };
         
         /* 
         * most likely, pgindent's code have not
@@ -172,7 +172,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
                     }
                 }
             }
-        }
+        };
         patchHeuristic('INDENT_VERSION', /"\d(\.\d)*"/, `"${version}"`, 57);
         patchHeuristic(' (based on FreeBSD indent)', ' (based on FreeBSD indent)', '', 309);
 
@@ -195,7 +195,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
 
         /* src/tools/pg_bsd_indent */
         if (await utils.directoryExists(pgBsdIndentDir)) {
-            let pgBsdIndent = utils.joinPath(pgBsdIndentDir, 'pg_bsd_indent');
+            const pgBsdIndent = utils.joinPath(pgBsdIndentDir, 'pg_bsd_indent');
             if (await utils.fileExists(pgBsdIndent)) {
                 return pgBsdIndent;
             }
@@ -223,7 +223,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             await this.clonePgBsdIndent(workspace, pgindent, pgBsdIndentDir);
         }
 
-        this.logger.info('building pg_bsd_indent')
+        this.logger.info('building pg_bsd_indent');
         /* Repo's version requires passing PG_CONFIG (just build, no 'install') */
         await utils.execShell(
             'make', ['all', `PG_CONFIG="${pgConfigPath.fsPath}"`],
@@ -443,8 +443,8 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
     }
 
     async provideDocumentFormattingEdits(document: vscode.TextDocument, 
-                                         options: vscode.FormattingOptions,
-                                         token: vscode.CancellationToken) {
+                                         _options: vscode.FormattingOptions,
+                                         _token: vscode.CancellationToken) {
         this.logger.debug('formatting document: %s', document.uri.fsPath);
         let indented;
         try {

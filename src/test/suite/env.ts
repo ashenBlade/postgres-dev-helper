@@ -26,7 +26,7 @@ export class TestEnv {
                 testMode: string) {
         if (Number.isNaN(Number(pgVersion))) {
             throw new Error(`Invalid PostgreSQL version "${pgVersion}".` +
-                            'Version must be in "major.minor" form.')
+                            'Version must be in "major.minor" form.');
         }
 
         if (   debuggerType !== undefined

@@ -3,7 +3,7 @@ import * as Mocha from 'mocha';
 import { glob } from 'glob';
 import { getTestEnv } from './env';
 
-export function run(): Promise<void> {
+export async function run(): Promise<void> {
     /* Bootstrap Mocha */
 	const mocha = new Mocha({
 		ui: 'tdd',
@@ -14,23 +14,23 @@ export function run(): Promise<void> {
 	});
 	const testsRoot = path.resolve(__dirname, '..');
 
-	return new Promise(async (c, e) => {
+    /* Collect all test files */
+    const env = getTestEnv();
+    const testFiles = await glob.glob('**/**.test.js', { cwd: testsRoot });
+    testFiles.forEach(f => {
+        const addFile = (
+            (f.indexOf('variables') !== -1 && env.testDebugger())
+            ||
+            (f.indexOf('formatting') !== -1 && env.testFormatter())
+        );
+
+        if (addFile) {
+            mocha.addFile(path.join(testsRoot, f));
+        }
+    });
+
+	return new Promise((c, e) => {
         try {
-            /* Collect all test files */
-            const env = getTestEnv();
-            const testFiles = await glob.glob('**/**.test.js', { cwd: testsRoot });
-            testFiles.forEach(f => {
-                const addFile = (
-                    (f.indexOf('variables') !== -1 && env.testDebugger())
-                    ||
-                    (f.indexOf('formatting') !== -1 && env.testFormatter())
-                );
-
-                if (addFile) {
-                    mocha.addFile(path.join(testsRoot, f));
-                }
-            })
-
             /* Run tests */
             mocha.run((failures: number) => {
                 if (0 < failures) {

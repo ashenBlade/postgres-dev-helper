@@ -568,7 +568,7 @@ export function getDefaultNodeTags(): string[] {
         'XmlExpr',
         'XmlExprState',
         'XmlSerialize',
-    ]
+    ];
 }
 
 /**
@@ -620,7 +620,7 @@ export function getDisplayedExprs(): string[] {
 
         /* This is actually not Expr, but handy to see representation */
         'PlaceHolderVar',
-    ]
+    ];
 }
 
 export function getKnownCustomListPtrs(): ListPtrSpecialMemberInfo[] {
@@ -1328,7 +1328,7 @@ export function getKnownCustomListPtrs(): ListPtrSpecialMemberInfo[] {
 
         /* src/test/modules/injection_points/injection_points.c */
         variable('char', 'injection_points_cleanup', 'inj_list_local'),
-    ]
+    ];
 }
 
 /**
@@ -1376,7 +1376,7 @@ export function getDefaultAliases(): [string, string][] {
             'SetConstraintState',
             'ParamListInfo',
         ].map(addDataSuffix),
-    ]
+    ];
 }
 
 export interface ArraySpecialMember {
@@ -2114,7 +2114,7 @@ export function getWellKnownBitmapsetReferences(): [string, BitmapsetReference][
         ref('AppendState', 'as_valid_asyncplans', [{path: ['as_asyncrequests']}], 'Self'),
 
         ref('MergeAppendState', 'ms_valid_subplans', [{path: ['mergeplans']}], 'Self'),
-    ]
+    ];
 }
 
 export function getWellKnownHTABTypes(): HtabEntryInfo[] {
@@ -2139,7 +2139,7 @@ export function getWellKnownHTABTypes(): HtabEntryInfo[] {
 }
 
 export function getWellKnownSimpleHashTableTypes(): SimplehashEntryInfo[] {
-    const type = (prefix: string, elementType: string, canIterate: boolean = true) => ({
+    const type = (prefix: string, elementType: string, canIterate = true) => ({
         prefix, elementType, canIterate
     } as SimplehashEntryInfo);
 
@@ -3856,7 +3856,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
                     ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
                 ]),
         ])),
-    ]
+    ];
 
     /* 
      * Each array of versions is stored in reversed order, because 1) it is

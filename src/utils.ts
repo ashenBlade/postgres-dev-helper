@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as util from 'util';
-import * as child_process from 'child_process';
+import * as cp from 'child_process';
 import { Configuration } from './extension';
 import * as https from 'https';
 import * as os from 'os';
@@ -114,10 +114,10 @@ export function isEnumResult(result: string) {
 }
 
 export interface ILogger {
-    debug: (message: string, ...args: any[]) => void;
-    info: (message: string, ...args: any[]) => void;
-    warn: (message: string, ...args: any[]) => void;
-    error: (message: string, ...args: any[]) => void;
+    debug: (message: string, ...args: unknown[]) => void;
+    info: (message: string, ...args: unknown[]) => void;
+    warn: (message: string, ...args: unknown[]) => void;
+    error: (message: string, ...args: unknown[]) => void;
     focus: () => void;
 }
 
@@ -133,9 +133,9 @@ export enum LogLevel {
 abstract class BaseLogger implements ILogger {
     constructor(protected channel: vscode.OutputChannel) { }
     
-    protected format(msg: string, args: any[]) {
+    protected format(msg: string, args: unknown[]) {
         if (args.length && args[args.length - 1] instanceof Error) {
-            const err: Error = args.pop();
+            const err = args[args.length - 1] as Error;
             return `${util.format(msg, ...args)}\n${err.stack}`;
         } else {
             return util.format(msg, ...args);
@@ -146,10 +146,10 @@ abstract class BaseLogger implements ILogger {
         this.channel.show(true);
     }
     
-    abstract debug(message: string, ...args: any[]): void;
-    abstract info(message: string, ...args: any[]): void;
-    abstract warn(message: string, ...args: any[]): void;
-    abstract error(message: string, ...args: any[]): void;
+    abstract debug(message: string, ...args: unknown[]): void;
+    abstract info(message: string, ...args: unknown[]): void;
+    abstract warn(message: string, ...args: unknown[]): void;
+    abstract error(message: string, ...args: unknown[]): void;
 }
 
 export class ObsoleteVsCodeLogger extends BaseLogger implements ILogger {
@@ -159,7 +159,7 @@ export class ObsoleteVsCodeLogger extends BaseLogger implements ILogger {
         super(channel);
     }
 
-    logGeneric(level: LogLevel, levelStr: string, message: string, args: any[]) {
+    logGeneric(level: LogLevel, levelStr: string, message: string, args: unknown[]) {
         if (level < this.minLogLevel) {
             return;
         }
@@ -180,16 +180,16 @@ export class ObsoleteVsCodeLogger extends BaseLogger implements ILogger {
         this.channel.appendLine(super.format(message, args));
     }
 
-    debug(message: string, ...args: any[]) {
+    debug(message: string, ...args: unknown[]) {
         this.logGeneric(LogLevel.Debug, 'debug', message, args);
     }
-    info(message: string, ...args: any[]) {
+    info(message: string, ...args: unknown[]) {
         this.logGeneric(LogLevel.Info, 'info', message, args);
     }
-    warn(message: string, ...args: any[]) {
+    warn(message: string, ...args: unknown[]) {
         this.logGeneric(LogLevel.Warn, 'warn', message, args);
     }
-    error(message: string, ...args: any[]) {
+    error(message: string, ...args: unknown[]) {
         this.logGeneric(LogLevel.Error, 'error', message, args);
     }
 }
@@ -204,22 +204,24 @@ export class VsCodeLogger extends BaseLogger implements ILogger {
                this.logOutput.logLevel <= level;
     }
 
-    logGeneric(level: LogLevel, handler: any, msg: string, args: any[]) {
+    logGeneric(level: LogLevel,
+               handler: (fmt: string, ...args: unknown[]) => void,
+               msg: string, args: unknown[]) {
         if (this.canLog(level)) {
             handler(super.format(msg, args));
         }
     }
 
-    debug(message: string, ...args: any[]) {
+    debug(message: string, ...args: unknown[]) {
         this.logGeneric(LogLevel.Debug, this.logOutput.debug, message, args);
     }
-    info(message: string, ...args: any[]) {
+    info(message: string, ...args: unknown[]) {
         this.logGeneric(LogLevel.Info, this.logOutput.info, message, args);
     }
-    warn(message: string, ...args: any[]) {
+    warn(message: string, ...args: unknown[]) {
         this.logGeneric(LogLevel.Warn, this.logOutput.warn, message, args);
     }
-    error(message: string, ...args: any[]) {
+    error(message: string, ...args: unknown[]) {
         this.logGeneric(LogLevel.Error, this.logOutput.error, message, args);
     }
 }
@@ -302,12 +304,11 @@ export class ShellExecError extends PghhError {
 
 export async function execShell(cmd: string, args?: string[], 
                 options?: { cwd?: string, 
-                            env?: any, 
                             throwOnError?: boolean,
                             stdin?: string } ): Promise<{code: number, stdout: string, stderr: string}> {
     return await new Promise<{code: number, stdout: string, stderr: string}>((resolve, reject) => {
-        const {cwd, env, throwOnError, stdin} = options || {};
-        const child = child_process.spawn(cmd, args, {cwd, env, shell: true, });
+        const {cwd, throwOnError, stdin} = options || {};
+        const child = cp.spawn(cmd, args, {cwd, shell: true});
         const stderr: string[] = [];
         const stdout: string[] = [];
 
@@ -404,7 +405,7 @@ export async function downloadFile(url: string) {
 
             res.on('end', () => {
                 resolve(chunks.join(''));
-            })
+            });
 
             res.on('error', (err) => {
                 reject(err);
