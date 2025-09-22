@@ -1,5 +1,5 @@
 import * as path from 'path';
-import Mocha from 'mocha';
+import * as Mocha from 'mocha';
 import { glob } from 'glob';
 import { getTestEnv } from './env';
 
@@ -32,7 +32,7 @@ export function run(): Promise<void> {
             })
 
             /* Run tests */
-            mocha.run(failures => {
+            mocha.run((failures: number) => {
                 if (0 < failures) {
                     e(new Error(`${failures} tests failed.`));
                 } else {

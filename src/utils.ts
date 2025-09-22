@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import path from 'path';
+import * as path from 'path';
 import * as util from 'util';
 import * as child_process from 'child_process';
 import { Configuration } from './extension';

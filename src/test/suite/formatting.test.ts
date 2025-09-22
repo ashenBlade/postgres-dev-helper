@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { getTestEnv, TestEnv } from './env';
 import * as utils from '../../utils';
 import * as fs from 'fs';
-import path from 'path';
+import * as path from 'path';
 
 function getFormattedFile(env: TestEnv) {
     const path = env.getExtensionPath('src', 'test', 'patches', 'formatted.c');
