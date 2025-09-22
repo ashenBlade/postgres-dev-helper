@@ -225,21 +225,26 @@
         "watch": "tsc -watch -p ./",
         "pretest": "npm run compile",
         "test": "node ./out/test/runTests.js",
+        "lint": "eslint ./src",
         "deploy": "vsce publish"
     },
     "devDependencies": {
+        "@eslint/js": "^9.36.0",
+        "@stylistic/eslint-plugin": "^5.4.0",
         "@types/mocha": "^10.0.7",
         "@types/node": "20.x",
         "@types/pg": "^8.15.4",
         "@types/vscode": "^1.70.0",
-        "@typescript-eslint/eslint-plugin": "^7.14.1",
-        "@typescript-eslint/parser": "^7.11.0",
+        "@typescript-eslint/eslint-plugin": "^8.44.0",
+        "@typescript-eslint/parser": "^8.44.0",
         "@vscode/test-cli": "^0.0.9",
         "@vscode/test-electron": "^2.5.2",
-        "eslint": "^8.57.0",
+        "eslint": "^9.36.0",
+        "globals": "^16.4.0",
         "mocha": "^11.6.0",
         "pg": "^8.16.0",
-        "typescript": "^5.4.5"
+        "typescript": "^5.4.5",
+        "typescript-eslint": "^8.44.0"
     },
     "__metadata": {
         "id": "b6652a2a-d4bf-422a-aa38-7d10ab2cdb63",
