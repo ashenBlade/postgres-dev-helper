@@ -5,30 +5,61 @@ defaults:
     shell: bash
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Setup repository
+      uses: actions/checkout@v4
+    - name: Setup NodeJS
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+    - name: Build extension
+      run: |
+        npm i
+        npm i -D
+        npm run compile
+    - name: Run linter
+      run: npm run lint
+    - name: Save cache
+      id: build-cache
+      uses: actions/cache@v4
+      if: success()
+      with:
+        path: |
+            node_modules
+            out
+        key: cache-${{ runner.os }}-${{ hashFiles('src/**/*.ts') }}
+
   test:
     runs-on: ubuntu-latest
+    needs: build
     strategy:
       fail-fast: false
       matrix: 
         pgversion: ['17', '16', '15', '14', '13', '12', '11', '10', '9.6']
     steps:
     - name: Setup repository
-      uses: actions/checkout@v4    
+      uses: actions/checkout@v4
+    - name: Restore cache
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+            node_modules
+            out
+        key: cache-${{ runner.os }}-${{ hashFiles('src/**/*.ts') }}
+        fail-on-cache-miss: true
     - name: Setup NodeJS
       uses: actions/setup-node@v4
       with:
         node-version: '20.x'
         cache: 'npm'
-    - name: Setup environment
+    - name: Build PostgreSQL
       run: |
         sudo apt-get install -y build-essential wget gdb lldb libpq5
-        npm install --save-dev
-        npm install
         echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
-    - name: Build extension
-      run: npm run compile
-    - name: Setup sources
-      run: ./src/test/setup.sh -j 4 --pg-version=${{ matrix.pgversion }}
+        ./src/test/setup.sh -j 4 --pg-version=${{ matrix.pgversion }}
     - name: Run tests
       run: ./src/test/test.sh --no-gui --tests="vars,format" --pg-versions=${{ matrix.pgversion }}
     - name: Upload artifacts
