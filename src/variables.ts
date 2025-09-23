@@ -1670,7 +1670,7 @@ export class NodeVariable extends RealVariable {
      * Whether real NodeTag match with declared type
      */
     protected tagsMatch() {
-        return utils.getStructNameFromType(this.type) === this.realNodeTag;
+        return utils.getStructNameFromType(this.declaredType) === this.realNodeTag;
     }
 
     protected isExpandable(): boolean {
