@@ -22,15 +22,6 @@ jobs:
         npm run compile
     - name: Run linter
       run: npm run lint
-    - name: Save cache
-      id: build-cache
-      uses: actions/cache@v4
-      if: success()
-      with:
-        path: |
-            node_modules
-            out
-        key: cache-${{ runner.os }}-${{ hashFiles('src/**/*.ts') }}
 
   test:
     runs-on: ubuntu-latest
@@ -55,11 +46,26 @@ jobs:
       with:
         node-version: '20.x'
         cache: 'npm'
-    - name: Build PostgreSQL
+    - name: Setup environment
       run: |
         sudo apt-get install -y build-essential wget gdb lldb libpq5
         echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
+    - name: Restore PostgreSQL
+      id: restore-postgresql
+      uses: actions/cache/restore@v4
+      with:
+        path: pgsrc/${{ matrix.pgversion }}
+        key: pgsql-src-${{ runner.os }}-${{ runner.arch }}-${{ matrix.pgversion }}-${{ hashFiles('src/test/patches/**') }}
+    - name: Build PostgreSQL
+      if: steps.restore-postgresql.outputs.cache-hit != 'true'
+      run: |
         ./src/test/setup.sh -j 4 --pg-version=${{ matrix.pgversion }}
+    - name: Save PostgreSQL build cache
+      uses: actions/cache/save@v4
+      if: steps.restore-postgresql.outputs.cache-hit != 'true'
+      with:
+        path: pgsrc/${{ matrix.pgversion }}
+        key: ${{ steps.restore-postgresql.outputs.cache-primary-key }}
     - name: Run tests
       run: ./src/test/test.sh --no-gui --tests="vars,format" --pg-versions=${{ matrix.pgversion }}
     - name: Upload artifacts
