@@ -220,7 +220,7 @@ export class SpecialMemberRegistry {
             const typeMap = this.arraySpecialMembers.get(element.typeName);
             if (typeMap === undefined) {
                 this.arraySpecialMembers.set(element.typeName, new Map([
-                    [element.memberName, element]
+                    [element.memberName, element],
                 ]));
             } else {
                 typeMap.set(element.memberName, element);
@@ -234,7 +234,7 @@ export class SpecialMemberRegistry {
             const map = this.listCustomPtrs.get(member);
             if (map === undefined) {
                 this.listCustomPtrs.set(member, new Map([
-                    [funcOrStruct, info]
+                    [funcOrStruct, info],
                 ]));
             } else {
                 map.set(funcOrStruct, info);
@@ -766,8 +766,8 @@ export abstract class Variable {
         try {
             if (this.children !== undefined) {
                 /*
-                * return `undefined` if no children - scalar variable
-                */
+                 * return `undefined` if no children - scalar variable
+                 */
                 return this.children.length
                     ? this.children
                     : undefined;
@@ -832,8 +832,8 @@ export abstract class Variable {
         try {
             return {
                 label: this.declaredType === '' 
-                            ? this.name
-                            : `${this.name}: ${this.declaredType}`,
+                    ? this.name
+                    : `${this.name}: ${this.declaredType}`,
                 description: await this.getDescription(),
                 collapsibleState: this.isExpandable()
                     ? vscode.TreeItemCollapsibleState.Collapsed
@@ -917,8 +917,8 @@ export abstract class Variable {
             if (parent) {
                 if (utils.isValueStructOrPointerType(parent.type)) {
                     const flagsMember = context.specialMemberRegistry.getFlagsMember(
-                                                utils.getStructNameFromType(parent.type),
-                                                debugVariable.name);
+                        utils.getStructNameFromType(parent.type),
+                        debugVariable.name);
                     if (flagsMember) {
                         return new FlagsMemberVariable(flagsMember, args);
                     }
@@ -931,7 +931,7 @@ export abstract class Variable {
                 if (debugVariable.type.endsWith('[]')) {
                     const parentType = Variable.getRealType(parent.type, context);
                     const specialMember = context.specialMemberRegistry
-                            .getArraySpecialMember(parentType, debugVariable.name);
+                        .getArraySpecialMember(parentType, debugVariable.name);
                     if (specialMember) {
                         return new ArraySpecialMember(specialMember, args);
                     }
@@ -950,7 +950,7 @@ export abstract class Variable {
          */
         if (parent) {
             const specialMember = context.specialMemberRegistry
-                        .getArraySpecialMember(parent.type, debugVariable.name);
+                .getArraySpecialMember(parent.type, debugVariable.name);
             if (specialMember) {
                 return new ArraySpecialMember(specialMember, args);
             }
@@ -996,7 +996,7 @@ export abstract class Variable {
                               parent?: RealVariable): Promise<Variable[]> {
         const debugVariables = await context.debug.getMembers(variablesReference);
         return await Promise.all(debugVariables.map(variable =>
-            Variable.create(variable, frameId, context, logger, parent))
+            Variable.create(variable, frameId, context, logger, parent)),
         );
     }
 
@@ -1006,7 +1006,7 @@ export abstract class Variable {
                               logger: utils.ILogger,
                               parent?: RealVariable): Promise<Variable[]> {
         return await (Promise.all(debugVariables.map(v =>
-            Variable.create(v, frameId, context, logger, parent))
+            Variable.create(v, frameId, context, logger, parent)),
         ));
     }
 
@@ -1081,7 +1081,7 @@ export abstract class Variable {
 
         /* Invoke function itself */
         const result = await this.evaluate(
-            `(${out})FunctionCall${argsCount}(((void *)${fmgrInfo}), (Datum)${arg0} ${trailing})`
+            `(${out})FunctionCall${argsCount}(((void *)${fmgrInfo}), (Datum)${arg0} ${trailing})`,
         );
 
         await this.pfree(fmgrInfo);
@@ -1174,8 +1174,9 @@ export abstract class Variable {
      * call `pfree` with specified pointer
      */
     async pfree(pointer: string) {
-        if (!dbg.pointerIsNull(pointer))
-            {await this.evaluateVoid(`pfree((void *)${pointer})`);}
+        if (!dbg.pointerIsNull(pointer)) {
+            await this.evaluateVoid(`pfree((void *)${pointer})`);
+        }
     }
 
     protected async evaluate(expr: string) {
@@ -1386,7 +1387,7 @@ export class RealVariable extends Variable {
 
     protected async doGetRealMembers() {
         return await Variable.getVariables(this.variablesReference, this.frameId,
-            this.context, this.logger, this);
+                                           this.context, this.logger, this);
     }
 
     protected async getArrayMembers(expression: string, length: number) {
@@ -1543,8 +1544,8 @@ export class RealVariable extends Variable {
         }
 
         const cast = this.type === this.declaredType
-                        ? ''
-                        : `(${this.type})`;
+            ? ''
+            : `(${this.type})`;
         if (this.parent instanceof VariablesRoot) {
             /* Top level variable needs to be just printed */
             if (this.debug.isValueStruct(this)) {
@@ -2248,8 +2249,8 @@ class ExprNodeVariable extends NodeVariable {
 
         /* Older system have 4 params (3rd is tupIOParam) */
         let tupIOParam = this.context.hasGetTypeOutputInfo3Args
-                                    ? undefined
-                                    : await this.palloc('sizeof(Oid)');
+            ? undefined
+            : await this.palloc('sizeof(Oid)');
 
         /*
          * This place is ****. In a nutshell, for CppDbg we have to pass arguments 
@@ -2315,7 +2316,7 @@ class ExprNodeVariable extends NodeVariable {
                 try {
                     await this.evaluateVoid(`getTypeOutputInfo(((Const *)${this.getPointer()})->consttype, ((${tupOutputType})${tupOutput}), ((${tupIOParamType})${tupIOParam}), ((${tupIsVarLenaType})${tupIsVarlena}))`);
                 } catch (err) {
-                    if ((!(err instanceof EvaluationError))) {
+                    if (!(err instanceof EvaluationError)) {
                         throw err;
                     }
 
@@ -2335,8 +2336,9 @@ class ExprNodeVariable extends NodeVariable {
         if (maxAttempts <= attempt) {
             await this.pfree(tupOutput);
             await this.pfree(tupIsVarlena);
-            if (tupIOParam)
-                {await this.pfree(tupIOParam);}
+            if (tupIOParam) {
+                await this.pfree(tupIOParam);
+            }
             return '???';
         }
 
@@ -2364,7 +2366,7 @@ class ExprNodeVariable extends NodeVariable {
         await this.pfree(tupOutput);
         await this.pfree(tupIsVarlena);
         if (tupIOParam)
-            {await this.pfree(tupIOParam);}
+        {await this.pfree(tupIOParam);}
 
         return repr;
     }
@@ -2386,7 +2388,7 @@ class ExprNodeVariable extends NodeVariable {
         } else {
             data = [
                 opname,
-                await this.getReprPlaceholder(args[0])
+                await this.getReprPlaceholder(args[0]),
             ];
         }
 
@@ -2444,7 +2446,8 @@ class ExprNodeVariable extends NodeVariable {
     }
 
     private async formatTargetEntry() {
-        /* NOTE: keep return type annotation, because now compiler can not
+        /*
+         * NOTE: keep return type annotation, because now compiler can not
          *       handle such recursion correctly
          */
         const expr = await this.getMember('expr');
@@ -2765,166 +2768,158 @@ class ExprNodeVariable extends NodeVariable {
 
         const xmlOp = await this.getMemberValueEnum('op');
         switch (xmlOp) {
-            case 'IS_XMLELEMENT':
-                {
-                    let namedArgs: string[] | null;
-                    let argNames: string[] | null;
-                    try {
-                        namedArgs = await this.getListMemberElementsReprs('named_args');
-                        argNames = await getArgNameListOfStrings();
-                    } catch (e) {
-                        if (e instanceof EvaluationError) {
-                            namedArgs = null;
-                            argNames = null;
-                        } else {
-                            throw e;
-                        }
-                    }
-                    let args: string[] | null;
-                    try {
-                        args = await this.getListMemberElementsReprs('args');
-                    } catch (e) {
-                        if (e instanceof EvaluationError) {
-                            args = null;
-                        } else {
-                            throw e;
-                        }
-                    }
-                    const name = await this.getMemberValueCharString('name');
-                    let repr = `XMLELEMENT(name ${name ?? 'NULL'}`;
-                    if (namedArgs && argNames && namedArgs.length === argNames.length) {
-                        const xmlattributes = [];
-                        for (let i = 0; i < namedArgs.length; i++) {
-                            const arg = namedArgs[i];
-                            const name = argNames[i];
-                            xmlattributes.push(`${arg} AS ${name}`);
-                        }
-                        repr += `, XMLATTRIBUTES(${xmlattributes.join(', ')})`;
-                    }
-
-                    if (args) {
-                        repr += `, ${args.join(', ')}`;
-                    }
-                    repr += ')';
-                    return repr;
-                }
-            case 'IS_XMLFOREST':
-                {
-                    let namedArgs: string[] | null;
-                    let argNames: string[] | null;
-                    try {
-                        namedArgs = await this.getListMemberElementsReprs('named_args');
-                        argNames = await getArgNameListOfStrings();
-                    } catch (e) {
-                        if (e instanceof EvaluationError) {
-                            namedArgs = null;
-                            argNames = null;
-                        } else {
-                            throw e;
-                        }
-                    }
-                    let repr = 'XMLFOREST(';
-                    if (namedArgs && argNames && namedArgs.length === argNames.length) {
-                        const xmlattributes = [];
-                        for (let i = 0; i < namedArgs.length; i++) {
-                            const arg = namedArgs[i];
-                            const name = argNames[i];
-                            xmlattributes.push(`${arg} AS ${name}`);
-                        }
-                        repr += `${xmlattributes.join(', ')}`;
-                    }
-                    repr += ')';
-                    return repr;
-                }
-            case 'IS_XMLCONCAT':
-                {
-                    let args: string[] | null;
-                    try {
-                        args = await this.getListMemberElementsReprs('args');
-                    } catch (e) {
-                        if (e instanceof EvaluationError) {
-                            args = null;
-                        } else {
-                            throw e;
-                        }
-                    }
-
-                    let repr = 'XMLCONCAT(';
-                    if (args) {
-                        repr += args.join(', ');
-                    }
-                    repr += ')';
-                    return repr;
-                }
-            case 'IS_XMLPARSE':
-                {
-                    const option = await this.getMemberValueEnum('xmloption');
-                    const args = await this.getListMemberElementsReprs('args');
-                    if (!args) {
-                        return 'XMLPARSE()';
-                    }
-
-                    const data = args[0];
-                    return `XMLPARSE(${option === 'XMLOPTION_DOCUMENT' ? 'DOCUMENT' : 'CONTENT'} ${data})`;
-                }
-            case 'IS_XMLPI':
-                {
-                    const name = await this.getMemberValueCharString('name');
-                    const args = await this.getListMemberElementsReprs('args');
-                    let repr = `XMLPI(NAME ${name}`;
-                    if (args) {
-                        repr += `, ${args.join(', ')}`;
-                    }
-                    repr += ')';
-                    return repr;
-                }
-            case 'IS_XMLROOT':
-                {
-                    const args = await this.getListMemberElementsReprs('args');
-                    let repr = 'XMLROOT(';
-                    if (1 <= args.length) {
-                        repr += args[0];
-                    }
-
-                    if (2 <= args.length) {
-                        repr += `, ${args[1]}`;
-                    }
-
-                    if (3 <= args.length) {
-                        repr += `, ${args[2]}`;
-                    }
-
-                    repr += ')';
-                    return repr;
-                }
-            case 'IS_XMLSERIALIZE':
-                {
-                    const option = await this.getMemberValueEnum('xmloption');
-                    const args = await this.getListMemberElementsReprs('args');
-                    const indent = await this.getMemberValueBool('indent');
-                    let repr = 'XMLSERIALIZE(';
-                    if (args) {
-                        repr += option === 'XMLOPTION_DOCUMENT' ? 'DOCUMENT ' : 'CONTENT ';
-                        repr += args[0];
-                    }
-
-                    if (indent) {
-                        repr += ' INDENT';
-                    }
-                    repr += ')';
-                    return repr;
-                }
-                break;
-            case 'IS_DOCUMENT':
-                {
-                    const args = await this.getListMemberElementsReprs('args');
-                    if (args) {
-                        return `${args[0]} IS DOCUMENT`;
+            case 'IS_XMLELEMENT': {
+                let namedArgs: string[] | null;
+                let argNames: string[] | null;
+                try {
+                    namedArgs = await this.getListMemberElementsReprs('named_args');
+                    argNames = await getArgNameListOfStrings();
+                } catch (e) {
+                    if (e instanceof EvaluationError) {
+                        namedArgs = null;
+                        argNames = null;
                     } else {
-                        return '??? IS DOCUMENT';
+                        throw e;
                     }
                 }
+                let args: string[] | null;
+                try {
+                    args = await this.getListMemberElementsReprs('args');
+                } catch (e) {
+                    if (e instanceof EvaluationError) {
+                        args = null;
+                    } else {
+                        throw e;
+                    }
+                }
+                const name = await this.getMemberValueCharString('name');
+                let repr = `XMLELEMENT(name ${name ?? 'NULL'}`;
+                if (namedArgs && argNames && namedArgs.length === argNames.length) {
+                    const xmlattributes = [];
+                    for (let i = 0; i < namedArgs.length; i++) {
+                        const arg = namedArgs[i];
+                        const name = argNames[i];
+                        xmlattributes.push(`${arg} AS ${name}`);
+                    }
+                    repr += `, XMLATTRIBUTES(${xmlattributes.join(', ')})`;
+                }
+
+                if (args) {
+                    repr += `, ${args.join(', ')}`;
+                }
+                repr += ')';
+                return repr;
+            }
+            case 'IS_XMLFOREST': {
+                let namedArgs: string[] | null;
+                let argNames: string[] | null;
+                try {
+                    namedArgs = await this.getListMemberElementsReprs('named_args');
+                    argNames = await getArgNameListOfStrings();
+                } catch (e) {
+                    if (e instanceof EvaluationError) {
+                        namedArgs = null;
+                        argNames = null;
+                    } else {
+                        throw e;
+                    }
+                }
+                let repr = 'XMLFOREST(';
+                if (namedArgs && argNames && namedArgs.length === argNames.length) {
+                    const xmlattributes = [];
+                    for (let i = 0; i < namedArgs.length; i++) {
+                        const arg = namedArgs[i];
+                        const name = argNames[i];
+                        xmlattributes.push(`${arg} AS ${name}`);
+                    }
+                    repr += `${xmlattributes.join(', ')}`;
+                }
+                repr += ')';
+                return repr;
+            }
+            case 'IS_XMLCONCAT': {
+                let args: string[] | null;
+                try {
+                    args = await this.getListMemberElementsReprs('args');
+                } catch (e) {
+                    if (e instanceof EvaluationError) {
+                        args = null;
+                    } else {
+                        throw e;
+                    }
+                }
+
+                let repr = 'XMLCONCAT(';
+                if (args) {
+                    repr += args.join(', ');
+                }
+                repr += ')';
+                return repr;
+            }
+            case 'IS_XMLPARSE': {
+                const option = await this.getMemberValueEnum('xmloption');
+                const args = await this.getListMemberElementsReprs('args');
+                if (!args) {
+                    return 'XMLPARSE()';
+                }
+
+                const data = args[0];
+                return `XMLPARSE(${option === 'XMLOPTION_DOCUMENT' ? 'DOCUMENT' : 'CONTENT'} ${data})`;
+            }
+            case 'IS_XMLPI': {
+                const name = await this.getMemberValueCharString('name');
+                const args = await this.getListMemberElementsReprs('args');
+                let repr = `XMLPI(NAME ${name}`;
+                if (args) {
+                    repr += `, ${args.join(', ')}`;
+                }
+                repr += ')';
+                return repr;
+            }
+            case 'IS_XMLROOT': {
+                const args = await this.getListMemberElementsReprs('args');
+                let repr = 'XMLROOT(';
+                if (1 <= args.length) {
+                    repr += args[0];
+                }
+
+                if (2 <= args.length) {
+                    repr += `, ${args[1]}`;
+                }
+
+                if (3 <= args.length) {
+                    repr += `, ${args[2]}`;
+                }
+
+                repr += ')';
+                return repr;
+            }
+            case 'IS_XMLSERIALIZE': {
+                const option = await this.getMemberValueEnum('xmloption');
+                const args = await this.getListMemberElementsReprs('args');
+                const indent = await this.getMemberValueBool('indent');
+                let repr = 'XMLSERIALIZE(';
+                if (args) {
+                    repr += option === 'XMLOPTION_DOCUMENT' ? 'DOCUMENT ' : 'CONTENT ';
+                    repr += args[0];
+                }
+
+                if (indent) {
+                    repr += ' INDENT';
+                }
+                repr += ')';
+                return repr;
+            }
+            case 'IS_DOCUMENT': {
+                const args = await this.getListMemberElementsReprs('args');
+                if (args) {
+                    return `${args[0]} IS DOCUMENT`;
+                } else {
+                    return '??? IS DOCUMENT';
+                }
+            }
         }
+
         return '???';
     }
 
@@ -3542,7 +3537,7 @@ class ExprNodeVariable extends NodeVariable {
 
         /* Add representation field first in a row */
         const exprVariable = new ScalarVariable('$expr$', expr, '', this.context,
-            this.logger, this, expr);
+                                                this.logger, this, expr);
         const children = await super.doGetChildren() ?? [];
         children.unshift(exprVariable);
         return children;
@@ -3609,13 +3604,13 @@ class ListElementsMember extends RealVariable {
     /**
      * Member of ListCell to use.
      * @example int_value, oid_value
-    */
+     */
     cellValue: string;
 
     /**
      * Real type of stored data
      * @example int, Oid, Node * (or custom)
-    */
+     */
     listCellType: string;
 
     /**
@@ -3658,10 +3653,10 @@ class ListElementsMember extends RealVariable {
         }
 
         /*
-        * We can not just cast `elements' to 'int *' or 'Oid *'
-        * due to padding in union.  For these we iterate
-        * each element and evaluate each item independently
-        */
+         * We can not just cast `elements' to 'int *' or 'Oid *'
+         * due to padding in union.  For these we iterate
+         * each element and evaluate each item independently
+         */
         const elements: RealVariable[] = [];
         for (let i = 0; i < length; i++) {
             const expression = `((ListCell *)${this.getPointer()})[${i}].${this.cellValue}`;
@@ -3726,7 +3721,7 @@ class LinkedListElementsMember extends Variable {
     listParent: ListNodeVariable;
 
     constructor(listParent: ListNodeVariable, cellValue: string,
-        realType: string, context: ExecContext) {
+                realType: string, context: ExecContext) {
         super('$elements$', '', '', '', context, listParent.frameId, listParent);
         this.listParent = listParent;
         this.cellValue = cellValue;
@@ -3735,10 +3730,10 @@ class LinkedListElementsMember extends Variable {
 
     async getLinkedListElements() {
         /*
-        * Traverse through linked list until we get NULL
-        * and read each element from List manually.
-        * So we do not need to evaluate length.
-        */
+         * Traverse through linked list until we get NULL
+         * and read each element from List manually.
+         * So we do not need to evaluate length.
+         */
         const elements: dap.DebugVariable[] = [];
         const headExpression = this.listParent.getMemberExpression('head');
         let evaluateName = headExpression;
@@ -3806,7 +3801,7 @@ export class ListNodeVariable extends NodeVariable {
             if (realType) {
                 return {
                     member: 'ptr_value',
-                    type: realType
+                    type: realType,
                 };
             }
         }
@@ -3878,7 +3873,7 @@ export class ListNodeVariable extends NodeVariable {
             frameId: this.frameId,
             parent: this,
             context: this.context,
-            logger: this.logger
+            logger: this.logger,
         });
     }
 
@@ -3901,7 +3896,7 @@ export class ListNodeVariable extends NodeVariable {
         const response = await this.debug.evaluate(castExpression, this.frameId);
         if (!Number.isInteger(response.variablesReference)) {
             this.logger.warn('failed to cast %s to List: %s',
-                this.name, response.result);
+                             this.name, response.result);
             return;
         }
 
@@ -3939,7 +3934,7 @@ export class ListNodeVariable extends NodeVariable {
             this.listElements = await this.createLinkedListNodeElementsMember();
             return [
                 ...m.filter(v => v.name !== 'head' && v.name !== 'tail'),
-                this.listElements
+                this.listElements,
             ];
         }
 
@@ -4068,9 +4063,9 @@ export class ArraySpecialMember extends RealVariable {
         const parent = unnullify(this.parent, 'this.parent');
         const memberExpr = `((${parent.type})${parent.getPointer()})->${this.info.memberName}`;
         const debugVariables = await this.debug.getArrayVariables(memberExpr,
-                                                        length, this.frameId);
+                                                                  length, this.frameId);
         return await Variable.mapVariables(debugVariables, this.frameId, this.context,
-                                            this.logger, this);
+                                           this.logger, this);
     }
 }
 
@@ -4086,11 +4081,11 @@ class BitmapSetSpecialMember extends NodeVariable {
     private static evaluationUsedFunctions = [
         'bms_next_member',
         'bms_first_member',
-        'bms_is_valid_set'
+        'bms_is_valid_set',
     ];
 
     constructor(args: RealVariableArgs) {
-        super('Bitmapset', args,);
+        super('Bitmapset', args);
     }
 
     async isValidSet(): Promise<boolean> {
@@ -4192,7 +4187,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                  */
                 if (BitmapSetSpecialMember.evaluationUsedFunctions.indexOf(bp.functionName) !== -1) {
                     this.logger.info('found breakpoint at %s - bms elements not shown',
-                        bp.functionName);
+                                     bp.functionName);
                     return false;
                 }
             }
@@ -4468,7 +4463,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                     } else {
                         const members = await variable.getChildren();
                         if (members)
-                            {member = members.find((v) => v.name === p);}
+                        {member = members.find((v) => v.name === p);}
                     }
 
                     if (!member) {
@@ -4514,7 +4509,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                     ...result,
                     name: `ref(${field.name})`,
                     value: result.result,
-                    evaluateName: expr
+                    evaluateName: expr,
                 }, this.bmsParent.frameId, this.context, this.bmsParent.logger, this);
             }
         }
@@ -4550,16 +4545,17 @@ class BitmapSetSpecialMember extends NodeVariable {
         setElements: number[];
         bmsParent: BitmapSetSpecialMember;
         constructor(parent: BitmapSetSpecialMember,
-            setElements: number[],
-            private ref?: constants.BitmapsetReference) {
+                    setElements: number[],
+                    private ref?: constants.BitmapsetReference) {
             super('$elements$', '', '', '', parent.context, parent.frameId, parent);
             this.setElements = setElements;
             this.bmsParent = parent;
         }
 
         private createElement(index: number, value: number) {
-            return new BitmapSetSpecialMember.BmsElementVariable(index, this,
-                                this.bmsParent, value, this.context, this.ref);
+            return new BitmapSetSpecialMember.BmsElementVariable(
+                index, this, this.bmsParent,
+                value, this.context, this.ref);
         }
 
         async doGetChildren(): Promise<Variable[] | undefined> {
@@ -4613,7 +4609,7 @@ class BitmapwordVariable extends RealVariable {
         return {
             label: `${this.name}: bitmapword`,
             description: bitmask,
-            collapsibleState: vscode.TreeItemCollapsibleState.None
+            collapsibleState: vscode.TreeItemCollapsibleState.None,
         };
     }
 }
@@ -4672,7 +4668,7 @@ class ValueVariable extends NodeVariable {
         } catch (err) {
             if (err instanceof EvaluationError) {
                 this.logger.debug('failed to cast type "%s" to tag "Value"',
-                                this.type, err);
+                                  this.type, err);
             }
         }
     }
@@ -4725,8 +4721,8 @@ class ValueVariable extends NodeVariable {
 
         return [
             new ScalarVariable('$value$', value,
-                '' /* no type for this */,
-                this.context, this.logger, this),
+                               '' /* no type for this */,
+                               this.context, this.logger, this),
             ...children.filter(v => v.name !== 'val'),
         ];
     }
@@ -5412,7 +5408,7 @@ class FlagsMemberVariable extends RealVariable {
         try {
             const fields = await this.collectFieldsValues();
             return fields.map(([name, value]) => 
-                    new ScalarVariable(name, value, '', this.context, this.logger, this));
+                new ScalarVariable(name, value, '', this.context, this.logger, this));
         } catch (err) {
             this.logger.error('failed to evaluate fields for %s', this.name, err);
             this.context.canUseMacros = false;

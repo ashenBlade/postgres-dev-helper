@@ -39,7 +39,7 @@ async function main() {
     if (testEnv.testDebugger()) {
         const dbgExtId = getDebuggerExtensionId(unnullify(testEnv.debugger, 'testEnv.debugger'));
         cp.spawnSync(cliPath, [...args, '--install-extension', dbgExtId],
-            { encoding: 'utf-8', stdio: 'inherit'});
+                     { encoding: 'utf-8', stdio: 'inherit'});
         /* Disable warnings if any */
         extraArgs = ['--enable-proposed-api', dbgExtId];
     }
@@ -55,7 +55,7 @@ async function main() {
         vscodeExecutablePath,
         launchArgs: [
             workspacePath,
-           ...extraArgs,
+            ...extraArgs,
         ],
     });
 }

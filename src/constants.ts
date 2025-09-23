@@ -2,7 +2,7 @@ import { BitmaskMemberInfo,
          HtabEntryInfo,
          ListPtrSpecialMemberInfo,
          SimplehashEntryInfo,
-        } from "./variables";
+} from "./variables";
 
 export function getDefaultNodeTags(): string[] {
     /* Compiled from versions from 8.0 to 17 */
@@ -626,12 +626,12 @@ export function getDisplayedExprs(): string[] {
 export function getKnownCustomListPtrs(): ListPtrSpecialMemberInfo[] {
     const member = (type: string, struct: string, member: string): ListPtrSpecialMemberInfo => ({
         type: type + ' *',
-        member: [struct, member]
+        member: [struct, member],
     });
 
     const variable = (type: string, func: string, variable: string): ListPtrSpecialMemberInfo => ({
         type: type + ' *',
-        variable: [func, variable]
+        variable: [func, variable],
     });
 
     return [
@@ -1030,7 +1030,7 @@ export function getKnownCustomListPtrs(): ListPtrSpecialMemberInfo[] {
         /* src/backend/utils/cache/typcache.c */
         {
             type: 'struct tupleDesc *',
-            member: ['RecordCacheEntry', 'tupdescs']
+            member: ['RecordCacheEntry', 'tupdescs'],
         },
 
         /* src/backend/optimizer/util/predtest.c */
@@ -1389,7 +1389,7 @@ export function getArraySpecialMembers(): ArraySpecialMember[] {
     const _ = (typeName: string, memberName: string, lengthExpr: string) => ({
         typeName,
         memberName,
-        lengthExpr
+        lengthExpr,
     });
 
     return [
@@ -2039,7 +2039,7 @@ export function getWellKnownBitmapsetReferences(): [string, BitmapsetReference][
     const ref = (type: string, field: string, 
                  paths: {path: string[], indexDelta?: number}[],
                  start?: 'PlannerInfo' | 'Parent' | 'Self'): [string, BitmapsetReference] => 
-                    [ field, { type, field, paths, start } ];
+        [ field, { type, field, paths, start } ];
     
     return [
         ref('RelOptInfo', 'relids', pathToRteAndRelOptInfos),
@@ -2119,7 +2119,7 @@ export function getWellKnownBitmapsetReferences(): [string, BitmapsetReference][
 
 export function getWellKnownHTABTypes(): HtabEntryInfo[] {
     const type = (parent: string, member: string, type: string) => ({
-        parent, member, type
+        parent, member, type,
     } as HtabEntryInfo);
 
     return [
@@ -2140,7 +2140,7 @@ export function getWellKnownHTABTypes(): HtabEntryInfo[] {
 
 export function getWellKnownSimpleHashTableTypes(): SimplehashEntryInfo[] {
     const type = (prefix: string, elementType: string, canIterate = true) => ({
-        prefix, elementType, canIterate
+        prefix, elementType, canIterate,
     } as SimplehashEntryInfo);
 
     return [
@@ -2188,22 +2188,22 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
     
     /* shortcuts */
     const interval = (start: number, end: number, flags: FlagInfo[], fields?: FieldInfo[]): VersionedFlagFieldRow =>
-            [new VersionInterval(start, end), flags, fields];
+        [new VersionInterval(start, end), flags, fields];
     const to = (end: number, flags: FlagInfo[], fields?: FieldInfo[]): VersionedFlagFieldRow =>
-            [new VersionInterval(VersionInterval.Min, end), flags, fields];
+        [new VersionInterval(VersionInterval.Min, end), flags, fields];
     const from = (start: number, flags: FlagInfo[], fields?: FieldInfo[]): VersionedFlagFieldRow =>
-            [new VersionInterval(start, VersionInterval.Max), flags, fields];
+        [new VersionInterval(start, VersionInterval.Max), flags, fields];
     const unbounded = (flags: FlagInfo[], fields?: FieldInfo[]): VersionedFlagFieldRow => 
-            [VersionInterval.Unbounded, flags, fields];
+        [VersionInterval.Unbounded, flags, fields];
 
     /* Main function to create one bitmask member entry with all verisons */
     const _ = (type: string, member: string,
                entries: [VersionInterval, FlagInfo[]?, FieldInfo[]?][]): [VersionInterval, BitmaskMemberInfo][] => 
-            entries.map(([ver, flags, fields]) => [ver, {
-                type, member,
-                flags: flags?.map(([flag, numeric]) => ({flag, numeric})) ?? [],
-                fields: fields?.map(([name, [mask, numeric]]) => ({name, mask, numeric})) ?? [],
-            }]);
+        entries.map(([ver, flags, fields]) => [ver, {
+            type, member,
+            flags: flags?.map(([flag, numeric]) => ({flag, numeric})) ?? [],
+            fields: fields?.map(([name, [mask, numeric]]) => ({name, mask, numeric})) ?? [],
+        }]);
 
     /* most commonly used flags are for heap tuple */
     const createInfomaskFlags = (type: string, member: string) => _(type, member, [
@@ -2284,15 +2284,15 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
             ['HEAP_HOT_UPDATED',		'0x4000'],
             ['HEAP_ONLY_TUPLE',			'0x8000'],
         ], [
-            ['natts', ['HEAP_NATTS_MASK', '0x07FF']]
+            ['natts', ['HEAP_NATTS_MASK', '0x07FF']],
         ]),
         from(9_00_00, [
             ['HEAP_KEYS_UPDATED',		'0x2000'],
             ['HEAP_HOT_UPDATED',		'0x4000'],
             ['HEAP_ONLY_TUPLE',			'0x8000'],
         ], [
-            ['natts', ['HEAP_NATTS_MASK', '0x07FF']]
-        ])
+            ['natts', ['HEAP_NATTS_MASK', '0x07FF']],
+        ]),
     ]);
     
     const createInfobitsFlags = (type: string, member: string) => _(type, member, [
@@ -2302,7 +2302,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
             ['XLHL_XMAX_EXCL_LOCK', '0x04'],
             ['XLHL_XMAX_KEYSHR_LOCK', '0x08'],
             ['XLHL_KEYS_UPDATED', '0x10'],
-        ])
+        ]),
     ]);
     
     /* TODO: FF_* src/include/tsearch/dicts/spell.h */
@@ -2337,14 +2337,14 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
             interval(9_00_00, 9_06_00, [
                 ['XLP_FIRST_IS_CONTRECORD', '0x0001'],
                 ['XLP_LONG_HEADER', '0x0002'],
-                ['XLP_BKP_REMOVABLE', '0x0004']
+                ['XLP_BKP_REMOVABLE', '0x0004'],
             ]),
             from(9_06_00, [
                 ['XLP_FIRST_IS_CONTRECORD', '0x0001'],
                 ['XLP_LONG_HEADER', '0x0002'],
                 ['XLP_BKP_REMOVABLE', '0x0004'],
                 ['XLP_FIRST_IS_OVERWRITE_CONTRECORD', '0x0008'],
-            ])
+            ]),
         ]),
 
         /* src/include/storage/bufpage.h */
@@ -2363,7 +2363,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
         /* src/backend/access/transam/generic_xlog.c */
         _('PageData', 'flags', [
             from(9_00_00, [
-                ['GENERIC_XLOG_FULL_IMAGE', '0x0001']
+                ['GENERIC_XLOG_FULL_IMAGE', '0x0001'],
             ]),
         ]),
 
@@ -2411,7 +2411,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
                 ['SK_SEARCHNULL',		'0x0020'],
                 ['SK_SEARCHNOTNULL',	'0x0040'],
                 ['SK_ORDER_BY',			'0x0100'],
-            ])
+            ]),
         ]),
         
         /* src/include/statistics/statistics.h */
@@ -2430,7 +2430,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
         _('MCVList', 'type', [
             from(10_00_00, [
                 ['STATS_MCV_TYPE_BASIC', '1'],
-            ])
+            ]),
         ]),
 
         /* src/include/access/gist.h */
@@ -2455,7 +2455,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
                 ['F_TUPLES_DELETED',	'(1 << 2)'],
                 ['F_FOLLOW_RIGHT',		'(1 << 3)'],
                 ['F_HAS_GARBAGE',		'(1 << 4)'],
-            ])
+            ]),
         ]),
 
         /* src/include/access/spgist_private.h */
@@ -2511,7 +2511,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
                 ['INDEX_NULL_MASK', '0x8000'],
             ], [
                 ['size', ['INDEX_SIZE_MASK', '0x1FFF']],
-            ])
+            ]),
         ]),
 
         /* src/include/access/hash.h */
@@ -2643,7 +2643,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
                 ['BKPBLOCK_WILL_INIT', '0x40'],
                 ['BKPBLOCK_SAME_REL', '0x80'],
             ], [
-                ['fork', ['BKPBLOCK_FORK_MASK', '0x0F']]
+                ['fork', ['BKPBLOCK_FORK_MASK', '0x0F']],
             ]),
         ]),
         _('DecodedBkpBlock', 'bimg_info', [
@@ -2782,7 +2782,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
                 ['BRIN_PLACEHOLDER_MASK', '0x40'],
                 ['BRIN_NULLS_MASK', '0x80'],
             ], [
-                ['offset', ['BRIN_OFFSET_MASK', '0x1F']]
+                ['offset', ['BRIN_OFFSET_MASK', '0x1F']],
             ]),
         ]),
 
@@ -2840,7 +2840,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
                 ['FRAMEOPTION_EXCLUDE_CURRENT_ROW', '0x08000'],
                 ['FRAMEOPTION_EXCLUDE_GROUP', '0x10000'],
                 ['FRAMEOPTION_EXCLUDE_TIES', '0x20000'],
-            ])
+            ]),
         ])),
 
         _('ExprState', 'flags', [
@@ -2890,16 +2890,16 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
             ]),
         ]),
 
-        _('EState', 'es_jit_flags', [
-            from(11_00_00, [
-                ['PGJIT_NONE', '0'],
-                ['PGJIT_PERFORM', '(1 << 0)'],
-                ['PGJIT_OPT3', '(1 << 1)'],
-                ['PGJIT_INLINE', '(1 << 2)'],
-                ['PGJIT_EXPR', '(1 << 3)'],
-                ['PGJIT_DEFORM', '(1 << 4)'],
-            ]),
-        ])),
+              _('EState', 'es_jit_flags', [
+                  from(11_00_00, [
+                      ['PGJIT_NONE', '0'],
+                      ['PGJIT_PERFORM', '(1 << 0)'],
+                      ['PGJIT_OPT3', '(1 << 1)'],
+                      ['PGJIT_INLINE', '(1 << 2)'],
+                      ['PGJIT_EXPR', '(1 << 3)'],
+                      ['PGJIT_DEFORM', '(1 << 4)'],
+                  ]),
+              ])),
 
         _('ModifyTableState', 'mt_merge_subcommands', [
             from(15_00_00, [
@@ -2986,7 +2986,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
                 ['PROC_VACUUM_FOR_WRAPAROUND', '0x08'],
                 ['PROC_IN_LOGICAL_DECODING', '0x10'],
                 ['PROC_AFFECTS_ALL_HORIZONS', '0x20'],
-            ])
+            ]),
         ]),
 
         /* src/backend/catalog/dependency.c */
@@ -3181,14 +3181,14 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
             'AfterTriggerEventData',
             'AfterTriggerEventDataNoOids',
             'AfterTriggerEventDataOneCtid',
-            'AfterTriggerEventDataZeroCtids'
+            'AfterTriggerEventDataZeroCtids',
         ].map(type => _(type, 'ate_flags', [
             to(9_04_00, [
                 ['AFTER_TRIGGER_2CTIDS',			'0x10000000'],
                 ['AFTER_TRIGGER_DONE',				'0x20000000'],
                 ['AFTER_TRIGGER_IN_PROGRESS',		'0x40000000'],
             ], [
-                ['offset', ['AFTER_TRIGGER_OFFSET', '0x0FFFFFFF']]
+                ['offset', ['AFTER_TRIGGER_OFFSET', '0x0FFFFFFF']],
             ]),
             interval(9_04_00, 15_00_00, [
                 ['AFTER_TRIGGER_DONE',				'0x10000000'],
@@ -3198,7 +3198,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
                 ['AFTER_TRIGGER_1CTID',				'0x40000000'],
                 ['AFTER_TRIGGER_2CTID',				'0xC0000000'],
             ], [
-                ['offset', ['AFTER_TRIGGER_OFFSET', '0x0FFFFFFF']]
+                ['offset', ['AFTER_TRIGGER_OFFSET', '0x0FFFFFFF']],
             ]),
             from(15_00_00, [
                 ['AFTER_TRIGGER_DONE', '0x80000000'],
@@ -3210,7 +3210,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
                 ['AFTER_TRIGGER_CP_UPDATE', '0x08000000'],
             ], [
                 ['offset', ['AFTER_TRIGGER_OFFSET', '0x07FFFFFF']],
-            ])
+            ]),
         ])),
 
         /* src/backend/commands/user.c */
@@ -3227,7 +3227,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
             unbounded([
                 ['IFS_RDLOCK', '(1 << 0)'],
                 ['IFS_WRLOCK', '(1 << 1)'],
-            ])
+            ]),
         ]),
 
         /* src/utils/selfuncs.h */
@@ -3508,7 +3508,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
                 ['A_CLEAR', '0x0010'],
                 ['A_MERGE', '0x0020'],
                 ['A_CLRALL', '0x0040'],
-            ])
+            ]),
         ]),
 
         /* src/include/utils/expandedrecord.h */
@@ -3637,7 +3637,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
                 ['TYPECACHE_HASH_EXTENDED_PROC', '0x04000'],
                 ['TYPECACHE_HASH_EXTENDED_PROC_FINFO', '0x08000'],
                 ['TYPECACHE_MULTIRANGE_INFO', '0x10000'],
-            ])
+            ]),
         ]),
 
         /* src/bin/pg_dump/pg_backup_archiver.h */
@@ -3646,14 +3646,14 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
                 ['REQ_SCHEMA', '0x01'],
                 ['REQ_DATA', '0x02'],
                 ['REQ_SPECIAL', '0x04'],
-            ])
+            ]),
         ]),
 
         /* src/bin/pg_dump/pg_dump.h */
         ...[
             'dump',
             'dump_contains',
-            'components'
+            'components',
         ].map(member => _('DumpableObject', member, [
             interval(9_06_00, 18_00_00, [
                 ['DUMP_COMPONENT_NONE', '(0)'],
@@ -3685,7 +3685,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
             from(10_00_00, [
                 ['XLH_SPLIT_META_UPDATE_MASKS', '(1<<0)'],
                 ['XLH_SPLIT_META_UPDATE_SPLITPOINT', '(1<<1)'],
-            ])
+            ]),
         ]),
 
         /* src/include/access/heapam_xlog.h */
@@ -3702,7 +3702,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
                 ['XLH_DELETE_CONTAINS_OLD_KEY', '(1<<2)'],
                 ['XLH_DELETE_IS_SUPER', '(1<<3)'],
                 ['XLH_DELETE_IS_PARTITION_MOVE', '(1<<4)'],
-            ])
+            ]),
         ]),
         createInfobitsFlags('xl_heap_delete', 'infobits_set'),
 
@@ -3718,7 +3718,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
 
         ...[
             'xl_heap_insert',
-            'xl_heap_multi_insert'
+            'xl_heap_multi_insert',
         ].map(type => _(type, 'flags', [
             interval(9_05_00, 14_00_00, [
                 ['XLH_INSERT_ALL_VISIBLE_CLEARED', '(1<<0)'],
@@ -3793,68 +3793,68 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
         ...[
             'xl_xact_parsed_commit',
             'xl_xact_parsed_abort',
-            'xl_xact_info'
+            'xl_xact_info',
         ].map(type => _(type, 'xinfo', [
-                interval(9_05_00, 9_06_00, [
-                    ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
-                    ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
-                    ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
-                    ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
-                    ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
-                    ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
-                    ['XACT_COMPLETION_UPDATE_RELCACHE_FILE', '(1U << 30)'],
-                    ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
-                ]),
-                interval(9_06_00, 10_00_00, [
-                    ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
-                    ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
-                    ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
-                    ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
-                    ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
-                    ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
-                    ['XACT_COMPLETION_APPLY_FEEDBACK', '(1U << 29)'],
-                    ['XACT_COMPLETION_UPDATE_RELCACHE_FILE', '(1U << 30)'],
-                    ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
-                ]),
-                interval(10_00_00, 11_00_00, [
-                    ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
-                    ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
-                    ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
-                    ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
-                    ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
-                    ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
-                    ['XACT_XINFO_HAS_AE_LOCKS', '(1U << 6)'],
-                    ['XACT_COMPLETION_APPLY_FEEDBACK', '(1U << 29)'],
-                    ['XACT_COMPLETION_UPDATE_RELCACHE_FILE', '(1U << 30)'],
-                    ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
-                ]),
-                interval(11_00_00, 15_00_00, [
-                    ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
-                    ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
-                    ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
-                    ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
-                    ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
-                    ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
-                    ['XACT_XINFO_HAS_AE_LOCKS', '(1U << 6)'],
-                    ['XACT_XINFO_HAS_GID', '(1U << 7)'],
-                    ['XACT_COMPLETION_APPLY_FEEDBACK', '(1U << 29)'],
-                    ['XACT_COMPLETION_UPDATE_RELCACHE_FILE', '(1U << 30)'],
-                    ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
-                ]),
-                from(15_00_00, [
-                    ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
-                    ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
-                    ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
-                    ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
-                    ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
-                    ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
-                    ['XACT_XINFO_HAS_AE_LOCKS', '(1U << 6)'],
-                    ['XACT_XINFO_HAS_GID', '(1U << 7)'],
-                    ['XACT_XINFO_HAS_DROPPED_STATS', '(1U << 8)'],
-                    ['XACT_COMPLETION_APPLY_FEEDBACK', '(1U << 29)'],
-                    ['XACT_COMPLETION_UPDATE_RELCACHE_FILE', '(1U << 30)'],
-                    ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
-                ]),
+            interval(9_05_00, 9_06_00, [
+                ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
+                ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
+                ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
+                ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
+                ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
+                ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
+                ['XACT_COMPLETION_UPDATE_RELCACHE_FILE', '(1U << 30)'],
+                ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
+            ]),
+            interval(9_06_00, 10_00_00, [
+                ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
+                ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
+                ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
+                ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
+                ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
+                ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
+                ['XACT_COMPLETION_APPLY_FEEDBACK', '(1U << 29)'],
+                ['XACT_COMPLETION_UPDATE_RELCACHE_FILE', '(1U << 30)'],
+                ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
+            ]),
+            interval(10_00_00, 11_00_00, [
+                ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
+                ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
+                ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
+                ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
+                ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
+                ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
+                ['XACT_XINFO_HAS_AE_LOCKS', '(1U << 6)'],
+                ['XACT_COMPLETION_APPLY_FEEDBACK', '(1U << 29)'],
+                ['XACT_COMPLETION_UPDATE_RELCACHE_FILE', '(1U << 30)'],
+                ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
+            ]),
+            interval(11_00_00, 15_00_00, [
+                ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
+                ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
+                ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
+                ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
+                ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
+                ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
+                ['XACT_XINFO_HAS_AE_LOCKS', '(1U << 6)'],
+                ['XACT_XINFO_HAS_GID', '(1U << 7)'],
+                ['XACT_COMPLETION_APPLY_FEEDBACK', '(1U << 29)'],
+                ['XACT_COMPLETION_UPDATE_RELCACHE_FILE', '(1U << 30)'],
+                ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
+            ]),
+            from(15_00_00, [
+                ['XACT_XINFO_HAS_DBINFO', '(1U << 0)'],
+                ['XACT_XINFO_HAS_SUBXACTS', '(1U << 1)'],
+                ['XACT_XINFO_HAS_RELFILELOCATORS', '(1U << 2)'],
+                ['XACT_XINFO_HAS_INVALS', '(1U << 3)'],
+                ['XACT_XINFO_HAS_TWOPHASE', '(1U << 4)'],
+                ['XACT_XINFO_HAS_ORIGIN', '(1U << 5)'],
+                ['XACT_XINFO_HAS_AE_LOCKS', '(1U << 6)'],
+                ['XACT_XINFO_HAS_GID', '(1U << 7)'],
+                ['XACT_XINFO_HAS_DROPPED_STATS', '(1U << 8)'],
+                ['XACT_COMPLETION_APPLY_FEEDBACK', '(1U << 29)'],
+                ['XACT_COMPLETION_UPDATE_RELCACHE_FILE', '(1U << 30)'],
+                ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
+            ]),
         ])),
     ];
 
@@ -3893,10 +3893,8 @@ export function getWellKnownFlagsMembers(pgversion: number): BitmaskMemberInfo[]
         versionedFlagMembers = buildFlagMembers();
     }
 
-    const members = versionedFlagMembers.map(arrs => {
-        return arrs.find(([ver,]) => ver.satisfies(pgversion))?.[1];
-    }).filter(x => x !== undefined);
-
+    const members = versionedFlagMembers.map(arrs => 
+        arrs.find(([ver]) => ver.satisfies(pgversion))?.[1]).filter(x => x !== undefined);
     prevVersionedFlagMembers = [members, pgversion];
     return members;
 }

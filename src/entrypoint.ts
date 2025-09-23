@@ -3,12 +3,11 @@ import * as vars from './variables';
 import * as utils from './utils';
 import * as formatter from './formatter';
 import { setupDebugger } from './debugger';
-
 import {
     NodePreviewTreeViewProvider as PgVariablesView,
     Configuration as config,
     getCurrentLogLevel,
-    setupExtension
+    setupExtension,
 } from './extension';
 
 function createLogger(context: vscode.ExtensionContext): utils.ILogger {

@@ -15,14 +15,14 @@ export default defineConfig(
         ignores: [
             '.vscode-test',
             'out',
-        ]
+        ],
     },
     js.configs.recommended,
     ...tseslint.configs.strict,
     ...tseslint.configs.stylistic,
     {
         plugins: {
-            '@stylistic': stylistic
+            '@stylistic': stylistic,
         },
         rules: {
             'curly': 'warn',
@@ -32,14 +32,14 @@ export default defineConfig(
                 'warn',
                 {
                     'selector': 'import',
-                    'format': ['camelCase', 'PascalCase']
-                }
+                    'format': ['camelCase', 'PascalCase'],
+                },
             ],
             '@typescript-eslint/no-unused-vars': [
                 'error',
                 {
-                    'argsIgnorePattern': '^_'
-                }
+                    'argsIgnorePattern': '^_',
+                },
             ],
         },
     },
@@ -56,6 +56,23 @@ export default defineConfig(
             '@typescript-eslint/no-extraneous-class': [ "error", { "allowStaticOnly": true }],
             /* TestMode enum in tests */
             '@typescript-eslint/prefer-literal-enum-member': ['warn', {'allowBitwiseExpressions': true}],
-        }
-    }
+            /* Indentation */
+            '@stylistic/indent': ['error', 4, {
+                /* Align arguments with the first argument */
+                'CallExpression': {'arguments': 'first'},
+                'FunctionExpression': {'parameters': 'first'},
+                'ObjectExpression': 'first',
+                'ArrayExpression': 'first',
+                'FunctionDeclaration': {'parameters': 'first'},
+                'ImportDeclaration': 'first',
+                /* Member expressions should be indented by first member */
+                'MemberExpression': 'off',
+                'SwitchCase': 1,
+            }],
+            /* Use postgres-line comment style */
+            '@stylistic/multiline-comment-style': ['error', 'starred-block'],
+            /* Prefer trailing commas */
+            '@stylistic/comma-dangle': ['warn', 'always-multiline'],
+        },
+    },
 );

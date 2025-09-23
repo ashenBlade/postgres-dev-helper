@@ -26,7 +26,7 @@ function createDebuggerFacade(type: string, provider: NodePreviewTreeViewProvide
     }
     if (Features.debugFocusEnabled()) {
         vscode.debug.onDidChangeActiveStackItem(() => provider.refresh(),
-                                                 undefined, debug.registrations);
+                                                undefined, debug.registrations);
     } else {
         debug.switchToEventBasedRefresh();
     }
@@ -276,7 +276,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
     async getTopLevelVariables(context: vars.ExecContext, frameId: number) {
         const variables = await context.debug.getVariables(frameId);
         return await vars.Variable.mapVariables(variables, frameId, context,
-            this.log, undefined);
+                                                this.log, undefined);
     }
 
     dispose() {
@@ -659,7 +659,7 @@ function parseVariablesConfiguration(configFile: unknown): VariablesConfiguratio
             elements.push({
                 type,
                 member: memberEntry,
-                variable: variableEntry
+                variable: variableEntry,
             });
         }
 
@@ -760,7 +760,7 @@ function parseVariablesConfiguration(configFile: unknown): VariablesConfiguratio
             elements.push({
                 prefix,
                 canIterate: true,
-                elementType: type
+                elementType: type,
             } as vars.SimplehashEntryInfo);
         }
         
@@ -869,27 +869,27 @@ function parseVariablesConfiguration(configFile: unknown): VariablesConfiguratio
     const arrayInfos = 'arrays' in configFile &&
                         Array.isArray(configFile.arrays) &&
                         configFile.arrays.length > 0
-                ? configFile.arrays.map(parseArrayMember).filter(nonUndefined)
-                : undefined;
+        ? configFile.arrays.map(parseArrayMember).filter(nonUndefined)
+        : undefined;
 
     const aliasInfos = 'aliases' in configFile &&
                         Array.isArray(configFile.aliases) &&
                         configFile.aliases.length > 0
-                ? configFile.aliases.map(parseSingleAlias).filter(nonUndefined)
-                : undefined;
+        ? configFile.aliases.map(parseSingleAlias).filter(nonUndefined)
+        : undefined;
 
     const customListTypes = 'customListTypes' in configFile
-                                ? parseListTypes(configFile.customListTypes)
-                                : undefined;
+        ? parseListTypes(configFile.customListTypes)
+        : undefined;
     const htabTypes = 'htab' in configFile
-                        ? parseHtabTypes(configFile.htab)
-                        : undefined;
+        ? parseHtabTypes(configFile.htab)
+        : undefined;
     const simpleHashTableTypes = 'simplehash' in configFile
-                                    ? parseSimplehashTypes(configFile.simplehash)
-                                    : undefined;
+        ? parseSimplehashTypes(configFile.simplehash)
+        : undefined;
     const bitmaskEnumMembers = 'enums' in configFile 
-                                    ? parseEnumBitmasks(configFile.enums)
-                                    : undefined;
+        ? parseEnumBitmasks(configFile.enums)
+        : undefined;
 
     if (   arrayInfos?.length
         || aliasInfos?.length
@@ -918,10 +918,10 @@ async function promptWorkspace() {
     }
 
     const name = await vscode.window.showQuickPick(
-                        vscode.workspace.workspaceFolders.map(wf => wf.name), {
-                            title: 'Choose workspace',
-                            placeHolder: vscode.workspace.workspaceFolders[0].name
-                        });
+        vscode.workspace.workspaceFolders.map(wf => wf.name), {
+            title: 'Choose workspace',
+            placeHolder: vscode.workspace.workspaceFolders[0].name,
+        });
     if (!name) {
         throw new Error('No workspaces chosen');
     }
@@ -936,7 +936,7 @@ async function promptWorkspace() {
 
 async function promptExtensionName() {
     const extensionName = await vscode.window.showInputBox({
-        prompt: 'Enter extension name'
+        prompt: 'Enter extension name',
     });
     if (!extensionName) {
         throw new Error('User did not specified extension name');
@@ -952,7 +952,7 @@ async function promptExtensionName() {
 async function promptExtensionFlags() {
     async function promptFlag(title: string) {
         const result = await vscode.window.showQuickPick([
-            'Yes', 'No'
+            'Yes', 'No',
         ], {title, placeHolder: 'Yes'});
         if (!result) {
             throw new Error('User declined to answer');
@@ -1036,14 +1036,14 @@ async function bootstrapExtensionCommand() {
         'include $(top_builddir)/src/Makefile.global',
         'include $(top_srcdir)/contrib/contrib-global.mk',
         'endif',
-        ''
+        '',
     );
 
     await bootstrapFile('Makefile', makefile);
 
     const control = [
         `# ${name} extension`,
-        "default_version = '0.1.0'"
+        "default_version = '0.1.0'",
     ];
 
     if (flags.comment) {
@@ -1060,7 +1060,7 @@ async function bootstrapExtensionCommand() {
     await bootstrapFile('README', [
         `# ${name}`,
         '',
-        flags.comment
+        flags.comment,
     ]);
 
     if (flags.c) {
@@ -1093,7 +1093,7 @@ async function bootstrapExtensionCommand() {
             '_PG_fini(void)',
             '{',
             '}',
-            ''
+            '',
         ]);
     }
 
@@ -1106,13 +1106,13 @@ async function bootstrapExtensionCommand() {
         if (flags.c) {
             sql.push(
                 'AS \'MODULE_PATHNAME\'',
-                'LANGUAGE C IMMUTABLE;'
+                'LANGUAGE C IMMUTABLE;',
             );
         } else {
             sql.push(
                 'AS $$',
                 '\tSELECT \'hello, world!\';',
-                '$$ LANGUAGE SQL IMMUTABLE;'
+                '$$ LANGUAGE SQL IMMUTABLE;',
             );
         }
 
@@ -1127,22 +1127,22 @@ async function bootstrapExtensionCommand() {
         await utils.createDirectory(expectedDir);
 
         await utils.writeFile(
-                utils.joinPath(regressDir, 'init.sql'), [
-                    `CREATE EXTENSION ${name};`,
-                    'SELECT hello_world() as text;'
-                ].join('\n'));
+            utils.joinPath(regressDir, 'init.sql'), [
+                `CREATE EXTENSION ${name};`,
+                'SELECT hello_world() as text;',
+            ].join('\n'));
 
         await utils.writeFile(
-                utils.joinPath(expectedDir, 'init.out'), [
-                    `CREATE EXTENSION ${name};`,
-                    'SELECT hello_world() as text;',
-                    '     text      ',
-                    '---------------',
-                    ' hello, world!',
-                    '(1 row)',
-                    '',
-                    '',
-                ].join('\n'));
+            utils.joinPath(expectedDir, 'init.out'), [
+                `CREATE EXTENSION ${name};`,
+                'SELECT hello_world() as text;',
+                '     text      ',
+                '---------------',
+                ' hello, world!',
+                '(1 row)',
+                '',
+                '',
+            ].join('\n'));
     }
 
     if (flags.tap) {
@@ -1171,7 +1171,7 @@ async function bootstrapExtensionCommand() {
                 '',
                 'done_testing();',
                 '',
-            ].join('\n')
+            ].join('\n'),
         );
     }
 
@@ -1284,7 +1284,7 @@ export function setupExtension(context: vscode.ExtensionContext,
                     value: nodeVar.value,
                     evaluateName: nodeVar.name,
                     variablesReference: nodeVar.variablesReference,
-                    memoryReference: nodeVar.memoryReference
+                    memoryReference: nodeVar.memoryReference,
                 };
             } else if (typeof args === 'object' && args && 'variable' in args) {
                 variable = args.variable as dap.DebugVariable;
@@ -1400,8 +1400,8 @@ export function setupExtension(context: vscode.ExtensionContext,
 
         await vscode.commands.executeCommand('debug.addToWatchExpressions', {
             variable: {
-                evaluateName: expr
-            }
+                evaluateName: expr,
+            },
         });
     };
     
@@ -1447,7 +1447,7 @@ export function setupExtension(context: vscode.ExtensionContext,
             /*
              * Run only once, otherwise multiple commands will be registered - 
              * it will spoil up everything
-            */
+             */
             disposable?.dispose();
         }, context.subscriptions);
     }
@@ -1494,8 +1494,8 @@ async function setupNodeTagFiles(log: utils.ILogger, nodeVars: vars.NodeVarRegis
             await handleNodeTagFile(file);
             const pattern = new vscode.RelativePattern(folder, filePath);
             const watcher = vscode.workspace.createFileSystemWatcher(pattern,
-                false, false, 
-                /* ignoreDeleteEvents */ true);
+                                                                     false, false, 
+                                                                     /* ignoreDeleteEvents */ true);
             watcher.onDidChange(async uri => {
                 log.info('detected change in NodeTag file: %s', uri);
                 await handleNodeTagFile(uri);
@@ -1512,8 +1512,8 @@ async function setupNodeTagFiles(log: utils.ILogger, nodeVars: vars.NodeVarRegis
     if (vscode.workspace.workspaceFolders?.length) {
         await Promise.all(
             vscode.workspace.workspaceFolders.map(async folder =>
-                await setupSingleFolder(folder)
-            )
+                await setupSingleFolder(folder),
+            ),
         );
     }
 
@@ -1550,7 +1550,7 @@ export class Configuration {
         NodeTagFiles: 'nodeTagFiles',
         LogLevel: 'logLevel',
         PgbsdindentPath: 'pg_bsd_indentPath',
-        SrcPath: 'srcPath'
+        SrcPath: 'srcPath',
     };
     static Commands = {
         DumpNodeToLog: `${this.ExtensionName}.dumpNodeToLog`,

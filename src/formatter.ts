@@ -35,7 +35,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
 
     private async getPgConfigPath(workspace: vscode.WorkspaceFolder) {
         const possiblePgConfigPath = utils.getWorkspacePgSrcFile(
-                        workspace.uri, 'src', 'bin', 'pg_config', 'pg_config');
+            workspace.uri, 'src', 'bin', 'pg_config', 'pg_config');
         if (await utils.fileExists(possiblePgConfigPath)) {
             return possiblePgConfigPath;
         }
@@ -46,20 +46,20 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             title: 'pg_config is required to build pg_bsd_indent',
             validateInput: async (value: string) => {
                 const filePath = path.isAbsolute(value) 
-                                        ? vscode.Uri.file(value)
-                                        : utils.joinPath(workspace.uri, value);
+                    ? vscode.Uri.file(value)
+                    : utils.joinPath(workspace.uri, value);
                 if (!await utils.fileExists(filePath)) {
                     return 'File not found';
                 }
-            }
+            },
         });
         if (!userInput) {
             throw new Error('pg_bsd_indent is not installed and user did not provide pg_config path');
         }
 
         const pg_configPath = path.isAbsolute(userInput) 
-                                    ? vscode.Uri.file(userInput) 
-                                    : utils.joinPath(workspace.uri, userInput);
+            ? vscode.Uri.file(userInput) 
+            : utils.joinPath(workspace.uri, userInput);
         return pg_configPath;
     }
     
@@ -86,9 +86,9 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         };
         
         /* 
-        * most likely, pgindent's code have not
-        * changed variable declared on these lines
-        */
+         * most likely, pgindent's code have not
+         * changed variable declared on these lines
+         */
         let version;
         if (   (version = tryGetVersion(lines[14]))
             || (version = tryGetVersion(lines[15]))
@@ -113,7 +113,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          * in pg version 16< where pg_bsd_indent
          */
         const pgindentDir = utils.getWorkspacePgSrcFile(
-                                    workspace.uri, 'src', 'tools', 'pgindent');
+            workspace.uri, 'src', 'tools', 'pgindent');
         this.logger.info('cloning pg_bsd_indent repository');
         /* XXX: maybe better to download archive, not full history? */
         await utils.execShell(
@@ -181,7 +181,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
     }
 
     private async findPgBsdIndentOrBuild(workspace: vscode.WorkspaceFolder,
-                                          pgindent: vscode.Uri) {
+                                         pgindent: vscode.Uri) {
         /* 
          * For pg_bsd_indent search 2 locations:
          * 
@@ -191,7 +191,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          *      - not exist: download + build
          */
         let pgBsdIndentDir = utils.getWorkspacePgSrcFile(
-                                  workspace.uri, 'src', 'tools', 'pg_bsd_indent');
+            workspace.uri, 'src', 'tools', 'pg_bsd_indent');
 
         /* src/tools/pg_bsd_indent */
         if (await utils.directoryExists(pgBsdIndentDir)) {
@@ -209,7 +209,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
 
         /* src/tools/pgindent/pg_bsd_indent */
         pgBsdIndentDir = utils.getWorkspacePgSrcFile(
-                        workspace.uri, 'src', 'tools', 'pgindent', 'pg_bsd_indent');
+            workspace.uri, 'src', 'tools', 'pgindent', 'pg_bsd_indent');
         const pgBsdIndent = utils.joinPath(pgBsdIndentDir, 'pg_bsd_indent');
         if (await utils.fileExists(pgBsdIndent)) {
             return pgBsdIndent;
@@ -308,8 +308,8 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         const userPgbsdindent = Configuration.getCustomPgbsdindentPath();
         if (userPgbsdindent) {
             return path.isAbsolute(userPgbsdindent) 
-                            ? vscode.Uri.file(userPgbsdindent)
-                            : utils.joinPath(workspace.uri, userPgbsdindent);
+                ? vscode.Uri.file(userPgbsdindent)
+                : utils.joinPath(workspace.uri, userPgbsdindent);
         }
 
         return await this.findPgBsdIndentOrBuild(workspace, pgindent);
@@ -321,7 +321,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         }
         
         const pgindentPath = utils.getWorkspacePgSrcFile(
-                        workspace.uri, 'src', 'tools', 'pgindent', 'pgindent');
+            workspace.uri, 'src', 'tools', 'pgindent', 'pgindent');
         if (!await utils.fileExists(pgindentPath)) {
             vscode.window.showErrorMessage(`could not find pgindent at ${pgindentPath.fsPath}`);
             throw new FormattingError('could not find pgindent');
@@ -360,8 +360,8 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
 
             const version = r[1];
             const help =
-                    `you can remove existing pg_bsd_indent installation and run `
-                  + `formatting again - extension will install it and patch`;
+                `you can remove existing pg_bsd_indent installation and run ` +
+                `formatting again - extension will install it and patch`;
             vscode.window.showErrorMessage(
                 `pgindent expects pg_bsd_indent version ${version} - ${help}`);
             throw err;
@@ -407,7 +407,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
                                         workspace: vscode.WorkspaceFolder) {
         try {
             return await this.runPgindentInternal(
-                                    document, pgBsdIndent, pgindent, workspace);
+                document, pgBsdIndent, pgindent, workspace);
         } catch (err) {
             if (await utils.fileExists(pgBsdIndent)) {
                 throw err;
@@ -418,7 +418,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         this.savedPgbsdPath = undefined;
         pgBsdIndent = await this.findPgBsdIndentOrBuild(workspace, pgindent);
         return await this.runPgindentInternal(
-                                    document, pgBsdIndent, pgindent, workspace);
+            document, pgBsdIndent, pgindent, workspace);
     }
 
     private async runPgindent(document: vscode.TextDocument, 
@@ -429,7 +429,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         const tempDocument = await utils.createTempFile('pghh-{}.c', content);
         try {
             return await this.runPgindentRebuildBsd(
-                                tempDocument, pg_bsd_indent, pgindent, workspace);
+                tempDocument, pg_bsd_indent, pgindent, workspace);
         } finally {
             await utils.deleteFile(tempDocument);
         }
@@ -462,10 +462,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          * are errors which are hard to handle.
          */
         return [
-            vscode.TextEdit.replace(
-                this.getWholeDocumentRange(document),
-                indented
-            ),
+            vscode.TextEdit.replace(this.getWholeDocumentRange(document), indented),
         ];
     }
 
@@ -473,7 +470,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         const workspace = findSuitableWorkspace(document);
         const indented = await this.runPgindent(document, workspace);
         const tempFile = utils.joinPath(
-                vscode.Uri.file(os.tmpdir()), path.basename(document.uri.fsPath));
+            vscode.Uri.file(os.tmpdir()), path.basename(document.uri.fsPath));
         await utils.writeFile(tempFile, indented);
         return tempFile;
     }
@@ -484,7 +481,8 @@ function registerDiffCommand(logger: utils.ILogger,
     /* Preview formatter changes command */
     vscode.commands.registerCommand(Configuration.Commands.FormatterDiffView, async () => {
         if (!vscode.window.activeTextEditor) {
-            vscode.window.showWarningMessage('Could not show diff for file - no active document opened');
+            vscode.window.showWarningMessage(
+                'Could not show diff for file - no active document opened');
             return;
         }
 
@@ -501,8 +499,7 @@ function registerDiffCommand(logger: utils.ILogger,
         
         const filename = utils.getFileName(document.uri) ?? 'PostgreSQL formatting';
         try {
-            await vscode.commands.executeCommand(
-                                'vscode.diff', document.uri, parsed, filename);
+            await vscode.commands.executeCommand('vscode.diff', document.uri, parsed, filename);
         } catch (err) {
             logger.error(`failed to show diff for document %s`, document.uri.fsPath, err);
             vscode.window.showErrorMessage('Failed to show diff. See error in logs');

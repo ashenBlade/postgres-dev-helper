@@ -67,7 +67,7 @@ function getDebugConfiguration(env: TestEnv, pid: number) {
             request: 'attach',
             type: 'lldb',
             pid: pid,
-            program: '${workspaceFolder}/src/backend/postgres'
+            program: '${workspaceFolder}/src/backend/postgres',
         };
     }
 
@@ -119,7 +119,7 @@ const sleep = async (ms: number) => await new Promise(r => setTimeout(r, ms));
 const intRegexp = (value: number) => new RegExp(`^\\s*${value}\\s*$`);
 const execGetVariables = async () => {
     return await vscode.commands.executeCommand<vars.Variable[] | undefined>(
-                                Configuration.Commands.GetVariables);
+        Configuration.Commands.GetVariables);
 };
 
 suite('Variables', async function () {
@@ -129,7 +129,7 @@ suite('Variables', async function () {
         host: env.getWorkspaceFile('data'),
         port: 5432,
         database: 'postgres',
-        user: 'postgres'
+        user: 'postgres',
     });
 
     /* 
@@ -175,7 +175,7 @@ suite('Variables', async function () {
 
         /* Run debug session */
         vscode.debug.addBreakpoints([
-            new vscode.SourceBreakpoint(await searchBreakpointLocation(), true)
+            new vscode.SourceBreakpoint(await searchBreakpointLocation(), true),
         ]);
 
         if (!await vscode.debug.startDebugging(workspace, getDebugConfiguration(env, pid))) {
@@ -241,7 +241,7 @@ suite('Variables', async function () {
         const v = getVar(name, vars);
         return {
             var: v,
-            item: new TreeItemWrapper(await v.getTreeItem())
+            item: new TreeItemWrapper(await v.getTreeItem()),
         } as VarTreeItemPair;
     };
 
@@ -260,7 +260,7 @@ suite('Variables', async function () {
 
             items.push({
                 var: v,
-                item: new TreeItemWrapper(item)
+                item: new TreeItemWrapper(item),
             });
         }
 
@@ -289,10 +289,10 @@ suite('Variables', async function () {
     
     const assertContainsDefaultArray = (elements: VarTreeItemPair[]) => {
         assert.equal(elements.length, defaultArraySize,
-                    `Predefined arrays contain ${defaultArraySize} elements`);
+                     `Predefined arrays contain ${defaultArraySize} elements`);
         for (const [i, value] of elements.entries()) {
             assert.match(value.item.description, intRegexp(i + 1),
-                            `Array member at ${i} does not contain expected value`);
+                         `Array member at ${i} does not contain expected value`);
         }
     };
 
@@ -328,7 +328,7 @@ suite('Variables', async function () {
 
             const children = await expand(v);
             const entries = await mapAsync(children,
-                                    async (x) => await getMemberOf(x, 'value'));
+                                           async (x) => await getMemberOf(x, 'value'));
             assertContainsDefaultArray(entries);
 
             assert.ok(children.every(c => c.item.isExpandable()),
@@ -440,7 +440,7 @@ suite('Variables', async function () {
             const isOfNodeType = async (index: number, type: string) => {
                 const item = listElements[index].item;
                 assert.match(item.getType(), new RegExp(type), 
-                            `List element at ${index} is not of actual type`);
+                             `List element at ${index} is not of actual type`);
             };
 
             await isOfNodeType(0, 'PlannerInfo');
@@ -458,21 +458,21 @@ suite('Variables', async function () {
 
             const elementsValues = listElements.map(x => x.item.description);
             assert.deepEqual(elementsValues, ['1', '2', '4', '8'],
-                            'values of IntList are not valid');
+                             'values of IntList are not valid');
         });
 
         /* Bitmapset elements shown correctly */
         test('Bitmapset', async () => {
             /* 
-            * bms: Bitmapset *
-            * - $length$     5
-            * - $elements$
-            *   - 5
-            *   - 6
-            *   - 7
-            *   - 8
-            *   - 9
-            */
+             * bms: Bitmapset *
+             * - $length$     5
+             * - $elements$
+             *   - 5
+             *   - 6
+             *   - 7
+             *   - 8
+             *   - 9
+             */
             const childrenItems = await expand(getVar('bms'));
             const lengthMember = getMember(childrenItems, '$length$');
             assert.match(lengthMember.item.description, intRegexp(5),
@@ -482,7 +482,7 @@ suite('Variables', async function () {
             const elements = await expand(elementsMember);
             const values = elements.map(v => v.item.description);
             assert.deepEqual(values, ['5', '6', '7', '8', '9'],
-                            'Bitmapset does not contains valid numbers');
+                             'Bitmapset does not contains valid numbers');
         });
 
         /* Relids shows numbers and point to RelOptInfo/RangeTblEntry */
@@ -592,11 +592,11 @@ suite('Variables', async function () {
 
             const arrayFieldElements = await getArrayElementsOf('array_field');
             assert.deepStrictEqual(['1', '2'], arrayFieldElements,
-                                    'array_field contains 2 elements: 1, 2');
+                                   'array_field contains 2 elements: 1, 2');
             
             const arrayExprElements = await getArrayElementsOf('array_expr');
             assert.deepStrictEqual(['1', '2', '4', '8'], arrayExprElements,
-                                    'array_expr contains 4 elements: 1, 2, 4, 8');
+                                   'array_expr contains 4 elements: 1, 2, 4, 8');
         });
 
         /* Member is flexible array */
@@ -629,7 +629,7 @@ suite('Variables', async function () {
                 const x = await expand(pair);
                 htabElements.push({
                     key: getMember(x, 'key').item.description,
-                    value: getMember(x, 'value').item.description
+                    value: getMember(x, 'value').item.description,
                 });
             }
             assert.deepEqual(
@@ -637,7 +637,7 @@ suite('Variables', async function () {
                 new Set([
                     {key: '1', value: '2'}, 
                     {key: '10', value: '4'}, 
-                    {key: '20', value: '8'}
+                    {key: '20', value: '8'},
                 ]),
                 'Shown elements of HTAB are not ones that stored');
         });
@@ -658,7 +658,7 @@ suite('Variables', async function () {
                 const x = await expand(pair);
                 htabElements.push({
                     key: getMember(x, 'key').item.description,
-                    value: getMember(x, 'value').item.description
+                    value: getMember(x, 'value').item.description,
                 });
             }
             assert.deepEqual(
@@ -666,7 +666,7 @@ suite('Variables', async function () {
                 new Set([
                     {key: '1', value: '2'}, 
                     {key: '10', value: '4'}, 
-                    {key: '20', value: '8'}
+                    {key: '20', value: '8'},
                 ]),
                 'Shown elements of simplehash are not ones that stored');
         });

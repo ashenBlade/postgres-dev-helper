@@ -57,7 +57,7 @@ suite('Formatting', async function () {
     setup(async () => {
         /* Reset unformatted file (just copy) */
         const originalFile = env.getExtensionPath(
-                                    'src', 'test', 'patches', 'unformatted.c');
+            'src', 'test', 'patches', 'unformatted.c');
         fs.copyFileSync(originalFile, unformattedFilePath);
     });
 

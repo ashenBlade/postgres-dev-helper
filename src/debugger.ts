@@ -28,12 +28,12 @@ const builtInTypes = new Set([
     'Datum',
     
     /* src/include/nodes/nodes.h */
-    'Cost', 'Selectivity', 'Cardinality', 'ParseLoc', 'NodeTag'
+    'Cost', 'Selectivity', 'Cardinality', 'ParseLoc', 'NodeTag',
 ]);
 
 export enum DebuggerType {
     CppDbg,
-    CodeLLDB
+    CodeLLDB,
 }
 
 export interface IDebuggerFacade {
@@ -59,14 +59,14 @@ export interface IDebuggerFacade {
      * @throws @see {@link error.EvaluationError} if evaluation failed
      */
     evaluate: (expression: string, frameId: number | undefined,
-               context?: string, noReturn?: boolean) => Promise<dap.EvaluateResponse>;
+        context?: string, noReturn?: boolean) => Promise<dap.EvaluateResponse>;
     getVariables: (frameId: number) => Promise<dap.DebugVariable[]>;
     getMembers: (variablesReference: number) => Promise<dap.DebugVariable[]>;
     getTopStackFrameId: (threadId: number) => Promise<number | undefined>;
     getCurrentFrameId: () => Promise<number | undefined>;
     getSession: () => vscode.DebugSession;
     getArrayVariables: (expression: string, length: number,
-                        frameId: number | undefined) => Promise<dap.DebugVariable[]>;
+        frameId: number | undefined) => Promise<dap.DebugVariable[]>;
     getCurrentFunctionName: () => Promise<string | undefined>;
 
     /* Utility functions with per debugger specifics */
@@ -208,7 +208,7 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
                     case 'continued':
                         break;
                 }
-            })
+            }),
         ];
 
         this.session = vscode.debug.activeDebugSession;
@@ -242,7 +242,7 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
                 name: `[${i}]`,
                 type: evalResponse.type,
                 value: evalResponse.result,
-                variablesReference: evalResponse.variablesReference
+                variablesReference: evalResponse.variablesReference,
             } as dap.DebugVariable;
             variables.push(variable);
         }
@@ -342,14 +342,14 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
         return await this.getSession().customRequest('stackTrace', {
             threadId,
             levels,
-            startFrame
+            startFrame,
         } as dap.StackTraceArguments) as dap.StackTraceResponse;
     }
 
     async getMembers(variablesReference: number): Promise<dap.DebugVariable[]> {
         const response: dap.VariablesResponse = await this.getSession()
             .customRequest('variables', {
-                variablesReference
+                variablesReference,
             } as dap.VariablesArguments);
         return response.variables;
     }
@@ -381,12 +381,12 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
 
     isFixedSizeArray(variable: IDebugVariable) {
         /*
-        * Find pattern: type[size]
-        * But not: type[] - VLA is not expanded.
-        * Here we use fact, that 'type[size]' differs from 'type[]' by
-        * penultimate character - for VLA this must be '['.
-        * 
-        */
+         * Find pattern: type[size]
+         * But not: type[] - VLA is not expanded.
+         * Here we use fact, that 'type[size]' differs from 'type[]' by
+         * penultimate character - for VLA this must be '['.
+         * 
+         */
         if (variable.type.length < 2) {
             return false;
         }
@@ -464,7 +464,7 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
         const response: dap.EvaluateResponse = await this.getSession().customRequest('evaluate', {
             expression,
             context,
-            frameId
+            frameId,
         } as dap.EvaluateArguments);
 
         if (this.isFailedVar(response)) {
@@ -477,27 +477,27 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
     async getMembers(variablesReference: number): Promise<dap.DebugVariable[]> {
         const response: dap.VariablesResponse = await this.getSession()
             .customRequest('variables', {
-                variablesReference
+                variablesReference,
             } as dap.VariablesArguments);
         return response.variables;
     }
 
     isFailedVar(response: dap.EvaluateResponse): boolean {
         /* 
-        * gdb/mi has many error types for different operations.
-        * In common - when error occurs 'result' has message in form
-        * 'OPNAME: MSG':
-        * 
-        *  - OPNAME - name of the failed operation
-        *  - MSG - human-readable error message
-        * 
-        * When we send 'evaluate' command this VS Code converts it to
-        * required command and when it fails, then 'result' member
-        * contains error message. But if we work with variables (our logic),
-        * OPNAME will be '-var-create', not that command, that VS Code sent.
-        * 
-        * More about: https://www.sourceware.org/gdb/current/onlinedocs/gdb.html/GDB_002fMI-Variable-Objects.html
-        */
+         * gdb/mi has many error types for different operations.
+         * In common - when error occurs 'result' has message in form
+         * 'OPNAME: MSG':
+         * 
+         *  - OPNAME - name of the failed operation
+         *  - MSG - human-readable error message
+         * 
+         * When we send 'evaluate' command this VS Code converts it to
+         * required command and when it fails, then 'result' member
+         * contains error message. But if we work with variables (our logic),
+         * OPNAME will be '-var-create', not that command, that VS Code sent.
+         * 
+         * More about: https://www.sourceware.org/gdb/current/onlinedocs/gdb.html/GDB_002fMI-Variable-Objects.html
+         */
         return response.result.startsWith('-var-create');
     }
 
@@ -628,7 +628,8 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
             return chunk;
         }
         
-        /* To get full string we consume string by chunks and then build
+        /*
+         * To get full string we consume string by chunks and then build
          * whole string using concatenating.
          */
         const stringPtr = this.extractPtrFromString(variable);
@@ -739,7 +740,7 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
             return await this.getSession().customRequest('evaluate', {
                 expression,
                 context,
-                frameId
+                frameId,
             } as dap.EvaluateArguments);
         } catch (err) {
             if (err instanceof Error) {
@@ -752,7 +753,7 @@ export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
                         memoryReference: '',
                         result: '',
                         type: '',
-                        variablesReference: -1
+                        variablesReference: -1,
                     };
                 }
 

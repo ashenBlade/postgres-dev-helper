@@ -5,14 +5,14 @@ import { getTestEnv } from './env';
 
 export async function run(): Promise<void> {
     /* Bootstrap Mocha */
-	const mocha = new Mocha({
-		ui: 'tdd',
+    const mocha = new Mocha({
+        ui: 'tdd',
         /* Set big value for timeout, due to lots of IO */
         timeout: '1m',
         /* DAP does (may) not support parallel request execution */
         parallel: false,
-	});
-	const testsRoot = path.resolve(__dirname, '..');
+    });
+    const testsRoot = path.resolve(__dirname, '..');
 
     /* Collect all test files */
     const env = getTestEnv();
@@ -29,7 +29,7 @@ export async function run(): Promise<void> {
         }
     });
 
-	return new Promise((c, e) => {
+    return new Promise((c, e) => {
         try {
             /* Run tests */
             mocha.run((failures: number) => {
@@ -42,5 +42,5 @@ export async function run(): Promise<void> {
         } catch (err) {
             e(err);
         }
-	});
+    });
 }

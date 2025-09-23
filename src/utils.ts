@@ -302,11 +302,17 @@ export class ShellExecError extends PghhError {
     }
 }
 
+interface ShellExecResult {
+    code: number,
+    stdout: string,
+    stderr: string,
+};
+
 export async function execShell(cmd: string, args?: string[], 
-                options?: { cwd?: string, 
-                            throwOnError?: boolean,
-                            stdin?: string } ): Promise<{code: number, stdout: string, stderr: string}> {
-    return await new Promise<{code: number, stdout: string, stderr: string}>((resolve, reject) => {
+                                options?: { cwd?: string, 
+                                            throwOnError?: boolean,
+                                            stdin?: string } ): Promise<ShellExecResult> {
+    return await new Promise<ShellExecResult>((resolve, reject) => {
         const {cwd, throwOnError, stdin} = options || {};
         const child = cp.spawn(cmd, args, {cwd, shell: true});
         const stderr: string[] = [];
