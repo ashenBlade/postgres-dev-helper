@@ -1,5 +1,11 @@
 name: Run tests
-on: [push, pull_request]
+on:
+    push:
+    pull_request:
+    schedule:
+      # At 13:00 each Friday
+      - cron: 0 13 * * 5
+
 defaults:
   run:
     shell: bash
