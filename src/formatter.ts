@@ -231,35 +231,6 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         return pgBsdIndent;
     }
 
-    private async saveCachedTypedefFile(content: string, typedefsFile: vscode.Uri,
-                                        workspace: vscode.WorkspaceFolder) {
-        /*
-         * It's unlikely that '.vscode' directory missing, so omit checking
-         * and create if necessary.
-         */
-        let vscodeDir;
-        logger.info('caching result typedefs.list in %s', typedefsFile.fsPath);
-        try {
-            await utils.writeFile(typedefsFile, content);
-            return;
-        } catch (err) {
-            /*
-             * During testing I deleted .vscode directory, but could not
-             * when writing to file - may be it's smart enough to create
-             * this folder for me, but nevertheless attempt to create it.
-             */
-            vscodeDir = utils.joinPath(workspace.uri, '.vscode');
-            if (await utils.directoryExists(vscodeDir)) {
-                throw err;
-            }
-        }
-
-        logger.info('.vscode directory missing - creating one');
-        await utils.createDirectory(vscodeDir);
-        logger.info('trying to cache typedefs.list file again: %s', typedefsFile.fsPath);
-        await utils.writeFile(typedefsFile, content);
-    }
-
     private async getCustomTypedefs(workspace: vscode.WorkspaceFolder) {
         const configObj = await readConfigFile(workspace);
         if (!configObj) {
