@@ -480,8 +480,6 @@ function registerDiffCommand(formatter: PgindentDocumentFormatterProvider) {
     /* Preview formatter changes command */
     vscode.commands.registerCommand(Configuration.Commands.FormatterDiffView, async () => {
         if (!vscode.window.activeTextEditor) {
-            vscode.window.showWarningMessage(
-                'Could not show diff for file - no active document opened');
             return;
         }
 
@@ -491,7 +489,6 @@ function registerDiffCommand(formatter: PgindentDocumentFormatterProvider) {
             parsed = await formatter.indentFileWithTemp(document);
         } catch (err) {
             logger.error('failed to format file %s', document.uri.fsPath, err);
-            vscode.window.showErrorMessage('Failed to format document. See error in logs');
             return;
         }
         
@@ -500,7 +497,6 @@ function registerDiffCommand(formatter: PgindentDocumentFormatterProvider) {
             await vscode.commands.executeCommand('vscode.diff', document.uri, parsed, filename);
         } catch (err) {
             logger.error(`failed to show diff for document %s`, document.uri.fsPath, err);
-            vscode.window.showErrorMessage('Failed to show diff. See error in logs');
         } finally {
             if (await utils.fileExists(parsed)) {
                 await utils.deleteFile(parsed);
