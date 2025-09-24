@@ -20,7 +20,7 @@ function createDebuggerFacade(type: string, provider: NodePreviewTreeViewProvide
             }
             break;
         case 'lldb':
-            debug = new dbg.CodeLLLDBDebuggerFacade();
+            debug = new dbg.CodeLLDBDebuggerFacade();
             break;
         default:
             return;

@@ -714,7 +714,7 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
     }
 }
 
-export class CodeLLLDBDebuggerFacade extends GenericDebuggerFacade {
+export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
     type = DebuggerType.CodeLLDB;
 
     shouldShowScope(scope: dap.Scope): boolean {
