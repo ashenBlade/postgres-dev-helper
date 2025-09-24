@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import * as util from 'util';
 import * as cp from 'child_process';
 import { Configuration } from './extension';
 import * as https from 'https';
@@ -113,119 +112,6 @@ export function substituteStructName(type: string, target: string) {
  */
 export function isEnumResult(result: string) {
     return isValidIdentifier(result);
-}
-
-export interface ILogger {
-    debug: (message: string, ...args: unknown[]) => void;
-    info: (message: string, ...args: unknown[]) => void;
-    warn: (message: string, ...args: unknown[]) => void;
-    error: (message: string, ...args: unknown[]) => void;
-    focus: () => void;
-}
-
-/* Start with 2 as in vscode.LogLevel */
-export enum LogLevel {
-    Debug = 2,
-    Info = 3,
-    Warn = 4,
-    Error = 5,
-    Disable = 6,
-}
-
-abstract class BaseLogger implements ILogger {
-    constructor(protected channel: vscode.OutputChannel) { }
-    
-    protected format(msg: string, args: unknown[]) {
-        if (args.length && args[args.length - 1] instanceof Error) {
-            const err = args[args.length - 1] as Error;
-            return `${util.format(msg, ...args)}\n${err.stack}`;
-        } else {
-            return util.format(msg, ...args);
-        }
-    }
-    
-    focus() {
-        this.channel.show(true);
-    }
-    
-    abstract debug(message: string, ...args: unknown[]): void;
-    abstract info(message: string, ...args: unknown[]): void;
-    abstract warn(message: string, ...args: unknown[]): void;
-    abstract error(message: string, ...args: unknown[]): void;
-}
-
-export class ObsoleteVsCodeLogger extends BaseLogger implements ILogger {
-    constructor(
-        channel: vscode.OutputChannel,
-        public minLogLevel: LogLevel) {
-        super(channel);
-    }
-
-    logGeneric(level: LogLevel, levelStr: string, message: string, args: unknown[]) {
-        if (level < this.minLogLevel) {
-            return;
-        }
-        /* 
-         * VS Code prior to 1.74.0 does not have LogOutputChannel
-         * with builtin level/timing features
-         */
-
-        /* YYYY-mm-ddTHH:MM:SS.ffffZ -> YYYY-mm-dd HH:MM:SS.ffff */
-        const timestamp = new Date().toISOString()
-                                    .replace('T', ' ')
-                                    .replace('Z', '');
-        /* TIMESTAMP [LEVEL]: MESSAGE \n EXCEPTION */
-        this.channel.append(timestamp);
-        this.channel.append(' [');
-        this.channel.append(levelStr);
-        this.channel.append(']: ');
-        this.channel.appendLine(super.format(message, args));
-    }
-
-    debug(message: string, ...args: unknown[]) {
-        this.logGeneric(LogLevel.Debug, 'debug', message, args);
-    }
-    info(message: string, ...args: unknown[]) {
-        this.logGeneric(LogLevel.Info, 'info', message, args);
-    }
-    warn(message: string, ...args: unknown[]) {
-        this.logGeneric(LogLevel.Warn, 'warn', message, args);
-    }
-    error(message: string, ...args: unknown[]) {
-        this.logGeneric(LogLevel.Error, 'error', message, args);
-    }
-}
-
-export class VsCodeLogger extends BaseLogger implements ILogger {
-    constructor(private logOutput: vscode.LogOutputChannel) {
-        super(logOutput);
-    }
-
-    protected canLog(level: LogLevel): boolean {
-        return this.logOutput.logLevel != vscode.LogLevel.Off && 
-               this.logOutput.logLevel <= level;
-    }
-
-    logGeneric(level: LogLevel,
-               handler: (fmt: string, ...args: unknown[]) => void,
-               msg: string, args: unknown[]) {
-        if (this.canLog(level)) {
-            handler(super.format(msg, args));
-        }
-    }
-
-    debug(message: string, ...args: unknown[]) {
-        this.logGeneric(LogLevel.Debug, this.logOutput.debug, message, args);
-    }
-    info(message: string, ...args: unknown[]) {
-        this.logGeneric(LogLevel.Info, this.logOutput.info, message, args);
-    }
-    warn(message: string, ...args: unknown[]) {
-        this.logGeneric(LogLevel.Warn, this.logOutput.warn, message, args);
-    }
-    error(message: string, ...args: unknown[]) {
-        this.logGeneric(LogLevel.Error, this.logOutput.error, message, args);
-    }
 }
 
 export function joinPath(base: vscode.Uri, ...paths: string[]) {

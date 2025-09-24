@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import {languages} from 'vscode';
 import * as utils from './utils';
+import { Log as logger } from './logger';
 import { Configuration, parseFormatterConfiguration, readConfigFile } from './extension';
 import { PghhError } from './error';
 import * as path from 'path';
@@ -31,7 +32,6 @@ export const FormatterConfiguration: PgindentConfiguration = {};
 class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEditProvider {
     private savedPgindentPath?: vscode.Uri;
     private savedPgbsdPath?: vscode.Uri;
-    constructor(private logger: utils.ILogger) {}
 
     private async getPgConfigPath(workspace: vscode.WorkspaceFolder) {
         const possiblePgConfigPath = utils.getWorkspacePgSrcFile(
@@ -114,7 +114,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          */
         const pgindentDir = utils.getWorkspacePgSrcFile(
             workspace.uri, 'src', 'tools', 'pgindent');
-        this.logger.info('cloning pg_bsd_indent repository');
+        logger.info('cloning pg_bsd_indent repository');
         /* XXX: maybe better to download archive, not full history? */
         await utils.execShell(
             'git', ['clone', 'https://git.postgresql.org/git/pg_bsd_indent.git'],
@@ -130,7 +130,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          */
         const version = await this.tryFindRequiredPgBsdIndentVersion(pgindent);
         if (!version) {
-            this.logger.warn('could not detect required pg_bsd_indent version - using latest');
+            logger.warn('could not detect required pg_bsd_indent version - using latest');
             return;
         }
 
@@ -143,7 +143,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             return;    
         }
 
-        this.logger.info('patching pg_bsd_indent/args.c to be like %s', version);
+        logger.info('patching pg_bsd_indent/args.c to be like %s', version);
         const argsFile = utils.joinPath(pgBsdIndentDir, 'args.c');
         const contents = await utils.readFile(argsFile);
         const lines = contents.split('\n');
@@ -176,7 +176,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         patchHeuristic('INDENT_VERSION', /"\d(\.\d)*"/, `"${version}"`, 57);
         patchHeuristic(' (based on FreeBSD indent)', ' (based on FreeBSD indent)', '', 309);
 
-        this.logger.info('writing patched args.c back');
+        logger.info('writing patched args.c back');
         await utils.writeFile(argsFile, lines.join('\n'));
     }
 
@@ -201,7 +201,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             }
 
             /* Try to build it */
-            this.logger.info('building pg_bsd_indent in %s', pgBsdIndentDir.fsPath);
+            logger.info('building pg_bsd_indent in %s', pgBsdIndentDir.fsPath);
             await utils.execShell('make', ['-C', pgBsdIndentDir.fsPath],
                                   {cwd: workspace.uri.fsPath});
             return pgBsdIndent;
@@ -223,7 +223,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             await this.clonePgBsdIndent(workspace, pgindent, pgBsdIndentDir);
         }
 
-        this.logger.info('building pg_bsd_indent');
+        logger.info('building pg_bsd_indent');
         /* Repo's version requires passing PG_CONFIG (just build, no 'install') */
         await utils.execShell(
             'make', ['all', `PG_CONFIG="${pgConfigPath.fsPath}"`],
@@ -238,7 +238,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
          * and create if necessary.
          */
         let vscodeDir;
-        this.logger.info('caching result typedefs.list in %s', typedefsFile.fsPath);
+        logger.info('caching result typedefs.list in %s', typedefsFile.fsPath);
         try {
             await utils.writeFile(typedefsFile, content);
             return;
@@ -254,14 +254,14 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             }
         }
 
-        this.logger.info('.vscode directory missing - creating one');
+        logger.info('.vscode directory missing - creating one');
         await utils.createDirectory(vscodeDir);
-        this.logger.info('trying to cache typedefs.list file again: %s', typedefsFile.fsPath);
+        logger.info('trying to cache typedefs.list file again: %s', typedefsFile.fsPath);
         await utils.writeFile(typedefsFile, content);
     }
 
     private async getCustomTypedefs(workspace: vscode.WorkspaceFolder) {
-        const configObj = await readConfigFile(workspace, this.logger);
+        const configObj = await readConfigFile(workspace);
         if (!configObj) {
             return [];
         }
@@ -286,7 +286,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             }
 
             if (!await utils.fileExists(typedefFile)) {
-                this.logger.warn('could not find file %s', typedefFile);
+                logger.warn('could not find file %s', typedefFile);
                 continue;
             }
             
@@ -414,7 +414,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             }
         }
 
-        this.logger.info('pg_bsd_indent seems to be not installed - trying to install');
+        logger.info('pg_bsd_indent seems to be not installed - trying to install');
         this.savedPgbsdPath = undefined;
         pgBsdIndent = await this.findPgBsdIndentOrBuild(workspace, pgindent);
         return await this.runPgindentInternal(
@@ -445,13 +445,13 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
     async provideDocumentFormattingEdits(document: vscode.TextDocument, 
                                          _options: vscode.FormattingOptions,
                                          _token: vscode.CancellationToken) {
-        this.logger.debug('formatting document: %s', document.uri.fsPath);
+        logger.debug('formatting document: %s', document.uri.fsPath);
         let indented;
         try {
             const workspace = findSuitableWorkspace(document);
             indented = await this.runPgindent(document, workspace);
         } catch (err) {
-            this.logger.error('could not to run pgindent', err);
+            logger.error('could not to run pgindent', err);
             return [];
         }
 
@@ -476,8 +476,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
     }
 }
 
-function registerDiffCommand(logger: utils.ILogger, 
-                             formatter: PgindentDocumentFormatterProvider) {
+function registerDiffCommand(formatter: PgindentDocumentFormatterProvider) {
     /* Preview formatter changes command */
     vscode.commands.registerCommand(Configuration.Commands.FormatterDiffView, async () => {
         if (!vscode.window.activeTextEditor) {
@@ -493,7 +492,6 @@ function registerDiffCommand(logger: utils.ILogger,
         } catch (err) {
             logger.error('failed to format file %s', document.uri.fsPath, err);
             vscode.window.showErrorMessage('Failed to format document. See error in logs');
-            logger.focus();
             return;
         }
         
@@ -503,7 +501,6 @@ function registerDiffCommand(logger: utils.ILogger,
         } catch (err) {
             logger.error(`failed to show diff for document %s`, document.uri.fsPath, err);
             vscode.window.showErrorMessage('Failed to show diff. See error in logs');
-            logger.focus();
         } finally {
             if (await utils.fileExists(parsed)) {
                 await utils.deleteFile(parsed);
@@ -512,13 +509,13 @@ function registerDiffCommand(logger: utils.ILogger,
     });
 }
 
-export async function registerFormatting(logger: utils.ILogger) {
-    const formatter = new PgindentDocumentFormatterProvider(logger);
+export async function registerFormatting() {
+    const formatter = new PgindentDocumentFormatterProvider();
     for (const lang of ['c', 'h']) {
         languages.registerDocumentFormattingEditProvider({
             language: lang,
         }, formatter);
     }
 
-    registerDiffCommand(logger, formatter);
+    registerDiffCommand(formatter);
 }

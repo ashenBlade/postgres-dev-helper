@@ -3,6 +3,7 @@ import * as utils from "./utils";
 import * as dap from "./dap";
 import * as constants from './constants';
 import * as dbg from './debugger';
+import { Log as logger } from './logger';
 import { PghhError, EvaluationError, unnullify } from './error';
 
 export interface AliasInfo {
@@ -725,11 +726,6 @@ export abstract class Variable {
     context: ExecContext;
 
     /**
-     * Logger
-     */
-    logger: utils.ILogger;
-
-    /**
      * Number of frame, this variable belongs
      */
     frameId: number;
@@ -744,7 +740,7 @@ export abstract class Variable {
     constructor(name: string, value: string,
                 type: string, declaredType: string,
                 context: ExecContext, frameId: number,
-                parent: Variable | undefined, logger?: utils.ILogger) {
+                parent: Variable | undefined) {
         this.parent = parent;
         this.name = name;
         this.value = value;
@@ -752,9 +748,6 @@ export abstract class Variable {
         this.declaredType = declaredType;
         this.context = context;
         this.frameId = frameId;
-
-        /* logger argument is optional, because parent must be set always */
-        this.logger = unnullify(logger ?? parent?.logger, 'logger');
     }
 
     /**
@@ -782,7 +775,7 @@ export abstract class Variable {
 
             return children;
         } catch (error: unknown) {
-            this.logger.error('failed to get children for %s', this.name, error);
+            logger.error('failed to get children for %s', this.name, error);
             if (isExpectedError(error)) {
                 return;
             } else {
@@ -840,7 +833,7 @@ export abstract class Variable {
                     : vscode.TreeItemCollapsibleState.None,
             };
         } catch (error: unknown) {
-            this.logger.debug('failed get TreeItem for %s', this.name, error);
+            logger.debug('failed get TreeItem for %s', this.name, error);
 
             if (isExpectedError(error)) {
                 /* Placeholder */
@@ -872,15 +865,13 @@ export abstract class Variable {
     }
 
     static async create(debugVariable: dap.DebugVariable, frameId: number,
-                        context: ExecContext, logger: utils.ILogger,
-                        parent?: Variable) {
+                        context: ExecContext, parent?: Variable) {
         const effectiveType = Variable.getRealType(debugVariable.type, context);
         const args: RealVariableArgs = {
             ...debugVariable,
             frameId,
             parent,
             context,
-            logger,
             type: effectiveType,
             declaredType: debugVariable.type,
         };
@@ -967,7 +958,7 @@ export abstract class Variable {
         /* NodeTag variables: Node, List, Bitmapset etc.. */
         if (context.nodeVarRegistry.isNodeVar(effectiveType)) {
             const nodeVar = await NodeVariable.createNode(debugVariable, frameId,
-                                                          context, logger, args);
+                                                          context, args);
             if (nodeVar) {
                 return nodeVar;
             }
@@ -992,21 +983,19 @@ export abstract class Variable {
     }
 
     static async getVariables(variablesReference: number, frameId: number,
-                              context: ExecContext, logger: utils.ILogger,
-                              parent?: RealVariable): Promise<Variable[]> {
+                              context: ExecContext, parent?: RealVariable): Promise<Variable[]> {
         const debugVariables = await context.debug.getMembers(variablesReference);
         return await Promise.all(debugVariables.map(variable =>
-            Variable.create(variable, frameId, context, logger, parent)),
+            Variable.create(variable, frameId, context, parent)),
         );
     }
 
     static async mapVariables(debugVariables: dap.DebugVariable[],
                               frameId: number,
                               context: ExecContext,
-                              logger: utils.ILogger,
                               parent?: RealVariable): Promise<Variable[]> {
         return await (Promise.all(debugVariables.map(v =>
-            Variable.create(v, frameId, context, logger, parent)),
+            Variable.create(v, frameId, context, parent)),
         ));
     }
 
@@ -1204,9 +1193,9 @@ export class VariablesRoot extends Variable {
     static variableRootName = '$variables root$';
 
     constructor(public topLevelVariables: Variable[],
-                context: ExecContext, logger: utils.ILogger) {
+                context: ExecContext) {
         super(VariablesRoot.variableRootName, '', '', '', context, invalidFrameId,
-              undefined, logger);
+              undefined);
     }
 
     async doGetChildren(): Promise<Variable[] | undefined> {
@@ -1217,8 +1206,8 @@ export class VariablesRoot extends Variable {
 class ScalarVariable extends Variable {
     tooltip?: string;
     constructor(name: string, value: string, type: string, context: ExecContext,
-                logger: utils.ILogger, parent?: Variable, tooltip?: string) {
-        super(name, value, type, type, context, invalidFrameId, parent, logger);
+                parent?: Variable, tooltip?: string) {
+        super(name, value, type, type, context, invalidFrameId, parent);
         this.tooltip = tooltip;
     }
 
@@ -1250,7 +1239,6 @@ interface RealVariableArgs {
     frameId: number;
     parent?: Variable;
     context: ExecContext;
-    logger: utils.ILogger;
 }
 
 /**
@@ -1293,7 +1281,7 @@ export class RealVariable extends Variable {
 
     constructor(args: RealVariableArgs) {
         super(args.name, args.value, args.type, args.declaredType, 
-              args.context, args.frameId, args.parent, args.logger);
+              args.context, args.frameId, args.parent);
         this.memoryReference = args.memoryReference;
         this.variablesReference = args.variablesReference;
         this.parent = args.parent;
@@ -1310,7 +1298,6 @@ export class RealVariable extends Variable {
             frameId: this.frameId,
             parent: this.parent,
             context: this.context,
-            logger: this.logger,
         };
     }
 
@@ -1387,14 +1374,13 @@ export class RealVariable extends Variable {
 
     protected async doGetRealMembers() {
         return await Variable.getVariables(this.variablesReference, this.frameId,
-                                           this.context, this.logger, this);
+                                           this.context, this);
     }
 
     protected async getArrayMembers(expression: string, length: number) {
         const variables = await this.debug.getArrayVariables(expression,
                                                              length, this.frameId);
-        return await Variable.mapVariables(variables, this.frameId, this.context,
-                                           this.logger, this);
+        return await Variable.mapVariables(variables, this.frameId, this.context, this);
     }
 
     /**
@@ -1689,7 +1675,7 @@ export class NodeVariable extends RealVariable {
                     : vscode.TreeItemCollapsibleState.None,
             };
         } catch (e) {
-            this.logger.debug('failed to get TreeItem for %s', this.name, e);
+            logger.debug('failed to get TreeItem for %s', this.name, e);
             if (isExpectedError(e)) {
                 return {};
             } else {
@@ -1789,8 +1775,7 @@ export class NodeVariable extends RealVariable {
     }
 
     static async createNode(variable: dap.DebugVariable, frameId: number,
-                            context: ExecContext, logger: utils.ILogger,
-                            args: RealVariableArgs) {
+                            context: ExecContext, args: RealVariableArgs) {
         const getRealNodeTag = async () => {
             const expr = `((Node*)(${context.debug.getPointer(variable)}))->type`;
             const response = await context.debug.evaluate(expr, frameId);
@@ -2748,7 +2733,7 @@ class ExprNodeVariable extends NodeVariable {
                         values.push(await entry.getStringValue() ?? 'NULL');
                     } catch (e) {
                         if (e instanceof EvaluationError) {
-                            this.logger.debug('error during getting string value from ValueVariable', e);
+                            logger.debug('error during getting string value from ValueVariable', e);
                             values.push('???');
                         } else {
                             throw e;
@@ -3335,7 +3320,7 @@ class ExprNodeVariable extends NodeVariable {
                 throw error;
             }
 
-            this.logger.debug('failed repr for %s', this.realNodeTag, error);
+            logger.debug('failed repr for %s', this.realNodeTag, error);
         }
         return this.getExprPlaceholder(this);
     }
@@ -3453,8 +3438,8 @@ class ExprNodeVariable extends NodeVariable {
                     /* PlannedStmt->rtable */
                     return v.getListMemberElements('rtable');
                 default:
-                    this.logger.warn('got unexpected NodeTag in findRtable: %s',
-                                     v.realNodeTag);
+                    logger.warn('got unexpected NodeTag in findRtable: %s',
+                                v.realNodeTag);
                     return;
             }
         };
@@ -3535,7 +3520,7 @@ class ExprNodeVariable extends NodeVariable {
 
         /* Add representation field first in a row */
         const exprVariable = new ScalarVariable('$expr$', expr, '', this.context,
-                                                this.logger, this, expr);
+                                                this, expr);
         const children = await super.doGetChildren() ?? [];
         children.unshift(exprVariable);
         return children;
@@ -3668,7 +3653,6 @@ class ListElementsMember extends RealVariable {
                 memoryReference: response.memoryReference,
                 frameId: this.frameId,
                 context: this.context,
-                logger: this.logger,
                 parent: this,
             }));
         }
@@ -3754,7 +3738,7 @@ class LinkedListElementsMember extends Variable {
         } while (!this.debug.isNull(cell));
 
         return await Variable.mapVariables(elements, this.frameId, this.context,
-                                           this.logger, this.listParent);
+                                           this.listParent);
     }
 
     async doGetChildren() {
@@ -3806,8 +3790,8 @@ export class ListNodeVariable extends NodeVariable {
         
         let info = ListNodeVariable.listInfo.get(this.realNodeTag);
         if (!info) {
-            this.logger.debug('failed to determine List tag for %s->elements. using ptr value',
-                              this.name);
+            logger.debug('failed to determine List tag for %s->elements. using ptr value',
+                         this.name);
             info = {member: 'ptr_value', type: 'void *'};
         }
 
@@ -3871,7 +3855,6 @@ export class ListNodeVariable extends NodeVariable {
             frameId: this.frameId,
             parent: this,
             context: this.context,
-            logger: this.logger,
         });
     }
 
@@ -3893,8 +3876,8 @@ export class ListNodeVariable extends NodeVariable {
         const castExpression = `(${realType}) (${this.getPointer()})`;
         const response = await this.debug.evaluate(castExpression, this.frameId);
         if (!Number.isInteger(response.variablesReference)) {
-            this.logger.warn('failed to cast %s to List: %s',
-                             this.name, response.result);
+            logger.warn('failed to cast %s to List: %s',
+                        this.name, response.result);
             return;
         }
 
@@ -3956,7 +3939,7 @@ export class ListNodeVariable extends NodeVariable {
         const evalResult = await this.debug.evaluate(lengthExpression, this.frameId);
         const length = Number(evalResult.result);
         if (Number.isNaN(length)) {
-            this.logger.warn('failed to obtain list size for %s', this.name);
+            logger.warn('failed to obtain list size for %s', this.name);
             return;
         }
         return length;
@@ -4043,8 +4026,8 @@ export class ArraySpecialMember extends RealVariable {
                 throw err;
             }
 
-            this.logger.error('failed to evaluate length expr "%s" for %s',
-                              lengthExpr, this.name, err);
+            logger.error('failed to evaluate length expr "%s" for %s',
+                         lengthExpr, this.name, err);
             return await super.doGetRealMembers();
         }
 
@@ -4063,7 +4046,7 @@ export class ArraySpecialMember extends RealVariable {
         const debugVariables = await this.debug.getArrayVariables(memberExpr,
                                                                   length, this.frameId);
         return await Variable.mapVariables(debugVariables, this.frameId, this.context,
-                                           this.logger, this);
+                                           this);
     }
 }
 
@@ -4176,7 +4159,7 @@ class BitmapSetSpecialMember extends NodeVariable {
 
             if (bp instanceof vscode.SourceBreakpoint) {
                 if (bp.location.uri.path.endsWith('bitmapset.c')) {
-                    this.logger.info('found breakpoint at bitmapset.c - set elements not shown');
+                    logger.info('found breakpoint at bitmapset.c - set elements not shown');
                     return false;
                 }
             } else if (bp instanceof vscode.FunctionBreakpoint) {
@@ -4184,8 +4167,8 @@ class BitmapSetSpecialMember extends NodeVariable {
                  * Need to check functions that are called to get set elements
                  */
                 if (BitmapSetSpecialMember.evaluationUsedFunctions.indexOf(bp.functionName) !== -1) {
-                    this.logger.info('found breakpoint at %s - bms elements not shown',
-                                     bp.functionName);
+                    logger.info('found breakpoint at %s - bms elements not shown',
+                                bp.functionName);
                     return false;
                 }
             }
@@ -4250,7 +4233,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                 const response = await this.evaluate(expression);
                 number = Number(response.result);
                 if (Number.isNaN(number)) {
-                    this.logger.warn('failed to get set elements for %s', this.name);
+                    logger.warn('failed to get set elements for %s', this.name);
                     return;
                 }
             } catch (err) {
@@ -4258,7 +4241,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                     throw err;
                 }
 
-                this.logger.error('failed to get set elements for %s', this.name, err);
+                logger.error('failed to get set elements for %s', this.name, err);
                 return;
             }
 
@@ -4302,8 +4285,8 @@ class BitmapSetSpecialMember extends NodeVariable {
             const response = await this.evaluate(expression);
             number = Number(response.result);
             if (Number.isNaN(number)) {
-                this.logger.warn('failed to get set elements for "%s": %s',
-                                 this.name, response.result);
+                logger.warn('failed to get set elements for "%s": %s',
+                            this.name, response.result);
                 return;
             }
 
@@ -4347,7 +4330,7 @@ class BitmapSetSpecialMember extends NodeVariable {
         /* All existing members */
         const members = await Variable.getVariables(this.variablesReference,
                                                     this.frameId, this.context,
-                                                    this.logger, this);
+                                                    this);
         if (!members) {
             return members;
         }
@@ -4358,7 +4341,7 @@ class BitmapSetSpecialMember extends NodeVariable {
             const ref = await this.getBmsRef();
     
             members.push(new ScalarVariable('$length$', setMembers.length.toString(),
-                                            '', this.context, this.logger, this));
+                                            '', this.context, this));
             members.push(new BitmapSetSpecialMember.BmsArrayVariable(this, setMembers, ref));
         }
 
@@ -4508,7 +4491,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                     name: `ref(${field.name})`,
                     value: result.result,
                     evaluateName: expr,
-                }, this.bmsParent.frameId, this.context, this.bmsParent.logger, this);
+                }, this.bmsParent.frameId, this.context, this);
             }
         }
 
@@ -4646,8 +4629,8 @@ class ValueVariable extends NodeVariable {
                 return;
             } catch (err: unknown) {
                 if (err instanceof EvaluationError) {
-                    this.logger.debug('failed to cast type "%s" to tag "%s"',
-                                      this.type, this.realNodeTag, err);
+                    logger.debug('failed to cast type "%s" to tag "%s"',
+                                 this.type, this.realNodeTag, err);
                 }
 
                 /* continue */
@@ -4665,8 +4648,8 @@ class ValueVariable extends NodeVariable {
             this.context.hasValueStruct = true;
         } catch (err) {
             if (err instanceof EvaluationError) {
-                this.logger.debug('failed to cast type "%s" to tag "Value"',
-                                  this.type, err);
+                logger.debug('failed to cast type "%s" to tag "Value"',
+                             this.type, err);
             }
         }
     }
@@ -4720,7 +4703,7 @@ class ValueVariable extends NodeVariable {
         return [
             new ScalarVariable('$value$', value,
                                '' /* no type for this */,
-                               this.context, this.logger, this),
+                               this.context, this),
             ...children.filter(v => v.name !== 'val'),
         ];
     }
@@ -4817,7 +4800,7 @@ class HTABSpecialMember extends RealVariable {
 
             if (bp instanceof vscode.SourceBreakpoint) {
                 if (bp.location.uri.path.endsWith('bitmapset.c')) {
-                    this.logger.info('found breakpoint at bitmapset.c - set elements not shown');
+                    logger.info('found breakpoint at bitmapset.c - set elements not shown');
                     return false;
                 }
             } else if (bp instanceof vscode.FunctionBreakpoint) {
@@ -4825,8 +4808,8 @@ class HTABSpecialMember extends RealVariable {
                  * Need to check functions that are called to get set elements
                  */
                 if (HTABSpecialMember.evaluationUsedFunctions.indexOf(bp.functionName) !== -1) {
-                    this.logger.info('found breakpoint at %s - bms elements not shown',
-                                     bp.functionName);
+                    logger.info('found breakpoint at %s - bms elements not shown',
+                                bp.functionName);
                     return false;
                 }
             }
@@ -4872,7 +4855,7 @@ class HTABElementsMember extends Variable {
     entryType: string;
 
     constructor(htab: HTABSpecialMember, entryType: string) {
-        super('$elements$', '', '', '', htab.context, htab.frameId, htab, htab.logger);
+        super('$elements$', '', '', '', htab.context, htab.frameId, htab);
         this.htab = htab;
         this.entryType = entryType;
     }
@@ -4921,7 +4904,7 @@ class HTABElementsMember extends Variable {
              */
             if (err instanceof EvaluationError) {
                 await this.pfree(memory);
-                this.logger.error('failed to invoke hash_seq_init: %s', err.message);
+                logger.error('failed to invoke hash_seq_init: %s', err.message);
             }
 
             throw err;
@@ -4943,7 +4926,7 @@ class HTABElementsMember extends Variable {
                 throw err;
             }
             
-            this.logger.error('Could not invoke hash_seq_term: %s', err.message);
+            logger.error('Could not invoke hash_seq_term: %s', err.message);
         }
 
         await this.pfree(hashSeqStatus);
@@ -4984,8 +4967,8 @@ class HTABElementsMember extends Variable {
                 }
 
                 /* user can specify non-existent type */
-                this.logger.warn('Failed to create variable with type %s',
-                                 this.entryType, err);
+                logger.warn('Failed to create variable with type %s',
+                            this.entryType, err);
                 await this.finalizeHashSeqStatus(hashSeqStatus);
                 await this.pfree(hashSeqStatus);
                 return undefined;
@@ -4997,7 +4980,7 @@ class HTABElementsMember extends Variable {
                     name: `${variables.length}`,
                     value: result.result,
                     evaluateName: `((${this.entryType})${entry})`,
-                }, this.frameId, this.context, this.logger, this);
+                }, this.frameId, this.context, this);
                 variables.push(variable);
             } catch (error) {
                 if (error instanceof EvaluationError) {
@@ -5099,7 +5082,7 @@ class SimplehashElementsMember extends Variable {
 
     constructor(hashTable: SimplehashMember) {
         super('$elements$', '', '', '', hashTable.context, hashTable.frameId, 
-              hashTable, hashTable.logger);
+              hashTable);
         this.hashTable = hashTable;
     }
 
@@ -5200,7 +5183,7 @@ class SimplehashElementsMember extends Variable {
                 name: `${current}`,
                 value: result.result,
                 evaluateName: `((${this.hashTable.elementType} *)${result.result})`,
-            }, this.frameId, this.context, this.logger, this);
+            }, this.frameId, this.context, this);
         } catch (err) {
             if (!(err instanceof EvaluationError)) {
                 throw err;
@@ -5392,7 +5375,7 @@ class FlagsMemberVariable extends RealVariable {
                 throw err;
             }
 
-            this.logger.error('failed to evaluate flags for %s', this.name, err);
+            logger.error('failed to evaluate flags for %s', this.name, err);
             this.context.canUseMacros = false;
             return this.value;
         }
@@ -5406,9 +5389,9 @@ class FlagsMemberVariable extends RealVariable {
         try {
             const fields = await this.collectFieldsValues();
             return fields.map(([name, value]) => 
-                new ScalarVariable(name, value, '', this.context, this.logger, this));
+                new ScalarVariable(name, value, '', this.context, this));
         } catch (err) {
-            this.logger.error('failed to evaluate fields for %s', this.name, err);
+            logger.error('failed to evaluate fields for %s', this.name, err);
             this.context.canUseMacros = false;
             return [];
         }

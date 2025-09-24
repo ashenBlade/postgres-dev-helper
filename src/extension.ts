@@ -7,19 +7,20 @@ import * as dbg from './debugger';
 import * as dap from './dap';
 import { unnullify } from './error';
 import { PgindentConfiguration } from './formatter';
+import { Log as logger } from './logger';
 
 
 function createDebuggerFacade(type: string, provider: NodePreviewTreeViewProvider): dbg.GenericDebuggerFacade | undefined {
     let debug;
     switch (type) {
         case 'cppdbg':
-            debug = new dbg.CppDbgDebuggerFacade(provider.log);
+            debug = new dbg.CppDbgDebuggerFacade();
             if (!Features.hasEvaluateArrayLength()) {
                 debug.switchToManualArrayExpansion();
             }
             break;
         case 'lldb':
-            debug = new dbg.CodeLLLDBDebuggerFacade(provider.log);
+            debug = new dbg.CodeLLLDBDebuggerFacade();
             break;
         default:
             return;
@@ -57,8 +58,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
      */
     debug?: dbg.GenericDebuggerFacade;
 
-    constructor(public log: utils.ILogger,
-                private nodeVars: vars.NodeVarRegistry) { 
+    constructor(private nodeVars: vars.NodeVarRegistry) { 
         this.subscriptions = [
             vscode.debug.onDidStartDebugSession(s => {
                 if (!this.debug) {
@@ -105,56 +105,56 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
         const config = this.configFile;
         
         if (config.arrayInfos?.length) {
-            this.log.debug('adding %i array special members from config file', config.arrayInfos.length);
+            logger.debug('adding %i array special members from config file', config.arrayInfos.length);
             try {
                 context.specialMemberRegistry.addArraySpecialMembers(config.arrayInfos);
             } catch (err) {
-                this.log.error('could not add custom array special members', err);
+                logger.error('could not add custom array special members', err);
             }
         }
 
         if (config.aliasInfos?.length) {
-            this.log.debug('adding %i aliases from config file', config.aliasInfos.length);
+            logger.debug('adding %i aliases from config file', config.aliasInfos.length);
             try {
                 context.nodeVarRegistry.addAliases(config.aliasInfos);
             } catch (err) {
-                this.log.error('could not add aliases from configuration', err);
+                logger.error('could not add aliases from configuration', err);
             }
         }
 
         if (config.customListTypes?.length) {
-            this.log.debug('adding %i custom list types', config.customListTypes.length);
+            logger.debug('adding %i custom list types', config.customListTypes.length);
             try {
                 context.specialMemberRegistry.addListCustomPtrSpecialMembers(config.customListTypes);
             } catch (e) {
-                this.log.error('error occurred during adding custom List types', e);
+                logger.error('error occurred during adding custom List types', e);
             }
         }
 
         if (config.htabTypes?.length) {
-            this.log.debug('adding %i htab types', config.htabTypes.length);
+            logger.debug('adding %i htab types', config.htabTypes.length);
             try {
                 context.hashTableTypes.addHTABTypes(config.htabTypes);
             } catch (e) {
-                this.log.error('error occurred during adding custom HTAB types', e);
+                logger.error('error occurred during adding custom HTAB types', e);
             }
         }
 
         if (config.simpleHashTableTypes?.length) {
-            this.log.debug('adding %i simplehash types', config.simpleHashTableTypes.length);
+            logger.debug('adding %i simplehash types', config.simpleHashTableTypes.length);
             try {
                 context.hashTableTypes.addSimplehashTypes(config.simpleHashTableTypes);
             } catch (e) {
-                this.log.error('error occurred during adding custom simple hash table types', e);
+                logger.error('error occurred during adding custom simple hash table types', e);
             }
         }
         
         if (config.bitmaskEnumMembers?.length) {
-            this.log.debug('adding %i enum bitmask types', config.bitmaskEnumMembers.length);
+            logger.debug('adding %i enum bitmask types', config.bitmaskEnumMembers.length);
             try {
                 context.specialMemberRegistry.addFlagsMembers(config.bitmaskEnumMembers);
             } catch (e) {
-                this.log.error('error occurred during adding enum bitmask types', e);
+                logger.error('error occurred during adding enum bitmask types', e);
             }
         }
     }
@@ -164,13 +164,13 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
             const result = await this.getDebug().evaluate('server_version_num', frameId);
             const version = Number(result.result);
             if (!Number.isInteger(version) || !(0 <= version && version <= 999999)) {
-                this.log.warn('server_version_num has unexpected result: %s', result.result);
+                logger.warn('server_version_num has unexpected result: %s', result.result);
                 return undefined;
             }
 
             return version;
         } catch (err) {
-            this.log.warn('could not get value of "server_version_num"', err);
+            logger.warn('could not get value of "server_version_num"', err);
             return undefined;
         }
     }
@@ -189,7 +189,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
         /* Version specific initialization */
         const pgversion = await this.tryGetPgVersion(frameId);
         if (pgversion) {
-            this.log.info('detected PostgreSQL version: %i', pgversion);
+            logger.info('detected PostgreSQL version: %i', pgversion);
             context.adjustProperties(pgversion);
             
             if (10_00_00 <= pgversion) {
@@ -203,7 +203,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
              */
             sm.addFlagsMembers(constants.getWellKnownFlagsMembers(pgversion));
         } else {
-            this.log.info('could not detect PostgreSQL version');
+            logger.info('could not detect PostgreSQL version');
             hash.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
         }
         
@@ -232,7 +232,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
             return variables;
         }
 
-        const root = new vars.VariablesRoot(variables, this.context, this.log);
+        const root = new vars.VariablesRoot(variables, this.context);
         variables.forEach(v => v.parent = root);
         return variables;
     }
@@ -268,15 +268,14 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
              * then user will see error popup and just freeze without
              * understanding where this error comes from.
              */
-            this.log.error('error occurred during obtaining children', err);
+            logger.error('error occurred during obtaining children', err);
             return;
         }
     }
 
     async getTopLevelVariables(context: vars.ExecContext, frameId: number) {
         const variables = await context.debug.getVariables(frameId);
-        return await vars.Variable.mapVariables(variables, frameId, context,
-                                                this.log, undefined);
+        return await vars.Variable.mapVariables(variables, frameId, context, undefined);
     }
 
     dispose() {
@@ -285,8 +284,7 @@ export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars
     }
 }
 
-export async function dumpVariableToLogCommand(args: unknown, log: utils.ILogger,
-                                               debug: dbg.IDebuggerFacade) {
+export async function dumpVariableToLogCommand(args: unknown, debug: dbg.IDebuggerFacade) {
     const session = vscode.debug.activeDebugSession;
     if (!session) {
         vscode.window.showWarningMessage('Can not dump variable - no active debug session!');
@@ -317,14 +315,13 @@ export async function dumpVariableToLogCommand(args: unknown, log: utils.ILogger
                              undefined  /* context */, 
                              true       /* no return */);
     } catch (err: unknown) {
-        log.error('could not dump variable %s to log', variable.name, err);
+        logger.error('could not dump variable %s to log', variable.name, err);
         vscode.window.showErrorMessage(`Could not dump variable ${variable.name}. `
                                      + 'See errors in Output log');
     }
 }
 
 export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable,
-                                                    log: utils.ILogger,
                                                     debug: dbg.IDebuggerFacade) {
     const session = vscode.debug.activeDebugSession;
     if (!session) {
@@ -356,7 +353,7 @@ export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable,
     try {
         response = await debug.evaluate(nodeToStringExpr, frameId);
     } catch (err: unknown) {
-        log.error('could not dump variable %s to string', variable.name, err);
+        logger.error('could not dump variable %s to string', variable.name, err);
         vscode.window.showErrorMessage(`Could not dump variable ${variable.name}. `
                                      + 'See errors in Output log');
         return;
@@ -369,7 +366,7 @@ export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable,
     try {
         response = await debug.evaluate(prettyFormatExpr, frameId);
     } catch (err: unknown) {
-        log.error('could not pretty print node dump', variable.name, err);
+        logger.error('could not pretty print node dump', variable.name, err);
         vscode.window.showErrorMessage(`Could pretty print variable ${variable.name}. `
                                      + 'See errors in Output log');
         return;
@@ -394,7 +391,7 @@ export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable,
                              undefined, true);           
     } catch (err: unknown) {
         /* This is not critical error actually, so just log and continue */
-        log.error('could not dump variable %s to log', variable.name, err);
+        logger.error('could not dump variable %s to log', variable.name, err);
         
         /* continue */
     }
@@ -1179,8 +1176,7 @@ async function bootstrapExtensionCommand() {
     await vscode.window.showTextDocument(td);
 }
 
-export async function readConfigFile(workspace: vscode.WorkspaceFolder,
-                                     logger: utils.ILogger) {
+export async function readConfigFile(workspace: vscode.WorkspaceFolder) {
     const path = Configuration.getConfigFile(workspace.uri);
     let document;
     try {
@@ -1215,7 +1211,7 @@ export async function readConfigFile(workspace: vscode.WorkspaceFolder,
 }
 
 export function setupExtension(context: vscode.ExtensionContext,
-                               nodeVars: vars.NodeVarRegistry,  logger: utils.ILogger,
+                               nodeVars: vars.NodeVarRegistry,
                                nodesView: NodePreviewTreeViewProvider) {
 
     function registerCommand(name: string, command: (...args: unknown[]) => void) {
@@ -1224,7 +1220,7 @@ export function setupExtension(context: vscode.ExtensionContext,
     }
 
     const refreshWorkspaceConfiguration = async (workspace: vscode.WorkspaceFolder) => {
-        const config = await readConfigFile(workspace, logger);
+        const config = await readConfigFile(workspace);
         if (!config) {
             return;
         }
@@ -1258,7 +1254,7 @@ export function setupExtension(context: vscode.ExtensionContext,
                 return;
             }
 
-            await dumpVariableToLogCommand(args, logger, nodesView.context.debug);
+            await dumpVariableToLogCommand(args, nodesView.context.debug);
         } catch (err: unknown) {
             logger.error('error while dumping node to log', err);
         }
@@ -1293,7 +1289,7 @@ export function setupExtension(context: vscode.ExtensionContext,
                 return;
             }
 
-            await dumpVariableToDocumentCommand(variable, logger, nodesView.context.debug);
+            await dumpVariableToDocumentCommand(variable, nodesView.context.debug);
         } catch (err: unknown) {
             logger.error('error while dumping node to log', err);
         }
@@ -1453,10 +1449,10 @@ export function setupExtension(context: vscode.ExtensionContext,
     }
 
     /* Read files with NodeTags */
-    setupNodeTagFiles(logger, nodeVars, context);
+    setupNodeTagFiles(nodeVars, context);
 }
 
-async function setupNodeTagFiles(log: utils.ILogger, nodeVars: vars.NodeVarRegistry,
+async function setupNodeTagFiles(nodeVars: vars.NodeVarRegistry,
                                  context: vscode.ExtensionContext): Promise<undefined> {
 
     const getNodeTagFiles = () => {
@@ -1476,13 +1472,13 @@ async function setupNodeTagFiles(log: utils.ILogger, nodeVars: vars.NodeVarRegis
             return;
         }
 
-        log.debug('processing %s NodeTags file', path.fsPath);
+        logger.debug('processing %s NodeTags file', path.fsPath);
         const document = await vscode.workspace.openTextDocument(path);
         try {
             const added = nodeVars.updateNodeTypesFromFile(document);
-            log.debug('added %i NodeTags from %s file', added, path.fsPath);
+            logger.debug('added %i NodeTags from %s file', added, path.fsPath);
         } catch (err: unknown) {
-            log.error('could not initialize node tags array', err);
+            logger.error('could not initialize node tags array', err);
         }
     };
 
@@ -1497,11 +1493,11 @@ async function setupNodeTagFiles(log: utils.ILogger, nodeVars: vars.NodeVarRegis
                                                                      false, false, 
                                                                      /* ignoreDeleteEvents */ true);
             watcher.onDidChange(async uri => {
-                log.info('detected change in NodeTag file: %s', uri);
+                logger.info('detected change in NodeTag file: %s', uri);
                 await handleNodeTagFile(uri);
             }, context.subscriptions);
             watcher.onDidCreate(async uri => {
-                log.info('detected creation of NodeTag file: %s', uri);
+                logger.info('detected creation of NodeTag file: %s', uri);
                 await handleNodeTagFile(uri);
             }, context.subscriptions);
     
@@ -1522,24 +1518,6 @@ async function setupNodeTagFiles(log: utils.ILogger, nodeVars: vars.NodeVarRegis
             await setupSingleFolder(folder);
         }
     }, undefined, context.subscriptions);
-}
-
-export function getCurrentLogLevel() {
-    const configValue = Configuration.getLogLevel();
-    switch (configValue) {
-        case 'INFO':
-            return utils.LogLevel.Info;
-        case 'DEBUG':
-            return utils.LogLevel.Debug;
-        case 'WARNING':
-            return utils.LogLevel.Warn;
-        case 'ERROR':
-            return utils.LogLevel.Error;
-        case 'DISABLE':
-            return utils.LogLevel.Disable;
-        default:
-            return utils.LogLevel.Info;
-    }
 }
 
 export class Configuration {
@@ -1597,9 +1575,5 @@ export class Configuration {
     };
     static getFullConfigSection(section: string) {
         return `${this.ConfigSections.TopLevelSection}.${section}`;
-    }
-    static setExtensionActive(status: boolean) {
-        const context = `${this.ExtensionName}:activated`;
-        vscode.commands.executeCommand('setContext', context, status);
     }
 }

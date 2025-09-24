@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as dap from "./dap";
-import { Features, ILogger } from './utils';
+import { Features } from './utils';
 import { NodePreviewTreeViewProvider } from './extension';
 import {EvaluationError} from './error';
 
@@ -186,7 +186,7 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
      */
     threadId?: number;
 
-    constructor(public logger: ILogger) {
+    constructor() {
         this.registrations = [
             /* Update current debug session data */
             vscode.debug.onDidStartDebugSession(s => {
