@@ -3856,6 +3856,27 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
                 ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
             ]),
         ])),
+
+        /* src/tsearch2/ispell/spell.h */
+        ...[
+            ['AFFIX', 'flagflags'],
+            ['SPNodeData', 'compoundflag'],
+        ].map(([type, member]) => _(type, member, [
+            to(8_03_00, [
+                ['FF_CROSSPRODUCT',			'0x01'],
+                ['FF_COMPOUNDWORD',			'0x02'],
+                ['FF_COMPOUNDONLYAFX',		'0x04'],
+            ]),
+            from(8_03_00, [
+                ['FF_COMPOUNDONLY',			'0x01'],
+                ['FF_COMPOUNDBEGIN',		'0x02'],
+                ['FF_COMPOUNDMIDDLE',		'0x04'],
+                ['FF_COMPOUNDLAST',			'0x08'],
+                ['FF_COMPOUNDPERMITFLAG',	'0x10'],
+                ['FF_COMPOUNDFORBIDFLAG',	'0x20'],
+                ['FF_CROSSPRODUCT',			'0x40'],
+            ]),
+        ])),
     ];
 
     /* 
