@@ -110,7 +110,7 @@ export class NodeVarRegistry {
         let typeName = utils.getStructNameFromType(type);
 
         /* [const] [struct] NAME * */
-        if (this.nodeTags.has(typeName) && utils.getPointersCount(type) === 1) {
+        if (this.nodeTags.has(typeName) && utils.havePointersCount(type, 1)) {
             return true;
         }
 
@@ -121,7 +121,7 @@ export class NodeVarRegistry {
 
         type = type.replace(typeName, alias);
         typeName = utils.getStructNameFromType(type);
-        return this.nodeTags.has(typeName) && utils.getPointersCount(type) === 1;
+        return this.nodeTags.has(typeName) && utils.havePointersCount(type, 1);
     }
 
     /**
@@ -974,7 +974,7 @@ export abstract class Variable {
         }
 
         /* 'HTAB *' */
-        if (utils.getPointersCount(effectiveType) === 1 &&
+        if (utils.havePointersCount(effectiveType, 1) &&
             utils.getStructNameFromType(effectiveType) === 'HTAB') {
             return new HTABSpecialMember(args);
         }
@@ -1805,12 +1805,10 @@ export class NodeVariable extends RealVariable {
             return;
         }
 
-        let realTag = await getRealNodeTag();
+        const realTag = await getRealNodeTag();
         if (!realTag) {
             return;
         }
-
-        realTag = realTag.replace('T_', '');
 
         /* List */
         if (ListNodeVariable.listInfo.has(realTag)) {
@@ -4338,7 +4336,7 @@ class BitmapSetSpecialMember extends NodeVariable {
             type = this.parent.type;
         }
         if (!(   utils.getStructNameFromType(type) === ref.type
-              && utils.getPointersCount(type) === 1)) {
+              && utils.havePointersCount(type, 1))) {
             return;
         }
 
@@ -4578,10 +4576,10 @@ class BitmapSetSpecialMember extends NodeVariable {
         const typename = utils.getStructNameFromType(type);
         if (typename === 'Bitmapset') {
             /* Bitmapset* */
-            return utils.getPointersCount(type) === 1;
+            return utils.havePointersCount(type, 1);
         } else if (typename === 'Relids') {
             /* Relids */
-            return utils.getPointersCount(type) === 0;
+            return utils.havePointersCount(type, 0);
         }
         return false;
     }

@@ -36,25 +36,27 @@ export function getStructNameFromType(type: string) {
     return typeParts[index];
 }
 
-/**
- * Count number '*' in type string
- * 
- * @param type Type string to test
- * @returns Number of '*' in type
+/*
+ * Check that 'type' contains exact count of pointers in it
  */
-export function getPointersCount(type: string) {
-    /* All pointers go sequentially from end without spaces */
+export function havePointersCount(type: string, count: number) {
+    const firstIndex = type.indexOf('*');
 
-    /* TODO: replace with specialized versions for 0 and 1 pointers (only used) */
-    let count = 0;
-    for (let index = type.length - 1; index > -1; --index) {
-        if (type[index] === '*') {
-            count++;
-        } else {
-            break;
-        }
+    /* For now only 0 and 1 will be used, so add specialized codepath */
+    if (count === 0) {
+        return firstIndex === -1;
     }
-    return count;
+    if (count === 1) {
+        return firstIndex !== -1 && firstIndex === type.lastIndexOf('*');
+    }
+
+    let result = 1;
+    let index = firstIndex;
+    while ((index = type.indexOf('*', index + 1)) !== -1) {
+        ++result;
+    }
+
+    return result === count;
 }
 
 /**
