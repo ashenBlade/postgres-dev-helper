@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import {languages} from 'vscode';
 import * as utils from './utils';
 import { Log as logger } from './logger';
+import { getWellKnownBuiltinContribs } from './constants';
 import { Configuration, parseFormatterConfiguration, readConfigFile } from './extension';
 import { PghhError } from './error';
 import * as path from 'path';
@@ -22,6 +23,10 @@ function findSuitableWorkspace(document: vscode.TextDocument) {
 
     /* Fallback with first workspace */
     return vscode.workspace.workspaceFolders[0];
+}
+
+function isBuiltinContrib(name: string) {
+    return getWellKnownBuiltinContribs().has(name);
 }
 
 export interface PgindentConfiguration {
@@ -230,8 +235,8 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             {cwd: pgBsdIndentDir.fsPath});
         return pgBsdIndent;
     }
-
-    private async getCustomTypedefs(workspace: vscode.WorkspaceFolder) {
+    
+    private async getTypedefsFromConfiguration(workspace: vscode.WorkspaceFolder) {
         const configObj = await readConfigFile(workspace);
         if (!configObj) {
             return [];
@@ -261,10 +266,67 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
                 continue;
             }
             
-            typedefs.push(`--typedefs=${typedefFile.fsPath}`);
+            typedefs.push(typedefFile.fsPath);
         }
 
         return typedefs;
+    }
+
+    private async enrichTypedefsWithContrib(document: vscode.Uri,
+                                            typedefs: string[]) {
+        /* 
+         * If we are running inside 'contrib', then it can
+         * have it's own 'typedefs.list' file which is not
+         * added to configuration file - add it.
+         */
+        
+        /* Fast check we inside contrib directory */
+        const contribIndex = document.path.indexOf('/contrib/');
+        if (contribIndex === -1) {
+            return;
+        }
+
+        const r = /.*\/contrib\/([A-Za-z0-9_]+)\//.exec(document.path);
+        if (!r) {
+            return;
+        }
+        
+        const contribName = r[1];
+        if (!contribName) {
+            return;
+        }
+
+        if (isBuiltinContrib(contribName)) {
+            /* Builtin contribs do not have typedefs.list files */
+            return;
+        }
+        
+        const contribDir = r[0];
+        if (!contribDir) {
+            return;
+        }
+
+        /* If we have 'typedefs.list' in contrib, then it may already exist in typedefs */
+        if (typedefs.find(t => t.startsWith(contribDir))) {
+            return;
+        }
+
+        /* Add typedef to list of used */
+        const contribTypedef = vscode.Uri.file(`${contribDir}typedefs.list`);
+        if (await utils.fileExists(contribTypedef)) {
+            typedefs.push(contribTypedef.fsPath);
+        }
+    }
+
+    private async getCustomTypedefs(document: vscode.Uri,
+                                    workspace: vscode.WorkspaceFolder) {
+        /* Get user provided typedefs */
+        const configTypedefs = await this.getTypedefsFromConfiguration(workspace);
+        
+        /* Add potentially missing typedefs from current contrib directory */
+        await this.enrichTypedefsWithContrib(document, configTypedefs);
+
+        return configTypedefs.map(f => `--typedefs=${f}`);
     }
 
     private async getPgBsdIndent(workspace: vscode.WorkspaceFolder, pgindent: vscode.Uri) {
@@ -302,11 +364,12 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         return pgindentPath;
     }
 
-    private async runPgindentInternal(document: vscode.Uri,
+    private async runPgindentInternal(originalDocument: vscode.Uri,
+                                      document: vscode.Uri,
                                       pg_bsd_indent: vscode.Uri,
                                       pgindent: vscode.Uri,
                                       workspace: vscode.WorkspaceFolder) {
-        const typedefs = await this.getCustomTypedefs(workspace);
+        const typedefs = await this.getCustomTypedefs(originalDocument, workspace);
 
         /* Work in pgindent dir, so it can find default typedefs.list */
         const cwd = path.resolve(pgindent.fsPath, '..');
@@ -372,13 +435,14 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         return content;
     }
     
-    private async runPgindentRebuildBsd(document: vscode.Uri,
+    private async runPgindentRebuildBsd(originalDocument: vscode.Uri,
+                                        document: vscode.Uri,
                                         pgBsdIndent: vscode.Uri,
                                         pgindent: vscode.Uri,
                                         workspace: vscode.WorkspaceFolder) {
         try {
             return await this.runPgindentInternal(
-                document, pgBsdIndent, pgindent, workspace);
+                originalDocument, document, pgBsdIndent, pgindent, workspace);
         } catch (err) {
             if (await utils.fileExists(pgBsdIndent)) {
                 throw err;
@@ -389,7 +453,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         this.savedPgbsdPath = undefined;
         pgBsdIndent = await this.findPgBsdIndentOrBuild(workspace, pgindent);
         return await this.runPgindentInternal(
-            document, pgBsdIndent, pgindent, workspace);
+            originalDocument, document, pgBsdIndent, pgindent, workspace);
     }
 
     private async runPgindent(document: vscode.TextDocument, 
@@ -400,7 +464,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
         const tempDocument = await utils.createTempFile('pghh-{}.c', content);
         try {
             return await this.runPgindentRebuildBsd(
-                tempDocument, pg_bsd_indent, pgindent, workspace);
+                document.uri, tempDocument, pg_bsd_indent, pgindent, workspace);
         } finally {
             await utils.deleteFile(tempDocument);
         }
