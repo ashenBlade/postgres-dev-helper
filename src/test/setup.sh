@@ -15,10 +15,10 @@ Options:
     --force                 Remove old installation if it exists.
     --get-supported         Return list of all supported versions to initialize
 
-Supported PG versions from 17 to 9.6 inclusive.
+Supported PG versions from 18 to 9.6 inclusive.
 
 Example:
-    $0 --pg-version=17
+    $0 --pg-version=18
     $0 --pg-version=15
 EOM
 }
@@ -47,7 +47,7 @@ while [ "$1" ]; do
         exit 0
         ;;
     --get-supported)
-        echo "17 16 15 14 13 12 11 10 9.6"
+        echo "18 17 16 15 14 13 12 11 10 9.6"
         exit 0
         ;;
     *)
@@ -68,6 +68,9 @@ fi
 
 PG_VERSION=""
 case "$MAJOR_PG_VERSION" in
+    '18')
+        PG_VERSION='18.0'
+        ;;
     '17')
         PG_VERSION='17.4'
         ;;
@@ -97,7 +100,7 @@ case "$MAJOR_PG_VERSION" in
         ;;
     *)
         echo "Version $MAJOR_PG_VERSION is not supported"
-        echo "Supported version from 17 to 9.6 inclusive"
+        echo "Supported version from 18 to 9.6 inclusive"
         exit 1
         ;;
 esac

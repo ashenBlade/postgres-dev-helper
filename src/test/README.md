@@ -45,24 +45,28 @@ To run tests use `./src/test/test.sh` script:
 
 It will run test pipeline with full matrix testing:
 
-- PG Version: 17 - 9.6
+- PG Version: 18 - 9.6
 - VS Code version: stable, 1.90, 1.80, 1.70
 - Debugger: CppDbg, CodeLLDB
 
 There are useful flags that allows to specify which value range to use:
 
 ```bash
-./src/test/test.sh --pg-versions="17 16 15" \
+./src/test/test.sh --pg-versions="18 17 16" \
                    --vscode-versions="stable 1.90" \
                    --debuggers="lldb"
 ```
 
 Use `--help` flag to get more info about.
 
-Also, there are 2 tested modules: `vars` (variables) and `format` (formatter).
-You can specify any of them using `--tests` argument, i.e. `--tests='vars'` or `--tests='vars,format'`.
+Also, there are 3 tested modules:
 
-By default only `vars` is used.
+- `vars` - variables (used by default), `./src/variables.ts`
+- `format` - formatter, `./src/formatter.ts`
+- `unit` - unit tests for common functionality, `./src/utils.ts`
+
+You can specify any of them using `--tests` argument, i.e. `--tests='vars'` or `--tests='vars,unit,format'`.
+Also you can use `all` to enable all modes: `--tests='all'`.
 
 ## Test design
 

@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: 
-        pgversion: ['17', '16', '15', '14', '13', '12', '11', '10', '9.6']
+        pgversion: ['18', '17', '16', '15', '14', '13', '12', '11', '10', '9.6']
     steps:
     - name: Setup repository
       uses: actions/checkout@v4
