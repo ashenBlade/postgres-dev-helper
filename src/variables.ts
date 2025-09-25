@@ -1340,26 +1340,26 @@ export class RealVariable extends Variable {
     }
     
     async getDescription() {
-        if (this.type !== 'XLogRegPtr' || Number.isInteger(Number(this.value))) {
-            /*
-             * We want to display XLogRecPtr (LSN) in File/Offset form, not
-             * plain integers, but up to 9.3 LSN was represented by a struct,
-             * so add check for integer type.
-             */
-            return super.getDescription();
+        /*
+         * We want to display XLogRecPtr (LSN) in File/Offset form, not
+         * plain integers, but up to 9.3 LSN was represented by a struct,
+         * so add check for integer type.
+         */
+        if (!(this.type === 'XLogRecPtr' && Number.isInteger(Number(this.value)))) {
+            return await super.getDescription();
         }
 
         try {
             const result = await this.directFunctionCall('pg_lsn_out', 'char *', this.value);
             const ptr = this.debug.extractPtrFromString(result);
             if (!ptr) {
-                return super.getDescription();
+                return await super.getDescription();
             }
 
             await this.pfree(ptr);
             const format = this.debug.extractString(result);
             if (!format) {
-                return super.getDescription();
+                return await super.getDescription();
             }
 
             return format;
@@ -1369,7 +1369,7 @@ export class RealVariable extends Variable {
             }
         }
         
-        return super.getDescription();
+        return await super.getDescription();
     }
 
     protected async doGetRealMembers() {
