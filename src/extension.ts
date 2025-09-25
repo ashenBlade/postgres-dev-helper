@@ -1000,6 +1000,7 @@ async function bootstrapExtensionCommand() {
      * *.sql
      * *.c
      * README
+     * .gitignore
      */
     const makefile = [];
     if (flags.c) {
@@ -1112,6 +1113,8 @@ async function bootstrapExtensionCommand() {
                 '$$ LANGUAGE SQL IMMUTABLE;',
             );
         }
+        
+        sql.push('');
 
         await bootstrapFile(`${name}--0.1.0.sql`, sql);
     }
@@ -1171,6 +1174,32 @@ async function bootstrapExtensionCommand() {
             ].join('\n'),
         );
     }
+
+    /* 
+     * Bootstrap starts only if directory was empty, so no files exists.
+     * Sometimes it can be handy to bootstrap directory after 'git clone'
+     * with preinitialized files (.gitignore, README, etc...), but for now
+     * do not add such checks.
+     */
+    await bootstrapFile('.gitignore', [
+        '*.o',
+        '*.so',
+        '*.bc',
+        '*.dll',
+        '*.dylib',
+        '*.a',
+        '',
+        '.deps',
+        '',
+        'regression.*',
+        'results/*',
+        'tmp_check/',
+        'tmp_check_iso/',
+        'output_iso/',
+        '',
+        'log/',
+        '',
+    ]);
 
     const td = await vscode.workspace.openTextDocument(utils.joinPath(path, 'Makefile'));
     await vscode.window.showTextDocument(td);
