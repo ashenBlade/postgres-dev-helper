@@ -88,7 +88,7 @@ jobs:
         path: pgsrc/${{ matrix.pgversion }}
         key: ${{ steps.restore-postgresql.outputs.cache-primary-key }}
     - name: Run tests
-      run: ./src/test/test.sh --no-gui --tests="vars,format" --pg-versions=${{ matrix.pgversion }}
+      run: ./src/test/test.sh --no-gui --tests="all" --pg-versions=${{ matrix.pgversion }}
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       if: failure()
