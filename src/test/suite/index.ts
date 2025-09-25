@@ -22,6 +22,8 @@ export async function run(): Promise<void> {
             (f.indexOf('variables') !== -1 && env.testDebugger())
             ||
             (f.indexOf('formatting') !== -1 && env.testFormatter())
+            ||
+            (f.indexOf('unit') !== -1 && env.testUnit())
         );
 
         if (addFile) {

@@ -9,6 +9,7 @@ enum TestMode {
     None        = 0,
     Debug       = 1 << 0,
     Formatter   = 1 << 1,
+    Unit        = 1 << 2,
 };
 
 export class TestEnv {
@@ -34,12 +35,15 @@ export class TestEnv {
             throw new Error(`Debugger ${debuggerType} is not supported`);
         }
         
-        let mode: TestMode = 0;
+        let mode: TestMode = TestMode.None;
         if (testMode.indexOf('vars') !== -1) {
             mode |= TestMode.Debug;
         }
         if (testMode.indexOf('format') !== -1) {
             mode |= TestMode.Formatter;
+        }
+        if (testMode.indexOf('unit') !== -1) {
+            mode |= TestMode.Unit;
         }
         
         if (mode === 0) {
@@ -72,6 +76,10 @@ export class TestEnv {
     
     testFormatter() {
         return this.testMode & TestMode.Formatter;
+    }
+    
+    testUnit() {
+        return this.testMode & TestMode.Unit;
     }
 
     /* Generic utilities */

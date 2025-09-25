@@ -20,7 +20,7 @@ Options:
     --no-rebuild            Do not rebuild PostgreSQL at first run.
                             Useful during development when installation already present.
     --no-gui                Run tests without GUI (using 'xvfb')
-    --tests                 Which test suites to run: "vars" (variables, default) and/or "format"
+    --tests                 Which test suites to run: "vars" (variables, default), "format", "unit"
 
 Supported PG versions from 17 to 9.6 inclusive.
 Default value: $DEFAULT_PG_VERSIONS
@@ -33,7 +33,7 @@ Default value: $DEFAULT_DEBUGGERS
 
 Example:
     $0 --pg-versions="17 15 10"
-    $0 --threads=15 --tests="vars,format"
+    $0 --threads=15 --tests="vars,format,unit"
     $0 -j 15 --vscode-versions="stable 1.78.2" --debuggers="lldb"
 EOM
 }
@@ -112,8 +112,20 @@ if [[ -z "$TEST_MODES" ]]; then
     TEST_MODES="vars"
 fi
 
+# Test mode flags
+if [[ "$TEST_MODES" == *"vars"* ]]; then TEST_VARS="1"; else TEST_VARS=""; fi;
+if [[ "$TEST_MODES" == *"format"* ]]; then TEST_FORMAT="1"; else TEST_FORMAT=""; fi;
+if [[ "$TEST_MODES" == *"unit"* ]]; then TEST_UNIT="1"; else TEST_UNIT=""; fi;
+
+if [[ -z "$NO_GUI" ]]; then
+    TEST_COMMAND='npm test'
+else
+    TEST_COMMAND='xvfb-run -a npm test'
+fi
+
 for PGVERSION in $PG_VERSIONS; do
     if [[ -z "$NO_REBUILD" ]]; then
+        # TODO: remove this flag
         echo "Setup PostgreSQL $PGVERSION"
         ./src/test/setup.sh --pg-version="$PGVERSION" "$THREADS"
     fi
@@ -121,34 +133,37 @@ for PGVERSION in $PG_VERSIONS; do
     export PGHH_PG_VERSION="$PGVERSION"
     for VSCODEVERSION in $VSCODE_VERSIONS; do
         export PGHH_VSCODE_VERSION="$VSCODEVERSION"
-        if [[ "$TEST_MODES" == *"vars"* ]]; then
+        if [[ -n "$TEST_VARS" ]]; then
             for DEBUGGER in $DEBUGGERS; do
                 {
                     echo "Variables testing: PostgreSQL $PGVERSION in VS Code $VSCODEVERSION using $DEBUGGER"
                     export PGHH_DEBUGGER="$DEBUGGER"
                     export PGHH_TEST_MODE="vars"
 
-                    if [[ -z "$NO_GUI" ]]; then
-                        npm test
-                    else
-                        xvfb-run -a npm test
-                    fi
+                    $TEST_COMMAND
                 } 2>&1 | tee "$LOGFILE"
             done
         fi
         
-        if [[ "$TEST_MODES" == *"format"* ]]; then
+        if [[ -n "$TEST_FORMAT" ]]; then
             {
                 echo "Formatter testing: PostgreSQL $PGVERSION in VS Code $VSCODEVERSION"
                 export PGHH_TEST_MODE="format"
-                if [[ -z "$NO_GUI" ]]; then
-                    npm test
-                else
-                    xvfb-run -a npm test
-                fi
+                
+                $TEST_COMMAND
+            } 2>&1 | tee "$LOGFILE"
+        fi
+        
+        if [[ -n "$TEST_UNIT" ]]; then
+            {
+                echo "Unit testing: PostgreSQL $PGVERSION in VS Code $VSCODEVERSION"
+                export PGHH_TEST_MODE="unit"
+                
+                $TEST_COMMAND
             } 2>&1 | tee "$LOGFILE"
         fi
     done
-
-    NO_REBUILD=""
+    
+    # Unit tests depend only on VS Code/NodeJS version, so can run only for 1 PG version
+    TEST_UNIT=""
 done
