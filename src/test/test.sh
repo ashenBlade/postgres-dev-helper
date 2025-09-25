@@ -20,7 +20,8 @@ Options:
     --no-rebuild            Do not rebuild PostgreSQL at first run.
                             Useful during development when installation already present.
     --no-gui                Run tests without GUI (using 'xvfb')
-    --tests                 Which test suites to run: "vars" (variables, default), "format", "unit"
+    --tests                 Which test suites to run: "vars" (variables, default), "format", "unit".
+                            Also, you can specify "all" to run all available tests.
 
 Supported PG versions from 17 to 9.6 inclusive.
 Default value: $DEFAULT_PG_VERSIONS
@@ -113,10 +114,20 @@ if [[ -z "$TEST_MODES" ]]; then
 fi
 
 # Test mode flags
-if [[ "$TEST_MODES" == *"vars"* ]]; then TEST_VARS="1"; else TEST_VARS=""; fi;
-if [[ "$TEST_MODES" == *"format"* ]]; then TEST_FORMAT="1"; else TEST_FORMAT=""; fi;
-if [[ "$TEST_MODES" == *"unit"* ]]; then TEST_UNIT="1"; else TEST_UNIT=""; fi;
+if [[ "$TEST_MODES" == *"all"* ]]; then
+    TEST_VARS="1"
+    TEST_FORMAT="1"
+    TEST_UNIT="1";
+elif [[ -z "$TEST_MODES" ]]; then
+    # MFU test mode
+    TEST_MODES="vars"
+else
+    if [[ "$TEST_MODES" == *"vars"* ]]; then TEST_VARS="1"; else TEST_VARS=""; fi;
+    if [[ "$TEST_MODES" == *"format"* ]]; then TEST_FORMAT="1"; else TEST_FORMAT=""; fi;
+    if [[ "$TEST_MODES" == *"unit"* ]]; then TEST_UNIT="1"; else TEST_UNIT=""; fi;
+fi
 
+# Use variable expansion instead of function for now
 if [[ -z "$NO_GUI" ]]; then
     TEST_COMMAND='npm test'
 else
