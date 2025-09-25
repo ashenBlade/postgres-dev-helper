@@ -87,42 +87,17 @@ export class NodeVarRegistry {
     }
 
     /**
-     * Check provided type is derived from Node. That is, we can obtain
-     * NodeTag from it.
-     *
-     * @param type Type of variable
-     * @returns true if provided type is derived from Node
+     * Check that provided type is derived from Node.
+     * That is, we can obtain NodeTag from it.
      */
-    isNodeVar(type: string) {
-        /*
-         * Valid Node variable must have type in this form:
-         * [const] [struct] NAME *
-         *
-         * Optional `const' and `struct' keywords follows NAME - target struct name.
-         * If NAME in our nodeTypes set - this is what we want. But also, we
-         * should take number of pointers into account, because:
-         *  - If this is a raw struct (no pointers) - no casting needed because
-         *      it's size (and fields) is already known
-         *  - As for pointer - only single `*' creates valid Node* variable that we can
-         *      work with
-         *
-         * Aliases must be checked at start. So do not handle them here
+    isNodeVar(effectiveType: string) {
+        /* 
+         * Node variables are pointer types, so it must have
+         * at least 1 pointer, but 1+ pointers is an array,
+         * which can not be Node variables.
          */
-        let typeName = utils.getStructNameFromType(type);
-
-        /* [const] [struct] NAME * */
-        if (this.nodeTags.has(typeName) && utils.havePointersCount(type, 1)) {
-            return true;
-        }
-
-        const alias = this.aliases.get(typeName);
-        if (!alias) {
-            return false;
-        }
-
-        type = type.replace(typeName, alias);
-        typeName = utils.getStructNameFromType(type);
-        return this.nodeTags.has(typeName) && utils.havePointersCount(type, 1);
+        return   !utils.havePointersCount(effectiveType, 1) 
+              && this.nodeTags.has(utils.getStructNameFromType(effectiveType));
     }
 
     /**
@@ -1780,16 +1755,21 @@ export class NodeVariable extends RealVariable {
             const expr = `((Node*)(${context.debug.getPointer(variable)}))->type`;
             const response = await context.debug.evaluate(expr, frameId);
             const realTag = response.result.replace('T_', '');
-            if (!this.isValidNodeTag(realTag)) {
+            if (!context.nodeVarRegistry.isNodeTag(realTag)) {
                 return;
             }
             return realTag;
         };
 
-        if (!context.nodeVarRegistry.isNodeVar(variable.type)) {
-            return;
-        }
-
+        /*
+         * Even if we know, that this variable is of Node type,
+         * this does not mean, that it does not contain garbage
+         * or it is actually a base (abstract) type.
+         * So, we have to check it manually.
+         * 
+         * XXX: it would be better to add some Node inheritance knowledge
+         *      to reduce debugger invocations
+         */
         const realTag = await getRealNodeTag();
         if (!realTag) {
             return;
