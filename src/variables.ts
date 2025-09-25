@@ -96,7 +96,7 @@ export class NodeVarRegistry {
          * at least 1 pointer, but 1+ pointers is an array,
          * which can not be Node variables.
          */
-        return   !utils.havePointersCount(effectiveType, 1) 
+        return   utils.havePointersCount(effectiveType, 1) 
               && this.nodeTags.has(utils.getStructNameFromType(effectiveType));
     }
 
