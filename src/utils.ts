@@ -20,19 +20,66 @@ export function isValidIdentifier(value: string) {
     return identifierRegex.test(value);
 }
 
+/* Get start-end indexes range for given type */
+function getStructNameRange(type: string) {
+    /* Start locating from end, because we can use '*' as TODO */
+    /* XXX: может ли здесь оказаться FLA? */
+    const lastPtrIndex = type.indexOf('*');
+    let endOfIdentifier;
+    if (lastPtrIndex === -1) {
+        endOfIdentifier = type.length;
+    } else {
+        
+        endOfIdentifier = lastPtrIndex - 1;
+        while (endOfIdentifier >= 0 && type.charAt(endOfIdentifier) === ' ') {
+            endOfIdentifier--;
+            continue;
+        }
+
+        /* TODO: тут может ситуация быть с пользовательскими typedef'ами - в комменте описать, что проверка нужна */
+        if (endOfIdentifier < 0) {
+            endOfIdentifier = lastPtrIndex;
+        }
+    }
+    
+    let startOfIndentifier = type.lastIndexOf(' ', endOfIdentifier);
+    if (startOfIndentifier === -1) {
+        /* Type without any qualifiers */
+        startOfIndentifier = 0;
+    } else {
+        startOfIndentifier++;
+    }
+
+    return [startOfIndentifier, endOfIdentifier + 1] as const;
+}
+
 export function getStructNameFromType(type: string) {
     /* [const] [struct] NAME [*]+ */
-    let index = 0;
-    const typeParts = type.split(' ');
-    if (typeParts[0] === 'const') {
-        if (typeParts[1] === 'struct') {
-            index = 2;
-        }
-        index = 1;
-    } else if (typeParts[0] === 'struct') {
-        index = 1;
+    const [start, end] = getStructNameRange(type);
+    return type.substring(start, end);
+}
+
+/**
+ * Substitute struct name from type to provided struct name.
+ * This takes qualifiers into account (const, volatile, *, etc...)
+ * 
+ * @param type Whole type name of original variable (including qualifiers)
+ * @param target The name of the type (or base type) to be substituted
+ * @returns Result type name
+ */
+export function substituteStructName(type: string, target: string) {
+    const [start, end] = getStructNameRange(type);
+    
+    /* Add some optimized paths to reduce number of allocations */
+    if (start === 0) {
+        return `${target}${type.substring(end)}`;
     }
-    return typeParts[index];
+    
+    if (end === type.length) {
+        return `${type.substring(0, start)}${target}`;
+    }
+    
+    return `${type.substring(0, start)}${target}${type.substring(end)}`;
 }
 
 /*
@@ -77,30 +124,6 @@ export function isValueStructOrPointerType(type: string) {
     }
     
     return false;
-}
-
-/**
- * Substitute struct name from type to provided struct name.
- * This takes qualifiers into account (const, volatile, *, etc...)
- * 
- * @param type Whole type name of original variable (including qualifiers)
- * @param target The name of the type (or base type) to be substituted
- * @returns Result type name
- */
-export function substituteStructName(type: string, target: string) {
-    /* [const] [struct] NAME [*]+ */
-    let index = 0;
-    const typeParts = type.split(' ');
-    if (typeParts[0] === 'const') {
-        if (typeParts[1] === 'struct') {
-            index = 2;
-        }
-        index = 1;
-    } else if (typeParts[0] === 'struct') {
-        index = 1;
-    }
-    typeParts[index] = target;
-    return typeParts.join(' ');
 }
 
 /**
