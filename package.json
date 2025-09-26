@@ -217,6 +217,28 @@
                 "language": "c",
                 "path": "./snippets.json"
             }
+        ],
+        "languages": [
+            {
+                "id": "pgconf",
+                "aliases": [
+                    "postgresqlconf",
+                    "postgresconf"
+                ],
+                "filenames": [
+                    "postgresql.conf",
+                    "postgresql.conf.sample",
+                    "postgresql.auto.conf"
+                ],
+                "configuration": "./syntaxes/pgconf.language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "pgconf",
+                "scopeName": "source.pgconf",
+                "path": "./syntaxes/pgconf.tmLanguage.json"
+            }
         ]
     },
     "scripts": {
