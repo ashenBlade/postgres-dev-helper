@@ -1737,14 +1737,6 @@ export class NodeVariable extends RealVariable {
         return members;
     }
 
-    static isValidNodeTag(tag: string) {
-        /*
-         * Valid NodeTag must contain only alphabetical characters.
-         * Note: it does not contain 'T_' prefix - we strip it always.
-         */
-        return /^[a-zA-Z]+$/.test(tag);
-    }
-
     static getTagFromType(type: string) {
         return utils.getStructNameFromType(type);
     }
