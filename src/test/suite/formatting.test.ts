@@ -17,13 +17,12 @@ function getFormattedFile(env: TestEnv) {
 }
 
 suite('Formatting', async function () {
-    const env = getTestEnv();
-    const unformattedFilePath = env.getWorkspaceFile('unformatted.c');        
-    const expected = getFormattedFile(env);
-    
     /* set big timeout: git clone + make */
     this.timeout('5m');
-
+    
+    let unformattedFilePath: string;
+    let env: TestEnv;
+    let expected: string;
     suiteSetup(async () => {
         const swallow = async (fn: () => Promise<void>) => {
             try {
@@ -52,6 +51,10 @@ suite('Formatting', async function () {
                 );
             }
         });
+        
+        env = getTestEnv();
+        unformattedFilePath = env.getWorkspaceFile('unformatted.c');        
+        expected = getFormattedFile(env);
     });
 
     setup(async () => {

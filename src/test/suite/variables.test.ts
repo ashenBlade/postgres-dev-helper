@@ -123,15 +123,6 @@ const execGetVariables = async () => {
 };
 
 suite('Variables', async function () {
-    let variables: vars.Variable[] | undefined;
-    const env = getTestEnv();
-    const client = new pg.Client({
-        host: env.getWorkspaceFile('data'),
-        port: 5432,
-        database: 'postgres',
-        user: 'postgres',
-    });
-
     /* 
      * Store predicate and query together, so we can fast reflect any
      * changes in tested predicate.
@@ -152,10 +143,21 @@ suite('Variables', async function () {
                    FROM t1 JOIN t2 ON t1.x = t2.x 
                    WHERE t1.y > power(10, random()) AND t2.x = t1.y;`;
     
-    /* There must be only 1 workspace */
-    const workspace = unnullify(vscode.workspace.workspaceFolders?.[0], 'workspace');
+    let variables: vars.Variable[] | undefined;
+    let env: TestEnv;
+    let client: pg.Client;
+    let workspace: vscode.WorkspaceFolder;
 
     suiteSetup('Stop at breakpoint and get variables', async () => {
+        env = getTestEnv();
+        client = new pg.Client({
+            host: env.getWorkspaceFile('data'),
+            port: 5432,
+            database: 'postgres',
+            user: 'postgres',
+        });
+        workspace = unnullify(vscode.workspace.workspaceFolders?.[0], 'workspace');
+
         /* Run DB */
         cp.spawnSync('/bin/bash', ['./run.sh', '--run'], {
             cwd: env.getWorkspaceFile(),
