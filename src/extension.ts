@@ -8,6 +8,7 @@ import * as dap from './dap';
 import { unnullify } from './error';
 import { PgindentConfiguration } from './formatter';
 import { Log as logger } from './logger';
+import { setupPgConfSupport } from './pgconf';
 
 
 function createDebuggerFacade(type: string, provider: NodePreviewTreeViewProvider): dbg.GenericDebuggerFacade | undefined {
@@ -1268,31 +1269,6 @@ export function setupExtension(context: vscode.ExtensionContext,
         }
     };
 
-    context.subscriptions.push(vscode.languages.registerCompletionItemProvider('pgconf', {
-        async provideCompletionItems(document, position, _token, _context) {
-            const range = document.getWordRangeAtPosition(position);
-            if (!range) {
-                return null;
-            }
-
-            /*
-             * For now use simple prefix match for autocompletion.
-             * In future versions we should add fuzzy string match,
-             * i.e. based on Jaccard or Levenshtein.
-             * 
-             * XXX: When implementing we should keep in mind, that
-             * TS/JS is slow and likes to allocate huge memory, so
-             * prefer simple, but faster algorithms.
-             * 
-             * TODO: for fast prefix filter use binary search, not full scan
-             */
-            const word = document.getText(range);
-            const parameters = constants.getWellKnownConfigurationParameters();
-            return parameters.filter(p => p.startsWith(word))
-                             .map(p => new vscode.CompletionItem(p));
-        },
-    }));
-
     /* Refresh config files when debug session starts */
     vscode.debug.onDidStartDebugSession(async _ => {
         if (vscode.workspace.workspaceFolders?.length) {
@@ -1504,6 +1480,9 @@ export function setupExtension(context: vscode.ExtensionContext,
 
     /* Read files with NodeTags */
     setupNodeTagFiles(nodeVars, context);
+    
+    /* Completion support for postgresql.conf */
+    setupPgConfSupport(context);
 }
 
 async function setupNodeTagFiles(nodeVars: vars.NodeVarRegistry,

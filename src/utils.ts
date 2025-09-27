@@ -353,18 +353,6 @@ export function getPgSrcFile(...paths: string[]) {
     return path.join(...paths);
 }
 
-export class Lazy<T> {
-    value: T | undefined;
-    factory: () => T;
-    constructor(factory: () => T) {
-        this.factory = factory;
-    }
-    
-    get() {
-        return this.value ??= this.factory();
-    }
-}
-
 /**
  * Return integer representation of SemVer version string
  * 

@@ -1,9 +1,20 @@
-import { Lazy } from "./utils";
 import { BitmaskMemberInfo,
          HtabEntryInfo,
          ListPtrSpecialMemberInfo,
          SimplehashEntryInfo,
 } from "./variables";
+
+class Lazy<T> {
+    value: T | undefined;
+    factory: () => T;
+    constructor(factory: () => T) {
+        this.factory = factory;
+    }
+
+    get() {
+        return this.value ??= this.factory();
+    }
+}
 
 export function getDefaultNodeTags(): string[] {
     /* Compiled from versions from 8.0 to 17 */
@@ -4437,6 +4448,7 @@ const configurationParameters = new Lazy(() => [
     'xmloption',
     'zero_damaged_pages',
 ]);
+
 export function getWellKnownConfigurationParameters() {    
     return configurationParameters.get();
 }
