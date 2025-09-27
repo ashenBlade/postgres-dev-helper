@@ -1,8 +1,8 @@
 import * as assert from 'assert';
+
 import * as utils from '../../utils';
 import * as constants from '../../constants';
 import * as configfile from '../../pgconf';
-
 
 suite('Unit', async function () {
     test('getStructNameFromType', function () {
@@ -11,13 +11,13 @@ suite('Unit', async function () {
             ['int', 'int'],
             ['Oid', 'Oid'],
             ['Relids', 'Relids'],
-            
+
             /* Pointer types */
             ['int *', 'int'],
             ['Node *', 'Node'],
             ['RelOptInfo *', 'RelOptInfo'],
             ['List **', 'List'],
-            
+
             /* Qualifiers */
             ['struct RangeTblEntry', 'RangeTblEntry'],
             ['const int', 'int'],
@@ -25,12 +25,12 @@ suite('Unit', async function () {
             ['const volatile int', 'int'],
             ['const char *', 'char'],
             ['PGconn * volatile', 'PGconn'],
-            
+
             /* Non-trivial identifiers */
             ['A_Const *', 'A_Const'],
             ['const FormData_pg_attribute *', 'FormData_pg_attribute'],
         ];
-        
+
         for (const [type, expected] of data) {
             const actual = utils.getStructNameFromType(type);
             assert.equal(actual, expected, type);
@@ -52,7 +52,7 @@ suite('Unit', async function () {
             assert.equal(actual, expected, `${type}: ${substitution}`);
         }
     });
-    
+
     test('havePointersCount', function () {
         const data: [string, number, boolean][] = [
             ['int', 0, true],
@@ -61,7 +61,7 @@ suite('Unit', async function () {
             ['int *', 0, false],
             ['int *', 1, true],
             ['int *', 2, false],
-            
+
             ['struct RangeTblEntry *', 0, false],
             ['struct RangeTblEntry *', 1, true],
             ['struct RangeTblEntry *', 2, false],
@@ -76,7 +76,7 @@ suite('Unit', async function () {
             assert.equal(actual, expected, `${type}: ${count}`);
         }
     });
-    
+
     test('getParamsByPrefix', function() {
         type functionResult = [number, number] | number | undefined;
         type testData = [string[], string, functionResult];
@@ -96,7 +96,7 @@ suite('Unit', async function () {
             _(['abc', 'def', 'ghi'], 'gh', 2),
             _(['abcd', 'abce', 'abcf'], 'ab', [0, 3]),
             _(['abcd', 'abce', 'abcf'], 'xx', undefined),
-            
+
             /* Realistic input */
             ...[
                 ['enable', undefined],
@@ -112,7 +112,7 @@ suite('Unit', async function () {
                 'lc_monetary',
                 'lc_numeric',
             ], input as string, r as functionResult)),
-            
+
             ...[
                 ['b', [0, 6]],
                 ['bg', [0, 3]],
@@ -132,7 +132,7 @@ suite('Unit', async function () {
             const actual = configfile.getParamsByPrefix(array, prefix);
             assert.deepStrictEqual(actual, expected, `${prefix} - ${array}`);
         }
-        
+
         /* Some integration testing */
         const parameters = constants.getWellKnownConfigurationParameters();
         const check = (input: string) => {
@@ -142,7 +142,7 @@ suite('Unit', async function () {
             const expected = parameters.filter(p => p.startsWith(input));
             assert.deepStrictEqual(new Set(parameters.slice(...range)), new Set(expected));
         };
-        
+
         check('pg_stat_sta');
         check('enabl');
         check('max_paral');

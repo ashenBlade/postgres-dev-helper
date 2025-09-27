@@ -1,9 +1,11 @@
 import * as assert from 'assert';
-import * as vscode from 'vscode';
-import { getTestEnv, TestEnv } from './env';
-import * as utils from '../../utils';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as vscode from 'vscode';
+
+import { getTestEnv, TestEnv } from './env';
+
+import * as utils from '../../utils';
 
 function getFormattedFile(env: TestEnv) {
     const path = env.getExtensionPath('src', 'test', 'patches', 'formatted.c');
@@ -38,7 +40,6 @@ suite('Formatting', async function () {
                 env.getWorkspaceFile('src', 'tools', 'pgindent', 'pg_bsd_indent');
             fs.rmdirSync(pgBsdIndentDir);
         });
-        
 
         /* Clean already built pg_bsd_indent */
         await swallow(async () => {

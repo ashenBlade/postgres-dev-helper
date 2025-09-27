@@ -2,7 +2,7 @@ import * as path from 'path';
 
 export enum DebuggerType {
     CppDbg = 'cppdbg',
-    CodeLLDB = 'lldb',
+    CodeLLDB = 'lldb',  
 };
 
 enum TestMode {
@@ -12,7 +12,11 @@ enum TestMode {
     Unit        = 1 << 2,
 };
 
+/* if none specified - target on latest versions */
 const defaultPostgresVersion = '18';
+const defaultVsCodeVersion = 'stable';
+/* variables related part is tested more often, so use by default */
+const defaultTestMode = 'vars';
 
 export class TestEnv {
     /* Version of Postgresql being tested */
@@ -48,7 +52,7 @@ export class TestEnv {
             mode |= TestMode.Unit;
         }
         
-        if (mode === 0) {
+        if (mode === TestMode.None) {
             throw new Error(`No test modes specified: accept between "vars" and "format"`);
         }
         
@@ -106,33 +110,11 @@ export function getPgVersion() {
     return process.env.PGHH_PG_VERSION ?? defaultPostgresVersion;
 }
 
-export function getTestMode() {
-    const testMode = process.env.PGHH_TEST_MODE;
-    if (!testMode) {
-        return TestMode.Debug;
-    }
-    
-    let mode: TestMode = 0;
-    if (testMode.indexOf('vars') !== -1) {
-        mode |= TestMode.Debug;
-    }
-    if (testMode.indexOf('format') !== -1) {
-        mode |= TestMode.Formatter;
-    }
-    
-    if (mode === 0) {
-        throw new Error(`No test modes specified: "vars" and/or "format" are accepted`);
-    }
-    return mode;
-}
-
 /* Entry point for getting configuration for test running */
 export function getTestEnv(): TestEnv {
-    /* if none specified - target on latest versions */
     const pgVersion = process.env.PGHH_PG_VERSION ?? defaultPostgresVersion;
-    const vscodeVersion = process.env.PGHH_VSCODE_VERSION ?? 'stable';
-    /* variables related part is tested more often, so use by default */
-    const testMode = process.env.PGHH_TEST_MODE ?? 'vars';
+    const vscodeVersion = process.env.PGHH_VSCODE_VERSION ?? defaultVsCodeVersion;
+    const testMode = process.env.PGHH_TEST_MODE ?? defaultTestMode;
 
     /* Flag for variables tests */
     const dbg = process.env.PGHH_DEBUGGER;

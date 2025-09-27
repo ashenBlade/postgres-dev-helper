@@ -1,12 +1,15 @@
+import * as cp from 'child_process';
 import * as assert from 'assert';
+
 import * as vscode from 'vscode';
 import {TreeItemCollapsibleState as CollapsibleState} from 'vscode';
 import * as pg from 'pg';
+
 import { Configuration } from '../../extension';
 import * as vars from '../../variables';
-import {getTestEnv, TestEnv} from './env';
-import * as cp from 'child_process';
 import { unnullify } from '../../error';
+
+import {getTestEnv, TestEnv} from './env';
 
 class TreeItemWrapper {
     item: vscode.TreeItem;
@@ -75,7 +78,7 @@ function getDebugConfiguration(env: TestEnv, pid: number) {
 }
 
 async function searchBreakpointLocation() {
-    /* 
+    /*
      * For simplicity/flexibility target test function must be last in the
      * file, so we set breakpoint at first 'return' statement from end.
      * Also, we do not imply any restrictions of 'vscodehelper.c' file location,
@@ -98,7 +101,7 @@ async function searchBreakpointLocation() {
         }
     }
     if (lineNumber < 0) {
-        throw new Error('failed to find position in vscodehelper.c for ' + 
+        throw new Error('failed to find position in vscodehelper.c for ' +
                         'breakpoint: no return statement found');
     }
 
@@ -123,26 +126,26 @@ const execGetVariables = async () => {
 };
 
 suite('Variables', async function () {
-    /* 
+    /*
      * Store predicate and query together, so we can fast reflect any
      * changes in tested predicate.
-     * 
+     *
      * We can not check every possible function/operator/etc... so check
-     * basic: 
+     * basic:
      *  - column: t1.y
      *  - constant: 10
      *  - binary operator: >
      *  - function: random()
-     * 
+     *
      * Before updating this note, that this query is run against latest
      * and *oldest* pg versions, so this oldest version also must support
      * presented functions.
      */
     const predicateRegex = /t1\.y > power\(10, random\(\)\)/i;
     const query = `SELECT *
-                   FROM t1 JOIN t2 ON t1.x = t2.x 
+                   FROM t1 JOIN t2 ON t1.x = t2.x
                    WHERE t1.y > power(10, random()) AND t2.x = t1.y;`;
-    
+
     let variables: vars.Variable[] | undefined;
     let env: TestEnv;
     let client: pg.Client;
@@ -164,10 +167,10 @@ suite('Variables', async function () {
             stdio: 'inherit',
             encoding: 'utf-8',
         });
-        
+
         /* Connect to backend */
         await client.connect();
-        
+
         /* Obtain backend PID */
         const pidResponse = await client.query('SELECT pg_backend_pid() AS pid');
         const pid = Number(pidResponse.rows[0].pid);
@@ -252,7 +255,7 @@ suite('Variables', async function () {
         const children = await v.getChildren();
         assert.ok(children && 0 < children.length,
                   `Failed to get children of variable ${v.name}`);
-    
+
         const items: VarTreeItemPair[] = [];
         for (const v of children) {
             const item = await v.getTreeItem();
@@ -269,26 +272,26 @@ suite('Variables', async function () {
         return items;
     };
 
-    
+
     const getMember = (pairs: VarTreeItemPair[], name: string) => {
         const pair = pairs.find(pair => pair.item.getName() === name);
         assert.ok(pair, `Failed to find ${name} member`);
         return pair;
     };
-    
+
     const getMemberOf = async (x: vars.Variable | VarTreeItemPair, name: string) => {
         const children = await expand(x);
         return getMember(children, name);
     };
 
     const assertExpandable = (x: TreeItemWrapper, who: string) => {
-        assert.equal(x.collapsibleState, CollapsibleState.Collapsed, 
+        assert.equal(x.collapsibleState, CollapsibleState.Collapsed,
                      `${who} must be expandable`);
     };
-    
+
     /* #define ARRAY_SIZE 16  */
     const defaultArraySize = 16;
-    
+
     const assertContainsDefaultArray = (elements: VarTreeItemPair[]) => {
         assert.equal(elements.length, defaultArraySize,
                      `Predefined arrays contain ${defaultArraySize} elements`);
@@ -299,12 +302,12 @@ suite('Variables', async function () {
     };
 
     /* Tests for handling types of variables */
-    suite('Variable handling', async () => {    
+    suite('Variable handling', async () => {
         const assertNotExpandable = (x: TreeItemWrapper, who: string) => {
             assert.equal(x.collapsibleState, CollapsibleState.None,
                          `${who} must not be expandable`);
         };
-        
+
         /* Scalar variable is not expandable */
         test('Scalar', async () => {
             const {item} = await getVarItem('i');
@@ -316,7 +319,7 @@ suite('Variables', async function () {
         test('Array[int]', async () => {
             const {var: v, item} = await getVarItem('int_array');
             assertExpandable(item, 'Array');
-    
+
             const arrayMembers = await expand(v);
             assertContainsDefaultArray(arrayMembers);
             assert.ok(arrayMembers.every(x => !x.item.isExpandable()),
@@ -395,10 +398,10 @@ suite('Variables', async function () {
         test('Member[embedded]', async () => {
             const embeddedVar = await getVarItem('embedded_member');
             assertExpandable(embeddedVar.item, 'Structure');
-            
+
             const valueMember = await getMemberOf(embeddedVar, 'value');
             assertExpandable(valueMember.item, 'Embedded value structure');
-    
+
             const embeddedValueMember = await getMemberOf(valueMember, "value");
             assertNotExpandable(embeddedValueMember.item, 'Scalar member');
             assert.match(embeddedValueMember.item.description, intRegexp(1),
@@ -409,7 +412,7 @@ suite('Variables', async function () {
         test('Member[array]', async () => {
             const structureVar = await getVarItem('fixed_size_array_member');
             assertExpandable(structureVar.item, 'Structure');
-    
+
             const arrayMember = await getMemberOf(structureVar, 'array');
             assertExpandable(arrayMember.item, 'Fixed size array');
 
@@ -441,7 +444,7 @@ suite('Variables', async function () {
 
             const isOfNodeType = async (index: number, type: string) => {
                 const item = listElements[index].item;
-                assert.match(item.getType(), new RegExp(type), 
+                assert.match(item.getType(), new RegExp(type),
                              `List element at ${index} is not of actual type`);
             };
 
@@ -465,7 +468,7 @@ suite('Variables', async function () {
 
         /* Bitmapset elements shown correctly */
         test('Bitmapset', async () => {
-            /* 
+            /*
              * bms: Bitmapset *
              * - $length$     5
              * - $elements$
@@ -479,7 +482,7 @@ suite('Variables', async function () {
             const lengthMember = getMember(childrenItems, '$length$');
             assert.match(lengthMember.item.description, intRegexp(5),
                          '$length$ member contains not valid value');
-            
+
             const elementsMember = getMember(childrenItems, '$elements$');
             const elements = await expand(elementsMember);
             const values = elements.map(v => v.item.description);
@@ -489,7 +492,7 @@ suite('Variables', async function () {
 
         /* Relids shows numbers and point to RelOptInfo/RangeTblEntry */
         test('Relids', async () => {
-            /* 
+            /*
              * root->allbaserels: Relids [Bitmapset *]
              * $length$       2
              * - $elements$
@@ -547,7 +550,7 @@ suite('Variables', async function () {
                          '$expr$ member does not contain valid expression');
         });
     });
-    
+
     suite('Config file', async () => {
         /* List with Non-Node pointer array elements */
         test('List[CustomPtr]', async () => {
@@ -558,7 +561,7 @@ suite('Variables', async function () {
             const elements = await expand(elementsMember);
             assert.equal(elements.length, 3,
                          '$elements$ of variable does not contains all list members');
-            
+
             for (const [i, element] of elements.entries()) {
                 const valueMember = await getMemberOf(element, 'value');
                 assert.match(valueMember.item.description, intRegexp(i + 1),
@@ -575,13 +578,13 @@ suite('Variables', async function () {
                 const valueMember = await getMemberOf(element, 'value');
                 assert.match(valueMember.item.description, intRegexp(i + 1),
                              `Element at ${i} does not contain valid value for member`);
-            } 
+            }
         });
 
         /* Array members are rendered as actual array */
         test('Array members', async () => {
             /*
-             * array_field = [1, 2] 
+             * array_field = [1, 2]
              * array_expr  = [1, 2, 4, 8]
              */
             const arrayMemberVar = getVar('array_member');
@@ -595,7 +598,7 @@ suite('Variables', async function () {
             const arrayFieldElements = await getArrayElementsOf('array_field');
             assert.deepStrictEqual(['1', '2'], arrayFieldElements,
                                    'array_field contains 2 elements: 1, 2');
-            
+
             const arrayExprElements = await getArrayElementsOf('array_expr');
             assert.deepStrictEqual(['1', '2', '4', '8'], arrayExprElements,
                                    'array_expr contains 4 elements: 1, 2, 4, 8');
@@ -607,11 +610,11 @@ suite('Variables', async function () {
 
             const pair = await getMemberOf(structureVar, 'array');
             assertExpandable(pair.item, 'Flexible array member');
-            
+
             const elements = await expand(pair);
             assertContainsDefaultArray(elements);
         });
-        
+
         /* User defined aliases */
         test('Alias', async () => {
             const exprRegexp = predicateRegex;
@@ -635,10 +638,10 @@ suite('Variables', async function () {
                 });
             }
             assert.deepEqual(
-                new Set(htabElements), 
+                new Set(htabElements),
                 new Set([
-                    {key: '1', value: '2'}, 
-                    {key: '10', value: '4'}, 
+                    {key: '1', value: '2'},
+                    {key: '10', value: '4'},
                     {key: '20', value: '8'},
                 ]),
                 'Shown elements of HTAB are not ones that stored');
@@ -664,10 +667,10 @@ suite('Variables', async function () {
                 });
             }
             assert.deepEqual(
-                new Set(htabElements), 
+                new Set(htabElements),
                 new Set([
-                    {key: '1', value: '2'}, 
-                    {key: '10', value: '4'}, 
+                    {key: '1', value: '2'},
+                    {key: '10', value: '4'},
                     {key: '20', value: '8'},
                 ]),
                 'Shown elements of simplehash are not ones that stored');
