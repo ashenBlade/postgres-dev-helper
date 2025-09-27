@@ -16,7 +16,7 @@ class Lazy<T> {
     }
 }
 
-export function getDefaultNodeTags(): string[] {
+const nodeTags = new Lazy(() => {
     /* Compiled from versions from 8.0 to 17 */
     return [
         /* 
@@ -581,13 +581,13 @@ export function getDefaultNodeTags(): string[] {
         'XmlExprState',
         'XmlSerialize',
     ];
+});
+
+export function getDefaultNodeTags(): string[] {
+    return nodeTags.get();
 }
 
-/**
- * Returns list of Expr nodes, whose text representation is displayed in
- * variables view as separate member.
- */
-export function getDisplayedExprs(): string[] {
+const displayedExprs = new Lazy(() => {
     return [
         'Aggref',
         'ArrayCoerceExpr',
@@ -633,9 +633,17 @@ export function getDisplayedExprs(): string[] {
         /* This is actually not Expr, but handy to see representation */
         'PlaceHolderVar',
     ];
+});
+
+/**
+ * Returns list of Expr nodes, whose text representation is displayed in
+ * variables view as separate member.
+ */
+export function getDisplayedExprs(): string[] {
+    return displayedExprs.get();
 }
 
-export function getKnownCustomListPtrs(): ListPtrSpecialMemberInfo[] {
+const customListPtrs = new Lazy<ListPtrSpecialMemberInfo[]>(() => {
     const member = (type: string, struct: string, member: string): ListPtrSpecialMemberInfo => ({
         type: type + ' *',
         member: [struct, member],
@@ -1341,15 +1349,12 @@ export function getKnownCustomListPtrs(): ListPtrSpecialMemberInfo[] {
         /* src/test/modules/injection_points/injection_points.c */
         variable('char', 'injection_points_cleanup', 'inj_list_local'),
     ];
+});
+export function getKnownCustomListPtrs(): ListPtrSpecialMemberInfo[] {
+    return customListPtrs.get();
 }
 
-/**
- * Return array of known Node `typedef's.
- * First element is alias and second is type.
- * 
- * @returns Array of pairs: alias -> type
- */
-export function getDefaultAliases(): [string, string][] {
+const aliases = new Lazy(() => {
     /*
      * Frequently used pattern, where struct ends with 'Data' and
      * typedef is a pointer named without that 'Data' suffix, i.e.
@@ -1388,7 +1393,16 @@ export function getDefaultAliases(): [string, string][] {
             'SetConstraintState',
             'ParamListInfo',
         ].map(addDataSuffix),
-    ];
+    ] as [string, string][];
+});
+/**
+ * Return array of known Node `typedef's.
+ * First element is alias and second is type.
+ * 
+ * @returns Array of pairs: alias -> type
+ */
+export function getDefaultAliases(): [string, string][] {
+    return aliases.get();
 }
 
 export interface ArraySpecialMember {
@@ -1397,7 +1411,7 @@ export interface ArraySpecialMember {
     lengthExpr: string
 }
 
-export function getArraySpecialMembers(): ArraySpecialMember[] {
+const arrays = new Lazy(() => {
     const _ = (typeName: string, memberName: string, lengthExpr: string) => ({
         typeName,
         memberName,
@@ -1994,8 +2008,10 @@ export function getArraySpecialMembers(): ArraySpecialMember[] {
         /* contrib/hstore/hstore_io.c */
         _('RecordIOData', 'columns', 'ncolumns'),
     ];
+});
+export function getArraySpecialMembers(): ArraySpecialMember[] {
+    return arrays.get();
 }
-
 /* 
  * 
  * Computed like this:
@@ -2043,7 +2059,7 @@ export interface BitmapsetReference {
     start?: 'PlannerInfo' | 'Parent' | 'Self' ;
 }
 
-export function getWellKnownBitmapsetReferences(): [string, BitmapsetReference][] {
+const bmsRefs = new Lazy(() => {
     const pathToRangeTable = ['parse', 'rtable'];
     const pathToRelOptInfos = ['simple_rel_array'];
     const pathToRteAndRelOptInfos =  [{path: pathToRangeTable, indexDelta: -1}, 
@@ -2127,9 +2143,13 @@ export function getWellKnownBitmapsetReferences(): [string, BitmapsetReference][
 
         ref('MergeAppendState', 'ms_valid_subplans', [{path: ['mergeplans']}], 'Self'),
     ];
+});
+
+export function getWellKnownBitmapsetReferences(): [string, BitmapsetReference][] {
+    return bmsRefs.get();
 }
 
-export function getWellKnownHTABTypes(): HtabEntryInfo[] {
+const htabs = new Lazy(() => {
     const type = (parent: string, member: string, type: string) => ({
         parent, member, type,
     } as HtabEntryInfo);
@@ -2148,9 +2168,12 @@ export function getWellKnownHTABTypes(): HtabEntryInfo[] {
         type('PgStat_StatDBEntry', 'tables', 'PgStat_StatTabEntry *'),
         type('PgStat_StatDBEntry', 'functions', 'PgStat_StatFuncEntry *'),
     ];
+});
+export function getWellKnownHTABTypes(): HtabEntryInfo[] {
+    return htabs.get();
 }
 
-export function getWellKnownSimpleHashTableTypes(): SimplehashEntryInfo[] {
+const simpleHashtabs = new Lazy(() => {
     const type = (prefix: string, elementType: string, canIterate = true) => ({
         prefix, elementType, canIterate,
     } as SimplehashEntryInfo);
@@ -2178,6 +2201,9 @@ export function getWellKnownSimpleHashTableTypes(): SimplehashEntryInfo[] {
         type('rolename', 'RoleNameEntry *', false),
         type('saophash', 'ScalarArrayOpExprHashEntry *', false),
     ];
+});
+export function getWellKnownSimpleHashTableTypes(): SimplehashEntryInfo[] {
+    return simpleHashtabs.get();
 }
 
 /* Range of supported versions: [start; end) */
@@ -2193,7 +2219,12 @@ export class VersionInterval {
     static Unbounded = new VersionInterval(this.Min, this.Max);
 }
 
-function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
+/* 
+ * Actual array of all bitmask members. Initialized lazily, because
+ * we must perform some actions after array is initialized (reverse
+ * inner array, reason see above).
+ */
+const versionedFlagMembers = new Lazy(() => {
     type FlagInfo = [string, string];
     type FieldInfo = [string, [string, string]];
     type VersionedFlagFieldRow = [VersionInterval, FlagInfo[]?, FieldInfo[]?];
@@ -3899,14 +3930,7 @@ function buildFlagMembers(): [VersionInterval, BitmaskMemberInfo][][] {
     bitmasks.forEach(arr => arr.reverse());
 
     return bitmasks;
-}
-
-/* 
- * Actual array of all bitmask members. Initialized lazily, because
- * we must perform some actions after array is initialized (reverse
- * inner array, reason see above).
- */
-let versionedFlagMembers: [VersionInterval, BitmaskMemberInfo][][] | undefined;
+});
 
 /* 
  * Most times you will work with same PostgreSQL version, so cache previous
@@ -3922,17 +3946,13 @@ export function getWellKnownFlagsMembers(pgversion: number): BitmaskMemberInfo[]
         }
     }
 
-    if (versionedFlagMembers === undefined) {
-        versionedFlagMembers = buildFlagMembers();
-    }
-
-    const members = versionedFlagMembers.map(arrs => 
+    const members = versionedFlagMembers.get().map(arrs => 
         arrs.find(([ver]) => ver.satisfies(pgversion))?.[1]).filter(x => x !== undefined);
     prevVersionedFlagMembers = [members, pgversion];
     return members;
 }
 
-const contribs = new Set<string>([
+const contribs = new Lazy(() => new Set<string>([
     'adminpack',
     'amcheck',
     'auth_delay',
@@ -3997,12 +4017,11 @@ const contribs = new Set<string>([
     'uuid-ossp',
     'vacuumlo',
     'xml2',
-]);
+]));
 
 export function getWellKnownBuiltinContribs() {
-    return contribs;
+    return contribs.get();
 }
-
 
 const configurationParameters = new Lazy(() => [
     /* 
