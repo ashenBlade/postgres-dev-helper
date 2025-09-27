@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as utils from '../../utils';
 
 
-suite('utils.ts', async function () {
+suite('Unit', async function () {
     test('getStructNameFromType', function () {
         const data = [
             /* Scalar types */
