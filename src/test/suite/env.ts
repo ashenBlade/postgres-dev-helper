@@ -12,6 +12,8 @@ enum TestMode {
     Unit        = 1 << 2,
 };
 
+const defaultPostgresVersion = '18';
+
 export class TestEnv {
     /* Version of Postgresql being tested */
     pgVersion: string;
@@ -101,7 +103,7 @@ export class TestEnv {
 }
 
 export function getPgVersion() {
-    return process.env.PGHH_PG_VERSION ?? '17';
+    return process.env.PGHH_PG_VERSION ?? defaultPostgresVersion;
 }
 
 export function getTestMode() {
@@ -127,7 +129,7 @@ export function getTestMode() {
 /* Entry point for getting configuration for test running */
 export function getTestEnv(): TestEnv {
     /* if none specified - target on latest versions */
-    const pgVersion = process.env.PGHH_PG_VERSION ?? '17';
+    const pgVersion = process.env.PGHH_PG_VERSION ?? defaultPostgresVersion;
     const vscodeVersion = process.env.PGHH_VSCODE_VERSION ?? 'stable';
     /* variables related part is tested more often, so use by default */
     const testMode = process.env.PGHH_TEST_MODE ?? 'vars';
