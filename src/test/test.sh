@@ -17,8 +17,6 @@ Options:
     --vscode-versions       List of VS Code versions to test against
     --pg-versions           List of PostgreSQL versions to test against
     --debuggers             List of debug extensions to tests against
-    --no-rebuild            Do not rebuild PostgreSQL at first run.
-                            Useful during development when installation already present.
     --no-gui                Run tests without GUI (using 'xvfb')
     --tests                 Which test suites to run: "vars" (variables, default), "format", "unit".
                             Also, you can specify "all" to run all available tests.
@@ -46,7 +44,6 @@ VSCODE_VERSIONS=""
 THREADS=""
 PG_VERSIONS=""
 DEBUGGERS=""
-NO_REBUILD=""
 NO_GUI=""
 TEST_MODES=""
 while [ "$1" ]; do
@@ -71,9 +68,6 @@ while [ "$1" ]; do
         ;;
     --debuggers=*)
         DEBUGGERS="${ARG#*=}"
-        ;;
-    --no-rebuild)
-        NO_REBUILD="1"
         ;;
     --no-gui)
         NO_GUI="1"
@@ -135,12 +129,6 @@ else
 fi
 
 for PGVERSION in $PG_VERSIONS; do
-    if [[ -z "$NO_REBUILD" ]]; then
-        # TODO: remove this flag
-        echo "Setup PostgreSQL $PGVERSION"
-        ./src/test/setup.sh --pg-version="$PGVERSION" "$THREADS"
-    fi
-
     export PGHH_PG_VERSION="$PGVERSION"
     for VSCODEVERSION in $VSCODE_VERSIONS; do
         export PGHH_VSCODE_VERSION="$VSCODEVERSION"
