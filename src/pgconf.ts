@@ -90,11 +90,9 @@ class PgConfCompletionProvider implements vscode.CompletionItemProvider {
          * XXX: When implementing we should keep in mind, that
          * TS/JS is slow and likes to allocate huge memory, so
          * prefer simple, but faster algorithms.
-         * 
-         * TODO: for fast prefix filter use binary search, not full scan
          */
         const param = document.getText(range);
-        const parameters = constants.getWellKnownConfigurationParameters();
+        const parameters = this.getGUCs();
         const prefixRange = getParamsByPrefix(parameters, param);
         if (prefixRange === undefined) {
             return;
@@ -107,6 +105,26 @@ class PgConfCompletionProvider implements vscode.CompletionItemProvider {
         if (Array.isArray(prefixRange)) {
             return parameters.slice(...prefixRange).map(p => new vscode.CompletionItem(p));
         }
+    }
+
+    private getGUCs() {
+        /* 
+         * Use only builtin GUCs, because tracking contribs is hard task.
+         * We of course can traverse 'contrib/' directory and find all *.c
+         * files - that what I did just now.
+         *
+         * But this approach gives another pain - resources consumption, IO,
+         * CPU and memory. When I tested such logic on medium sized contrib dir
+         * I faced high CPU consumption (even fans started making noise) and
+         * memory (extension profiler showed up to 1GB heap size with sawtooth
+         * shaped graph).
+         * 
+         * Another approach is to keep track of all contribs in code, i.e. have
+         * another 'contribGucs' in 'constants.ts' with Map contrib -> it's GUCs,
+         * but it will require to constant monitoring for changes, which is now
+         * doesn't sound appealing yet.
+         */
+        return constants.getWellKnownConfigurationParameters();
     }
 }
 
