@@ -629,6 +629,10 @@ export function markConfigFileDirty() {
     configDirty = true;
 }
 
+export function isConfigFileDirty() {
+    return configDirty;
+}
+
 export const ExtensionPrettyName = 'PostgreSQL Hacker Helper';
 export const ExtensionId = 'postgresql-hacker-helper';
 

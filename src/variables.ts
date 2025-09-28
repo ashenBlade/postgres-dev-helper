@@ -5,7 +5,7 @@ import * as constants from './constants';
 import * as dbg from './debugger';
 import { Log as logger } from './logger';
 import { PghhError, EvaluationError, unnullify } from './error';
-import { getVariablesConfiguration } from './configuration';
+import { getVariablesConfiguration, isConfigFileDirty } from './configuration';
 
 export interface AliasInfo {
     /* Declared type */
@@ -21,13 +21,13 @@ export class NodeVarRegistry {
     /**
      * Known NodeTag values (without 'T_' prefix)
      */
-    nodeTags: Set<string> = new Set<string>(constants.getDefaultNodeTags());
+    nodeTags = new Set<string>(constants.getDefaultNodeTags());
 
     /**
      * Known NodeTags that represents Expr nodes.
      * Required for Exprs representation in tree view as expressions
      */
-    exprs: Set<string> = new Set<string>(constants.getDisplayedExprs());
+    exprs = new Set<string>(constants.getDisplayedExprs());
 
     /**
      * Known aliases for Node variables - `typedef RealType* Alias'
@@ -439,17 +439,17 @@ export class ExecContext {
     /**
      * Registry about NodeTag variables information
      */
-    nodeVarRegistry = new NodeVarRegistry();
+    nodeVarRegistry: NodeVarRegistry;
 
     /**
      * Registry with information of Special Members
      */
-    specialMemberRegistry = new SpecialMemberRegistry();
+    specialMemberRegistry: SpecialMemberRegistry;
 
     /**
      * Types of entries, that different HTAB store (dynahash.c)
      */
-    hashTableTypes = new HashTableTypes();
+    hashTableTypes: HashTableTypes;
 
     /**
      * Cached properties for current step.
@@ -554,8 +554,12 @@ export class ExecContext {
      */
     canUseMacros = true;
 
-    constructor(debug: dbg.IDebuggerFacade) {
+    constructor(debug: dbg.IDebuggerFacade, nodeVars: NodeVarRegistry,
+                specialMembers: SpecialMemberRegistry, hashTables: HashTableTypes) {
         this.debug = debug;
+        this.nodeVarRegistry = nodeVars;
+        this.specialMemberRegistry = specialMembers;
+        this.hashTableTypes = hashTables;
     }
 
     async getCurrentFunctionName() {
@@ -5413,6 +5417,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
     
     stopDebugging() {
         this.debug?.dispose();
+        this.debug = undefined;
         this.context = undefined;
         /* Clean variables view if any */
         this._onDidChangeTreeData.fire();
@@ -5425,8 +5430,10 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
     getDebug() {
         return unnullify(this.debug, 'this.debug');
     }
-    
-    async initializeExecContextFromConfig(context: ExecContext) {
+
+    async initializeExecContextFromConfig(nodeVars: NodeVarRegistry,
+                                          specialMembers: SpecialMemberRegistry,
+                                          hashTables: HashTableTypes) {
         const config = await getVariablesConfiguration();
         if (!config) {
             return;
@@ -5435,7 +5442,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         if (config.arrayInfos?.length) {
             logger.debug('adding %i array special members from config file', config.arrayInfos.length);
             try {
-                context.specialMemberRegistry.addArraySpecialMembers(config.arrayInfos);
+                specialMembers.addArraySpecialMembers(config.arrayInfos);
             } catch (err) {
                 logger.error('could not add custom array special members', err);
             }
@@ -5444,7 +5451,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         if (config.aliasInfos?.length) {
             logger.debug('adding %i aliases from config file', config.aliasInfos.length);
             try {
-                context.nodeVarRegistry.addAliases(config.aliasInfos);
+                nodeVars.addAliases(config.aliasInfos);
             } catch (err) {
                 logger.error('could not add aliases from configuration', err);
             }
@@ -5453,7 +5460,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         if (config.customListTypes?.length) {
             logger.debug('adding %i custom list types', config.customListTypes.length);
             try {
-                context.specialMemberRegistry.addListCustomPtrSpecialMembers(config.customListTypes);
+                specialMembers.addListCustomPtrSpecialMembers(config.customListTypes);
             } catch (e) {
                 logger.error('error occurred during adding custom List types', e);
             }
@@ -5462,7 +5469,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         if (config.htabTypes?.length) {
             logger.debug('adding %i htab types', config.htabTypes.length);
             try {
-                context.hashTableTypes.addHTABTypes(config.htabTypes);
+                hashTables.addHTABTypes(config.htabTypes);
             } catch (e) {
                 logger.error('error occurred during adding custom HTAB types', e);
             }
@@ -5471,7 +5478,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         if (config.simpleHashTableTypes?.length) {
             logger.debug('adding %i simplehash types', config.simpleHashTableTypes.length);
             try {
-                context.hashTableTypes.addSimplehashTypes(config.simpleHashTableTypes);
+                hashTables.addSimplehashTypes(config.simpleHashTableTypes);
             } catch (e) {
                 logger.error('error occurred during adding custom simple hash table types', e);
             }
@@ -5480,7 +5487,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         if (config.bitmaskEnumMembers?.length) {
             logger.debug('adding %i enum bitmask types', config.bitmaskEnumMembers.length);
             try {
-                context.specialMemberRegistry.addFlagsMembers(config.bitmaskEnumMembers);
+                specialMembers.addFlagsMembers(config.bitmaskEnumMembers);
             } catch (e) {
                 logger.error('error occurred during adding enum bitmask types', e);
             }
@@ -5491,7 +5498,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
             try {
                 /* TODO: add command to parse NodeTag files and find custom */
                 for (const tag of config.nodetags) {
-                    context.nodeVarRegistry.nodeTags.add(tag);
+                    nodeVars.nodeTags.add(tag);
                 }
             } catch (err) {
                 logger.error('could not add custom NodeTags', err);
@@ -5515,40 +5522,74 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         }
     }
 
+    /* 
+     * Cached pair [Cached type info, PG version] from previous run.
+     * Can be used only if configuration file have not changed since previous run.
+     */
+    private cachedTypes?: [{
+        nodeVars: NodeVarRegistry,
+        specialMembers: SpecialMemberRegistry,
+        hashTables: HashTableTypes,
+    }, number];
+
     async createExecContext(frameId: number) {
-        const context = new ExecContext(this.getDebug());
-
-        /* Initialize using default builtin values */
-        const sm = context.specialMemberRegistry;
-        sm.addArraySpecialMembers(constants.getArraySpecialMembers());
-        sm.addListCustomPtrSpecialMembers(constants.getKnownCustomListPtrs());
-
-        const hash = context.hashTableTypes;
-        hash.addHTABTypes(constants.getWellKnownHTABTypes());
+        let nodeVars: NodeVarRegistry;
+        let specialMembers: SpecialMemberRegistry;
+        let hashTables: HashTableTypes;
         
-        /* Version specific initialization */
         const pgversion = await this.tryGetPgVersion(frameId);
         if (pgversion) {
-            logger.info('detected PostgreSQL version: %i', pgversion);
-            context.adjustProperties(pgversion);
-            
-            if (10_00_00 <= pgversion) {
-                hash.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
-            }
-            
-            /* 
-             * Initialize flags only if we know PostgreSQL version for sure,
-             * otherwise we will lead developer in the wrong way - this is
-             * even worse.
-             */
-            sm.addFlagsMembers(constants.getWellKnownFlagsMembers(pgversion));
+            logger.debug('detected PostgreSQL version: %i', pgversion);
         } else {
             logger.info('could not detect PostgreSQL version');
-            hash.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
+        }
+
+        /*
+         * We can use cache only if configuration have not changed AND 
+         * debugging the same PG version
+         */
+        if (   pgversion && pgversion === this.cachedTypes?.[1]
+            && !isConfigFileDirty()) {
+            nodeVars = this.cachedTypes[0].nodeVars;
+            specialMembers = this.cachedTypes[0].specialMembers;
+            hashTables = this.cachedTypes[0].hashTables;
+        } else {
+            specialMembers = new SpecialMemberRegistry();
+            specialMembers.addArraySpecialMembers(constants.getArraySpecialMembers());
+            specialMembers.addListCustomPtrSpecialMembers(constants.getKnownCustomListPtrs());
+            
+            hashTables = new HashTableTypes();
+            hashTables.addHTABTypes(constants.getWellKnownHTABTypes());
+            
+            nodeVars = new NodeVarRegistry();
+            
+            /* Version specific initialization */
+            if (pgversion) {
+                logger.info('detected PostgreSQL version: %i', pgversion);
+
+                if (10_00_00 <= pgversion) {
+                    hashTables.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
+                }
+
+                /* 
+                 * Initialize flags only if we know PostgreSQL version for sure,
+                 * otherwise we will lead developer in the wrong way - this is
+                 * even worse.
+                 */
+                specialMembers.addFlagsMembers(constants.getWellKnownFlagsMembers(pgversion));
+            } else {
+                hashTables.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
+            }
+
+            this.initializeExecContextFromConfig(nodeVars, specialMembers, hashTables);
+            
+            /* Store cache */
+            if (pgversion) {
+                this.cachedTypes = [{nodeVars, specialMembers, hashTables}, pgversion];
+            }
         }
         
-        /* Initialize using configuration file - last, so user can override */
-        this.initializeExecContextFromConfig(context);
+        const context = new ExecContext(this.getDebug(), nodeVars, specialMembers, hashTables);
         
         return context;
     }
