@@ -5433,7 +5433,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
     }
     
     async initializeExecContextFromConfig(context: ExecContext) {
-        const config = getVariablesConfiguration();
+        const config = await getVariablesConfiguration();
         if (!config) {
             return;
         }

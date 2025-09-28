@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import * as vars from './variables';
 import * as utils from './utils';
 import { Log as logger } from './logger';
+import { Configuration } from './extension';
 
 export interface VariablesConfiguration {
     /* Array special members */
@@ -504,7 +505,7 @@ export function parseVariablesConfiguration(configFile: unknown): VariablesConfi
     }
 }
 
-export async function readConfigFile(file: vscode.Uri) {
+async function readConfigFile(file: vscode.Uri) {
     let document;
     try {
         document = await vscode.workspace.openTextDocument(file);
@@ -543,54 +544,52 @@ let formatterConfig: PgindentConfiguration | undefined;
 /* Flag indicating that configuration file should be refreshed */
 let configDirty = true;
 
-export function getVariablesConfiguration(): VariablesConfiguration | undefined {
-    return variablesConfig;
-}
-
-export function getFormatterConfiguration(): PgindentConfiguration | undefined {
-    return formatterConfig;
-}
-
-export async function refreshVariablesConfiguration(file: vscode.Uri) {
+async function checkConfigurationFresh() {
     if (!configDirty) {
-        return;
-    }
-
-    const config = await readConfigFile(file);
-    if (!config) {
         return;
     }
     
-    variablesConfig = parseVariablesConfiguration(config);
+    await refreshConfiguration();
     configDirty = false;
 }
 
-export async function refreshFormatterConfiguration(file: vscode.Uri) {
-    if (!configDirty) {
-        return;
-    }
-
-    const config = await readConfigFile(file);
-    if (!config) {
-        return;
-    }
-
-    formatterConfig = parseFormatterConfiguration(config);
-    configDirty = false;
+export async function getVariablesConfiguration() {
+    await checkConfigurationFresh();
+    return variablesConfig;
 }
 
-export async function refreshConfiguration(file: vscode.Uri) {
-    if (!configDirty) {
+export async function getFormatterConfiguration() {
+    await checkConfigurationFresh();
+    return formatterConfig;
+}
+
+export async function refreshConfiguration() {
+    /* Do not check 'dirtyFlag', because this function must be invoked explicitly */
+
+    if (!vscode.workspace.workspaceFolders?.length) {
         return;
     }
 
-    const config = await readConfigFile(file);
-    if (!config) {
-        return;
-    }
+    for (const folder of vscode.workspace.workspaceFolders) {
+        const file = Configuration.getConfigFile(folder.uri);
+        const config = await readConfigFile(file);
+        if (!config) {
+            return;
+        }
 
-    formatterConfig = parseFormatterConfiguration(config);
-    variablesConfig = parseVariablesConfiguration(config);
+        try {
+            formatterConfig = parseFormatterConfiguration(config);
+        } catch (err) {
+            logger.error('could not parse formatter configuration', err);
+        }
+        
+        try {
+            variablesConfig = parseVariablesConfiguration(config);
+        } catch (err) {
+            logger.error('could not parse variables configuration', err);
+        }
+    }
+    
     configDirty = false;
 }
 

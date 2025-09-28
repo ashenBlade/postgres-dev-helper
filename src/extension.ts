@@ -4,7 +4,7 @@ import { Features } from './utils';
 import * as vars from './variables';
 import * as dbg from './debugger';
 import * as dap from './dap';
-import { refreshConfiguration, refreshVariablesConfiguration } from './configuration';
+import { markConfigFileDirty, refreshConfiguration } from './configuration';
 import { Log as logger } from './logger';
 import { setupPgConfSupport } from './pgconf';
 import { setupFormatting } from './formatter';
@@ -515,49 +515,16 @@ function setupPgVariablesView(context: vscode.ExtensionContext) {
     const pgvars = createPgVariablesView(context, nodeVars);
     
     setupNodeTagFiles(context, nodeVars);
-    
-    /* Refresh config files when debug session starts */
-    vscode.debug.onDidStartDebugSession(async _ => {
-        if (!vscode.workspace.workspaceFolders?.length) {
-            return;
-        }
-
-        for (const folder of vscode.workspace.workspaceFolders) {
-            logger.info('refreshing configuration files due to debug session start');
-            try {
-                const file = Configuration.getConfigFile(folder.uri);
-                await refreshVariablesConfiguration(file);
-            } catch (err: unknown) {
-                logger.error('could not refresh configuration in workspace %s', folder.uri.fsPath, err);
-            }
-        }
-    }, undefined, context.subscriptions);
 
     return pgvars;
 }
 
 function setupConfigurationFile(context: vscode.ExtensionContext) {
     /* Mark configuration dirty when user changes it - no eager parsing */
-    /*
-     * TODO: use dirty flag, instead of eager parsing
-     * const configFileWatcher = vscode.workspace.createFileSystemWatcher(Configuration.ExtensionSettingsFileName, false, false, true);
-     * context.subscriptions.push(configFileWatcher);
-     * configFileWatcher.onDidChange(() => markConfigFileDirty());
-     * configFileWatcher.onDidCreate(() => markConfigFileDirty());
-     */
-
-    /* Refresh config files when debug session starts */
-    vscode.debug.onDidStartDebugSession(async _ => {
-        if (!vscode.workspace.workspaceFolders?.length) {
-            return;
-        }
-
-        logger.info('refreshing configuration files due to debug session start');
-        for (const folder of vscode.workspace.workspaceFolders) {
-            const file = Configuration.getConfigFile(folder.uri);
-            await refreshVariablesConfiguration(file);
-        }
-    }, undefined, context.subscriptions);
+    const configFileWatcher = vscode.workspace.createFileSystemWatcher(Configuration.ExtensionSettingsFileName, false, false, true);
+    context.subscriptions.push(configFileWatcher);
+    configFileWatcher.onDidChange(markConfigFileDirty, undefined, context.subscriptions);
+    configFileWatcher.onDidCreate(markConfigFileDirty, undefined, context.subscriptions);
 }
 
 function registerCommands(context: vscode.ExtensionContext, pgvars: vars.PgVariablesViewProvider) {
@@ -611,18 +578,11 @@ function registerCommands(context: vscode.ExtensionContext, pgvars: vars.PgVaria
 
     /* Refresh config file command */
     const refreshConfigCmd = async () => {
-        if (!vscode.workspace.workspaceFolders?.length) {
-            return;
-        }
-        
         logger.info('refreshing config file due to command execution');
-        for (const folder of vscode.workspace.workspaceFolders) {
-            try {
-                const file = Configuration.getConfigFile(folder.uri);
-                await refreshConfiguration(file);
-            } catch (err: unknown) {
-                logger.error('could not refresh configuration in workspace %s', folder.uri.fsPath, err);
-            }
+        try {
+            await refreshConfiguration();
+        } catch (err: unknown) {
+            logger.error('could not refresh configuration', err);
         }
     };
 
@@ -761,6 +721,7 @@ function registerCommands(context: vscode.ExtensionContext, pgvars: vars.PgVaria
 
 async function setupNodeTagFiles(context: vscode.ExtensionContext,
                                  nodeVars: vars.NodeVarRegistry) {
+    /* TODO: remove this thing with setting */
     const getNodeTagFiles = () => {
         /* TODO: remove this setting */
         const customNodeTagFiles = Configuration.getCustomNodeTagFiles();

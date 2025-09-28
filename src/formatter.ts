@@ -4,9 +4,8 @@ import * as utils from './utils';
 import { Log as logger } from './logger';
 import { getWellKnownBuiltinContribs } from './constants';
 import { Configuration } from './extension';
-import { parseFormatterConfiguration, 
-         PgindentConfiguration, 
-         readConfigFile } from './configuration';
+import { getFormatterConfiguration,
+         PgindentConfiguration } from './configuration';
 import { PghhError } from './error';
 import * as path from 'path';
 import * as os from 'os';
@@ -237,17 +236,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
     }
     
     private async getTypedefsFromConfiguration(workspace: vscode.WorkspaceFolder) {
-        const file = Configuration.getConfigFile(workspace.uri);
-        if (!await utils.fileExists(file)) {
-            return [];
-        }
-
-        const configObj = await readConfigFile(file);
-        if (!configObj) {
-            return [];
-        }
-
-        const config = parseFormatterConfiguration(configObj);
+        const config = await getFormatterConfiguration();
         if (!config?.typedefs?.length) {
             return [];
         }
