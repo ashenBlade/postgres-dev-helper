@@ -2,17 +2,15 @@ import * as vscode from 'vscode';
 import * as utils from './utils';
 import { Features } from './utils';
 import * as vars from './variables';
-import * as constants from './constants';
 import * as dbg from './debugger';
 import * as dap from './dap';
-import { unnullify } from './error';
-import { parseVariablesConfiguration, 
-         VariablesConfiguration } from './configuration';
+import { refreshConfiguration, refreshVariablesConfiguration } from './configuration';
 import { Log as logger } from './logger';
 import { setupPgConfSupport } from './pgconf';
+import { setupFormatting } from './formatter';
 
 
-function createDebuggerFacade(type: string, provider: NodePreviewTreeViewProvider): dbg.GenericDebuggerFacade | undefined {
+function createDebuggerFacade(type: string, provider: vars.PgVariablesViewProvider): dbg.GenericDebuggerFacade | undefined {
     let debug;
     switch (type) {
         case 'cppdbg':
@@ -35,255 +33,6 @@ function createDebuggerFacade(type: string, provider: NodePreviewTreeViewProvide
     }
 
     return debug;
-}
-
-export class NodePreviewTreeViewProvider implements vscode.TreeDataProvider<vars.Variable>, vscode.Disposable {
-    subscriptions: vscode.Disposable[] = [];
-
-    /* 
-     * Representation of parsed configuration file.
-     * Used to seed ExecContext during initialization.
-     */
-    configFile?: VariablesConfiguration;
-
-    /**
-     * ExecContext used to pass to all members.
-     * 
-     * Field is set on first 'getChildren' invocation.
-     */
-    context?: vars.ExecContext;
-
-    /* 
-     * Interface to access extension-specific debugger features.
-     * 
-     * Set during debug-session, and 'undefined' when there is no debugging.
-     */
-    debug?: dbg.GenericDebuggerFacade;
-
-    constructor(private nodeVars: vars.NodeVarRegistry) { 
-        this.subscriptions = [
-            vscode.debug.onDidStartDebugSession(s => {
-                if (!this.debug) {
-                    const debug = createDebuggerFacade(s.type, this);
-                    if (!debug) {
-                        return;
-                    }
-
-                    this.debug = debug;
-                }
-            }),
-            vscode.debug.onDidTerminateDebugSession(_ => {
-                if (this.debug) {
-                    this.context = undefined;
-
-                    this.debug.dispose();
-                    this.debug = undefined;
-                }
-            }),
-        ];
-    }
-
-    /* https://code.visualstudio.com/api/extension-guides/tree-view#updating-tree-view-content */
-    private _onDidChangeTreeData = new vscode.EventEmitter<void>();
-    readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
-    refresh(): void {
-        this.context?.step.reset();
-        this._onDidChangeTreeData.fire();
-    }
-
-    async getTreeItem(variable: vars.Variable) {
-        return variable.getTreeItem();
-    }
-    
-    getDebug() {
-        return unnullify(this.debug, 'this.debug');
-    }
-    
-    initializeExecContextFromConfig(context: vars.ExecContext) {
-        if (!this.configFile) {
-            return;
-        }
-        
-        const config = this.configFile;
-        
-        if (config.arrayInfos?.length) {
-            logger.debug('adding %i array special members from config file', config.arrayInfos.length);
-            try {
-                context.specialMemberRegistry.addArraySpecialMembers(config.arrayInfos);
-            } catch (err) {
-                logger.error('could not add custom array special members', err);
-            }
-        }
-
-        if (config.aliasInfos?.length) {
-            logger.debug('adding %i aliases from config file', config.aliasInfos.length);
-            try {
-                context.nodeVarRegistry.addAliases(config.aliasInfos);
-            } catch (err) {
-                logger.error('could not add aliases from configuration', err);
-            }
-        }
-
-        if (config.customListTypes?.length) {
-            logger.debug('adding %i custom list types', config.customListTypes.length);
-            try {
-                context.specialMemberRegistry.addListCustomPtrSpecialMembers(config.customListTypes);
-            } catch (e) {
-                logger.error('error occurred during adding custom List types', e);
-            }
-        }
-
-        if (config.htabTypes?.length) {
-            logger.debug('adding %i htab types', config.htabTypes.length);
-            try {
-                context.hashTableTypes.addHTABTypes(config.htabTypes);
-            } catch (e) {
-                logger.error('error occurred during adding custom HTAB types', e);
-            }
-        }
-
-        if (config.simpleHashTableTypes?.length) {
-            logger.debug('adding %i simplehash types', config.simpleHashTableTypes.length);
-            try {
-                context.hashTableTypes.addSimplehashTypes(config.simpleHashTableTypes);
-            } catch (e) {
-                logger.error('error occurred during adding custom simple hash table types', e);
-            }
-        }
-        
-        if (config.bitmaskEnumMembers?.length) {
-            logger.debug('adding %i enum bitmask types', config.bitmaskEnumMembers.length);
-            try {
-                context.specialMemberRegistry.addFlagsMembers(config.bitmaskEnumMembers);
-            } catch (e) {
-                logger.error('error occurred during adding enum bitmask types', e);
-            }
-        }
-    }
-
-    async tryGetPgVersion(frameId: number) {
-        try {
-            const result = await this.getDebug().evaluate('server_version_num', frameId);
-            const version = Number(result.result);
-            if (!Number.isInteger(version) || !(0 <= version && version <= 999999)) {
-                logger.warn('server_version_num has unexpected result: %s', result.result);
-                return undefined;
-            }
-
-            return version;
-        } catch (err) {
-            logger.warn('could not get value of "server_version_num"', err);
-            return undefined;
-        }
-    }
-
-    async createExecContext(frameId: number) {
-        const context = new vars.ExecContext(this.nodeVars, this.getDebug());
-
-        /* Initialize using default builtin values */
-        const sm = context.specialMemberRegistry;
-        sm.addArraySpecialMembers(constants.getArraySpecialMembers());
-        sm.addListCustomPtrSpecialMembers(constants.getKnownCustomListPtrs());
-
-        const hash = context.hashTableTypes;
-        hash.addHTABTypes(constants.getWellKnownHTABTypes());
-        
-        /* Version specific initialization */
-        const pgversion = await this.tryGetPgVersion(frameId);
-        if (pgversion) {
-            logger.info('detected PostgreSQL version: %i', pgversion);
-            context.adjustProperties(pgversion);
-            
-            if (10_00_00 <= pgversion) {
-                hash.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
-            }
-            
-            /* 
-             * Initialize flags only if we know PostgreSQL version for sure,
-             * otherwise we will lead developer in the wrong way - this is
-             * even worse.
-             */
-            sm.addFlagsMembers(constants.getWellKnownFlagsMembers(pgversion));
-        } else {
-            logger.info('could not detect PostgreSQL version');
-            hash.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
-        }
-        
-        /* Initialize using configuration file - last, so user can override */
-        this.initializeExecContextFromConfig(context);  
-        
-        return context;
-    }
-
-    private async getChildrenInternal(element?: vars.Variable | undefined) {
-        if (element) {
-            return await element.getChildren();
-        }
-
-        const frameId = await this.getDebug().getCurrentFrameId();
-        if (frameId == undefined) {
-            return;
-        }
-
-        if (!this.context) {
-            this.context = await this.createExecContext(frameId);
-        }
-
-        const variables = await this.getTopLevelVariables(this.context, frameId);
-        if (!variables) {
-            return variables;
-        }
-
-        const root = new vars.VariablesRoot(variables, this.context);
-        variables.forEach(v => v.parent = root);
-        return variables;
-    }
-
-    async getChildren(element?: vars.Variable | undefined) {
-        if (!this.debug) {
-            return;
-        }
-
-        try {
-            return await this.getChildrenInternal(element);
-        } catch (err) {
-            if (!(err instanceof Error)) {
-                throw err;
-            }
-
-            /* 
-             * There may be race condition when our state of debugger 
-             * is 'ready', but real debugger is not. Such cases include
-             * debugger detach, continue after breakpoint etc. 
-             * (we can not send commands to debugger).
-             * 
-             * In this cases we must return empty array - this will 
-             * clear our tree view.
-             */
-            if (err.message.indexOf('No debugger available') !== -1 ||
-                err.message.indexOf('process is running') !== -1) {
-                return;
-            }
-
-            /* 
-             * It would be better to just log error, otherwise if we re-throw
-             * then user will see error popup and just freeze without
-             * understanding where this error comes from.
-             */
-            logger.error('error occurred during obtaining children', err);
-            return;
-        }
-    }
-
-    async getTopLevelVariables(context: vars.ExecContext, frameId: number) {
-        const variables = await context.debug.getVariables(frameId);
-        return await vars.Variable.mapVariables(variables, frameId, context, undefined);
-    }
-
-    dispose() {
-        this.subscriptions.forEach(s => s.dispose());
-        this.subscriptions = [];
-    }
 }
 
 export async function dumpVariableToLogCommand(args: unknown, debug: dbg.IDebuggerFacade) {
@@ -711,85 +460,115 @@ async function bootstrapExtensionCommand() {
     await vscode.window.showTextDocument(td);
 }
 
-export async function readConfigFile(workspace: vscode.WorkspaceFolder) {
-    const path = Configuration.getConfigFile(workspace.uri);
-    let document;
-    try {
-        document = await vscode.workspace.openTextDocument(path);
-    } catch {
-        /* the file might not exist, this is ok */
-        return;
-    }
+export function createPgVariablesView(context: vscode.ExtensionContext,
+                                      nodeVars: vars.NodeVarRegistry) {
+    const nodesView = new vars.PgVariablesViewProvider(nodeVars);
+    const nodesViewName = Configuration.Views.NodePreviewTreeView;
+    const treeDisposable = vscode.window.registerTreeDataProvider(nodesViewName,
+                                                                  nodesView);
+    context.subscriptions.push(
+        treeDisposable,
+        nodesView,
+        
+        vscode.debug.onDidStartDebugSession(s => {
+            if (nodesView.isInDebug()) {
+                return;
+            }
+            
+            const debug = createDebuggerFacade(s.type, nodesView);
+            if (!debug) {
+                return;
+            }
 
-    let text;
-    try {
-        text = document.getText();
-    } catch (err: unknown) {
-        logger.error('could not read settings file %s', document.uri.fsPath, err);
-        return;
-    }
+            nodesView.startDebugging(debug);
+        }),
+        vscode.debug.onDidTerminateDebugSession(_ => {
+            nodesView.stopDebugging();
+        }),
+    );
 
-    if (text.length === 0) {
-        /* JSON file can be used as activation event */
-        return;
-    }
-
-    let data;
-    try {
-        data = JSON.parse(text);
-    } catch (err: unknown) {
-        logger.error('could not parse JSON settings file %s', document.uri.fsPath, err);
-        return;
-    }
-    
-    return data;
+    return nodesView;
 }
 
-export function setupExtension(context: vscode.ExtensionContext,
-                               nodeVars: vars.NodeVarRegistry,
-                               nodesView: NodePreviewTreeViewProvider) {
+export function setupExtension(context: vscode.ExtensionContext) {    
+    /* Extension's configuration file */
+    setupConfigurationFile(context);
 
-    function registerCommand(name: string, command: (...args: unknown[]) => void) {
-        const disposable = vscode.commands.registerCommand(name, command);
-        context.subscriptions.push(disposable);
-    }
+    /* Variables view */
+    const pgvars = setupPgVariablesView(context);
+    
+    /* Completion support for postgresql.conf */
+    setupPgConfSupport(context);
+    
+    /* Setup debugger specific function */
+    dbg.setupDebugger(context, pgvars);
+    
+    /* Formatter */
+    setupFormatting();
+    
+    /* Miscellaneous (remaining) commands */
+    registerCommands(context, pgvars);
+}
 
-    const refreshWorkspaceConfiguration = async (workspace: vscode.WorkspaceFolder) => {
-        const config = await readConfigFile(workspace);
-        if (!config) {
+function setupPgVariablesView(context: vscode.ExtensionContext) {
+    const nodeVars = new vars.NodeVarRegistry();
+    const pgvars = createPgVariablesView(context, nodeVars);
+    
+    setupNodeTagFiles(context, nodeVars);
+    
+    /* Refresh config files when debug session starts */
+    vscode.debug.onDidStartDebugSession(async _ => {
+        if (!vscode.workspace.workspaceFolders?.length) {
             return;
         }
 
-        const parsedConfigFile = parseVariablesConfiguration(config);
-        nodesView.configFile = parsedConfigFile;
-    };
-    
-    const refreshConfigurationFromFolders = async (folders: readonly vscode.WorkspaceFolder[]) => {
-        for (const folder of folders) {
+        for (const folder of vscode.workspace.workspaceFolders) {
+            logger.info('refreshing configuration files due to debug session start');
             try {
-                await refreshWorkspaceConfiguration(folder);
+                const file = Configuration.getConfigFile(folder.uri);
+                await refreshVariablesConfiguration(file);
             } catch (err: unknown) {
                 logger.error('could not refresh configuration in workspace %s', folder.uri.fsPath, err);
             }
         }
-    };
+    }, undefined, context.subscriptions);
+
+    return pgvars;
+}
+
+function setupConfigurationFile(context: vscode.ExtensionContext) {
+    /* Mark configuration dirty when user changes it - no eager parsing */
+    /*
+     * TODO: use dirty flag, instead of eager parsing
+     * const configFileWatcher = vscode.workspace.createFileSystemWatcher(Configuration.ExtensionSettingsFileName, false, false, true);
+     * context.subscriptions.push(configFileWatcher);
+     * configFileWatcher.onDidChange(() => markConfigFileDirty());
+     * configFileWatcher.onDidCreate(() => markConfigFileDirty());
+     */
 
     /* Refresh config files when debug session starts */
     vscode.debug.onDidStartDebugSession(async _ => {
-        if (vscode.workspace.workspaceFolders?.length) {
-            logger.info('refreshing configuration files due to debug session start');
-            await refreshConfigurationFromFolders(vscode.workspace.workspaceFolders);
+        if (!vscode.workspace.workspaceFolders?.length) {
+            return;
+        }
+
+        logger.info('refreshing configuration files due to debug session start');
+        for (const folder of vscode.workspace.workspaceFolders) {
+            const file = Configuration.getConfigFile(folder.uri);
+            await refreshVariablesConfiguration(file);
         }
     }, undefined, context.subscriptions);
+}
 
+function registerCommands(context: vscode.ExtensionContext, pgvars: vars.PgVariablesViewProvider) {
     /* Register command to dump variable to log */
     const pprintVarToLogCmd = async (args: unknown) => {
         try {
-            if (!nodesView.context) {
+            if (!pgvars.context) {
                 return;
             }
 
-            await dumpVariableToLogCommand(args, nodesView.context.debug);
+            await dumpVariableToLogCommand(args, pgvars.context.debug);
         } catch (err: unknown) {
             logger.error('error while dumping node to log', err);
         }
@@ -797,7 +576,7 @@ export function setupExtension(context: vscode.ExtensionContext,
 
     const dumpNodeToDocCmd = async (args: unknown) => {
         try {
-            if (!nodesView.context) {
+            if (!pgvars.context) {
                 return;
             }
 
@@ -824,9 +603,26 @@ export function setupExtension(context: vscode.ExtensionContext,
                 return;
             }
 
-            await dumpVariableToDocumentCommand(variable, nodesView.context.debug);
+            await dumpVariableToDocumentCommand(variable, pgvars.context.debug);
         } catch (err: unknown) {
             logger.error('error while dumping node to log', err);
+        }
+    };
+
+    /* Refresh config file command */
+    const refreshConfigCmd = async () => {
+        if (!vscode.workspace.workspaceFolders?.length) {
+            return;
+        }
+        
+        logger.info('refreshing config file due to command execution');
+        for (const folder of vscode.workspace.workspaceFolders) {
+            try {
+                const file = Configuration.getConfigFile(folder.uri);
+                await refreshConfiguration(file);
+            } catch (err: unknown) {
+                logger.error('could not refresh configuration in workspace %s', folder.uri.fsPath, err);
+            }
         }
     };
 
@@ -908,19 +704,9 @@ export function setupExtension(context: vscode.ExtensionContext,
         }
     };
 
-    /* Refresh config file command register */
-    const refreshConfigCmd = async () => {
-        if (!vscode.workspace.workspaceFolders?.length) {
-            return;
-        }
-
-        logger.info('refreshing config file due to command execution');
-        await refreshConfigurationFromFolders(vscode.workspace.workspaceFolders);
-    };
-
     const refreshVariablesCmd = () => {
         logger.info('refreshing variables view due to command');
-        nodesView.refresh();
+        pgvars.refresh();
     };
 
     const addVariableToWatchCmd = async (args: unknown) => {
@@ -946,14 +732,19 @@ export function setupExtension(context: vscode.ExtensionContext,
     /* Used for testing only */
     const getVariablesCmd = async () => {
         try {
-            return await nodesView.getChildren(undefined);
+            return await pgvars.getChildren(undefined);
         } catch (err) {
             logger.error('failed to get variables', err);
         }
     };
 
     const getNodeTreeProviderCmd = async () => {
-        return nodesView;
+        return pgvars;
+    };
+
+    const registerCommand = (name: string, command: (...args: unknown[]) => void) => {
+        const disposable = vscode.commands.registerCommand(name, command);
+        context.subscriptions.push(disposable);
     };
 
     registerCommand(Configuration.Commands.RefreshConfigFile, refreshConfigCmd);
@@ -966,40 +757,19 @@ export function setupExtension(context: vscode.ExtensionContext,
     registerCommand(Configuration.Commands.GetVariables, getVariablesCmd);
     registerCommand(Configuration.Commands.GetTreeViewProvider, getNodeTreeProviderCmd);
     registerCommand(Configuration.Commands.FindCustomTypedefsLists, findCustomTypedefsListCmd);
-
-    /* Process config files immediately */
-    if (vscode.workspace.workspaceFolders) {
-        refreshConfigurationFromFolders(vscode.workspace.workspaceFolders);
-    } else {
-        /* Wait for folder open */
-        const disposable = vscode.workspace.onDidChangeWorkspaceFolders(e => {
-            refreshConfigurationFromFolders(e.added);
-
-            /*
-             * Run only once, otherwise multiple commands will be registered - 
-             * it will spoil up everything
-             */
-            disposable?.dispose();
-        }, context.subscriptions);
-    }
-
-    /* Read files with NodeTags */
-    setupNodeTagFiles(nodeVars, context);
-    
-    /* Completion support for postgresql.conf */
-    setupPgConfSupport(context);
 }
 
-async function setupNodeTagFiles(nodeVars: vars.NodeVarRegistry,
-                                 context: vscode.ExtensionContext): Promise<undefined> {
-
+async function setupNodeTagFiles(context: vscode.ExtensionContext,
+                                 nodeVars: vars.NodeVarRegistry) {
     const getNodeTagFiles = () => {
+        /* TODO: remove this setting */
         const customNodeTagFiles = Configuration.getCustomNodeTagFiles();
         if (customNodeTagFiles?.length) {
             return customNodeTagFiles;
         }
 
         return [
+            /* TODO: use getWorkspacePgSrcFile */
             utils.getPgSrcFile('src', 'include', 'nodes', 'nodes.h'),
             utils.getPgSrcFile('src', 'include', 'nodes', 'nodetags.h'),
         ];
@@ -1044,6 +814,7 @@ async function setupNodeTagFiles(nodeVars: vars.NodeVarRegistry,
     };
 
     if (vscode.workspace.workspaceFolders?.length) {
+        /* TODO: throttle */
         await Promise.all(
             vscode.workspace.workspaceFolders.map(async folder =>
                 await setupSingleFolder(folder),

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as dap from "./dap";
 import { Features } from './utils';
-import { NodePreviewTreeViewProvider } from './extension';
+import { PgVariablesViewProvider } from './variables';
 import {EvaluationError} from './error';
 
 export interface IDebugVariable {
@@ -947,8 +947,8 @@ export function pointerIsNull(pointer: string) {
     return pointer === '0x0' || /0x0+/.test(pointer);
 }
 
-export function setupDebugger(variablesView: NodePreviewTreeViewProvider,
-                              context: vscode.ExtensionContext) {
+export function setupDebugger(context: vscode.ExtensionContext, 
+                              variablesView: PgVariablesViewProvider) {
     if (!Features.debugFocusEnabled()) {
         /* 
          * Prior to VS Code version 1.90 there is no debugFocus API - 

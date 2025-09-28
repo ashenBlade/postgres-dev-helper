@@ -3,9 +3,10 @@ import {languages} from 'vscode';
 import * as utils from './utils';
 import { Log as logger } from './logger';
 import { getWellKnownBuiltinContribs } from './constants';
-import { Configuration, readConfigFile } from './extension';
+import { Configuration } from './extension';
 import { parseFormatterConfiguration, 
-         PgindentConfiguration } from './configuration';
+         PgindentConfiguration, 
+         readConfigFile } from './configuration';
 import { PghhError } from './error';
 import * as path from 'path';
 import * as os from 'os';
@@ -236,7 +237,12 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
     }
     
     private async getTypedefsFromConfiguration(workspace: vscode.WorkspaceFolder) {
-        const configObj = await readConfigFile(workspace);
+        const file = Configuration.getConfigFile(workspace.uri);
+        if (!await utils.fileExists(file)) {
+            return [];
+        }
+
+        const configObj = await readConfigFile(file);
         if (!configObj) {
             return [];
         }
@@ -539,7 +545,7 @@ function registerDiffCommand(formatter: PgindentDocumentFormatterProvider) {
     });
 }
 
-export async function registerFormatting() {
+export function setupFormatting() {
     const formatter = new PgindentDocumentFormatterProvider();
     for (const lang of ['c', 'h']) {
         languages.registerDocumentFormattingEditProvider({

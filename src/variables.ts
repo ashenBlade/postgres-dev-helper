@@ -5,6 +5,7 @@ import * as constants from './constants';
 import * as dbg from './debugger';
 import { Log as logger } from './logger';
 import { PghhError, EvaluationError, unnullify } from './error';
+import { getVariablesConfiguration } from './configuration';
 
 export interface AliasInfo {
     /* Declared type */
@@ -5379,4 +5380,240 @@ export async function getWatchExpressionCommandHandler(variable: unknown) {
     return variable instanceof Variable
         ? await variable.getWatchExpression()
         : null;
+}
+
+export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable>, vscode.Disposable {
+    /**
+     * ExecContext used to pass to all members.
+     * 
+     * Field is set on first 'getChildren' invocation.
+     */
+    context?: ExecContext;
+
+    /* 
+     * Interface to access extension-specific debugger features.
+     * 
+     * Set during debug-session, and 'undefined' when there is no debugging.
+     */
+    debug?: dbg.GenericDebuggerFacade;
+
+    constructor(private nodeVars: NodeVarRegistry) { }
+
+    /* https://code.visualstudio.com/api/extension-guides/tree-view#updating-tree-view-content */
+    private _onDidChangeTreeData = new vscode.EventEmitter<void>();
+    readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+    refresh(): void {
+        this.context?.step.reset();
+        this._onDidChangeTreeData.fire();
+    }
+    
+    startDebugging(debug: dbg.GenericDebuggerFacade) {
+        this.debug?.dispose();
+        this.debug = debug;
+        this.context = undefined;
+    }
+    
+    isInDebug() {
+        return this.debug !== undefined;
+    }
+    
+    stopDebugging() {
+        this.debug?.dispose();
+        this.context = undefined;
+        /* Clean variables view if any */
+        this._onDidChangeTreeData.fire();
+    }
+
+    async getTreeItem(variable: Variable) {
+        return variable.getTreeItem();
+    }
+    
+    getDebug() {
+        return unnullify(this.debug, 'this.debug');
+    }
+    
+    async initializeExecContextFromConfig(context: ExecContext) {
+        const config = getVariablesConfiguration();
+        if (!config) {
+            return;
+        }
+        
+        if (config.arrayInfos?.length) {
+            logger.debug('adding %i array special members from config file', config.arrayInfos.length);
+            try {
+                context.specialMemberRegistry.addArraySpecialMembers(config.arrayInfos);
+            } catch (err) {
+                logger.error('could not add custom array special members', err);
+            }
+        }
+
+        if (config.aliasInfos?.length) {
+            logger.debug('adding %i aliases from config file', config.aliasInfos.length);
+            try {
+                context.nodeVarRegistry.addAliases(config.aliasInfos);
+            } catch (err) {
+                logger.error('could not add aliases from configuration', err);
+            }
+        }
+
+        if (config.customListTypes?.length) {
+            logger.debug('adding %i custom list types', config.customListTypes.length);
+            try {
+                context.specialMemberRegistry.addListCustomPtrSpecialMembers(config.customListTypes);
+            } catch (e) {
+                logger.error('error occurred during adding custom List types', e);
+            }
+        }
+
+        if (config.htabTypes?.length) {
+            logger.debug('adding %i htab types', config.htabTypes.length);
+            try {
+                context.hashTableTypes.addHTABTypes(config.htabTypes);
+            } catch (e) {
+                logger.error('error occurred during adding custom HTAB types', e);
+            }
+        }
+
+        if (config.simpleHashTableTypes?.length) {
+            logger.debug('adding %i simplehash types', config.simpleHashTableTypes.length);
+            try {
+                context.hashTableTypes.addSimplehashTypes(config.simpleHashTableTypes);
+            } catch (e) {
+                logger.error('error occurred during adding custom simple hash table types', e);
+            }
+        }
+        
+        if (config.bitmaskEnumMembers?.length) {
+            logger.debug('adding %i enum bitmask types', config.bitmaskEnumMembers.length);
+            try {
+                context.specialMemberRegistry.addFlagsMembers(config.bitmaskEnumMembers);
+            } catch (e) {
+                logger.error('error occurred during adding enum bitmask types', e);
+            }
+        }
+    }
+
+    async tryGetPgVersion(frameId: number) {
+        try {
+            const result = await this.getDebug().evaluate('server_version_num', frameId);
+            const version = Number(result.result);
+            if (!Number.isInteger(version) || !(0 <= version && version <= 999999)) {
+                logger.warn('server_version_num has unexpected result: %s', result.result);
+                return undefined;
+            }
+
+            return version;
+        } catch (err) {
+            logger.warn('could not get value of "server_version_num"', err);
+            return undefined;
+        }
+    }
+
+    async createExecContext(frameId: number) {
+        const context = new ExecContext(this.nodeVars, this.getDebug());
+
+        /* Initialize using default builtin values */
+        const sm = context.specialMemberRegistry;
+        sm.addArraySpecialMembers(constants.getArraySpecialMembers());
+        sm.addListCustomPtrSpecialMembers(constants.getKnownCustomListPtrs());
+
+        const hash = context.hashTableTypes;
+        hash.addHTABTypes(constants.getWellKnownHTABTypes());
+        
+        /* Version specific initialization */
+        const pgversion = await this.tryGetPgVersion(frameId);
+        if (pgversion) {
+            logger.info('detected PostgreSQL version: %i', pgversion);
+            context.adjustProperties(pgversion);
+            
+            if (10_00_00 <= pgversion) {
+                hash.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
+            }
+            
+            /* 
+             * Initialize flags only if we know PostgreSQL version for sure,
+             * otherwise we will lead developer in the wrong way - this is
+             * even worse.
+             */
+            sm.addFlagsMembers(constants.getWellKnownFlagsMembers(pgversion));
+        } else {
+            logger.info('could not detect PostgreSQL version');
+            hash.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
+        }
+        
+        /* Initialize using configuration file - last, so user can override */
+        this.initializeExecContextFromConfig(context);  
+        
+        return context;
+    }
+
+    private async getChildrenInternal(element?: Variable | undefined) {
+        if (element) {
+            return await element.getChildren();
+        }
+
+        const frameId = await this.getDebug().getCurrentFrameId();
+        if (frameId == undefined) {
+            return;
+        }
+
+        if (!this.context) {
+            this.context = await this.createExecContext(frameId);
+        }
+
+        const variables = await this.getTopLevelVariables(this.context, frameId);
+        if (!variables) {
+            return variables;
+        }
+
+        const root = new VariablesRoot(variables, this.context);
+        variables.forEach(v => v.parent = root);
+        return variables;
+    }
+
+    async getChildren(element?: Variable | undefined) {
+        if (!this.debug) {
+            return;
+        }
+
+        try {
+            return await this.getChildrenInternal(element);
+        } catch (err) {
+            if (!(err instanceof Error)) {
+                throw err;
+            }
+
+            /* 
+             * There may be race condition when our state of debugger 
+             * is 'ready', but real debugger is not. Such cases include
+             * debugger detach, continue after breakpoint etc. 
+             * (we can not send commands to debugger).
+             * 
+             * In this cases we must return empty array - this will 
+             * clear our tree view.
+             */
+            if (err.message.indexOf('No debugger available') !== -1 ||
+                err.message.indexOf('process is running') !== -1) {
+                return;
+            }
+
+            /* 
+             * It would be better to just log error, otherwise if we re-throw
+             * then user will see error popup and just freeze without
+             * understanding where this error comes from.
+             */
+            logger.error('error occurred during obtaining children', err);
+            return;
+        }
+    }
+
+    async getTopLevelVariables(context: ExecContext, frameId: number) {
+        const variables = await context.debug.getVariables(frameId);
+        return await Variable.mapVariables(variables, frameId, context, undefined);
+    }
+    
+    dispose() {
+        this.stopDebugging();
+        this._onDidChangeTreeData.dispose();
+    }
 }

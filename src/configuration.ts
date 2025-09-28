@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 import * as vars from './variables';
 import * as utils from './utils';
+import { Log as logger } from './logger';
 
 export interface VariablesConfiguration {
     /* Array special members */
@@ -501,4 +502,98 @@ export function parseVariablesConfiguration(configFile: unknown): VariablesConfi
             bitmaskEnumMembers,
         };
     }
+}
+
+export async function readConfigFile(file: vscode.Uri) {
+    let document;
+    try {
+        document = await vscode.workspace.openTextDocument(file);
+    } catch {
+        /* the file might not exist, this is ok */
+        return;
+    }
+
+    let text;
+    try {
+        text = document.getText();
+    } catch (err: unknown) {
+        logger.error('could not read settings file %s', document.uri.fsPath, err);
+        return;
+    }
+
+    if (text.length === 0) {
+        /* JSON file can be used as activation event */
+        return;
+    }
+
+    let data;
+    try {
+        data = JSON.parse(text);
+    } catch (err: unknown) {
+        logger.error('could not parse JSON settings file %s', document.uri.fsPath, err);
+        return;
+    }
+    
+    return data;
+}
+
+let variablesConfig: VariablesConfiguration | undefined;
+let formatterConfig: PgindentConfiguration | undefined;
+
+/* Flag indicating that configuration file should be refreshed */
+let configDirty = true;
+
+export function getVariablesConfiguration(): VariablesConfiguration | undefined {
+    return variablesConfig;
+}
+
+export function getFormatterConfiguration(): PgindentConfiguration | undefined {
+    return formatterConfig;
+}
+
+export async function refreshVariablesConfiguration(file: vscode.Uri) {
+    if (!configDirty) {
+        return;
+    }
+
+    const config = await readConfigFile(file);
+    if (!config) {
+        return;
+    }
+    
+    variablesConfig = parseVariablesConfiguration(config);
+    configDirty = false;
+}
+
+export async function refreshFormatterConfiguration(file: vscode.Uri) {
+    if (!configDirty) {
+        return;
+    }
+
+    const config = await readConfigFile(file);
+    if (!config) {
+        return;
+    }
+
+    formatterConfig = parseFormatterConfiguration(config);
+    configDirty = false;
+}
+
+export async function refreshConfiguration(file: vscode.Uri) {
+    if (!configDirty) {
+        return;
+    }
+
+    const config = await readConfigFile(file);
+    if (!config) {
+        return;
+    }
+
+    formatterConfig = parseFormatterConfiguration(config);
+    variablesConfig = parseVariablesConfiguration(config);
+    configDirty = false;
+}
+
+export function markConfigFileDirty() {
+    configDirty = true;
 }
