@@ -439,27 +439,27 @@ export class ExecContext {
     /**
      * Registry about NodeTag variables information
      */
-    nodeVarRegistry: NodeVarRegistry;
+    nodeVarRegistry = new NodeVarRegistry();
 
     /**
      * Registry with information of Special Members
      */
-    specialMemberRegistry: SpecialMemberRegistry;
+    specialMemberRegistry = new SpecialMemberRegistry();
 
     /**
      * Types of entries, that different HTAB store (dynahash.c)
      */
-    hashTableTypes: HashTableTypes;
+    hashTableTypes = new HashTableTypes();
+
+    /**
+     * Cached properties for current step.
+     */
+    step = new StepContext();
 
     /**
      * Facade for debugger interface (TAP)
      */
     debug: dbg.IDebuggerFacade;
-
-    /**
-     * Cached properties for current step.
-     */
-    step: StepContext;
 
     /* Properties for current debug session */
     /**
@@ -554,12 +554,8 @@ export class ExecContext {
      */
     canUseMacros = true;
 
-    constructor(nodeVarRegistry: NodeVarRegistry, debug: dbg.IDebuggerFacade) {
-        this.nodeVarRegistry = nodeVarRegistry;
+    constructor(debug: dbg.IDebuggerFacade) {
         this.debug = debug;
-        this.specialMemberRegistry = new SpecialMemberRegistry();
-        this.hashTableTypes = new HashTableTypes();
-        this.step = new StepContext();
     }
 
     async getCurrentFunctionName() {
@@ -5397,8 +5393,6 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
      */
     debug?: dbg.GenericDebuggerFacade;
 
-    constructor(private nodeVars: NodeVarRegistry) { }
-
     /* https://code.visualstudio.com/api/extension-guides/tree-view#updating-tree-view-content */
     private _onDidChangeTreeData = new vscode.EventEmitter<void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
@@ -5510,7 +5504,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
     }
 
     async createExecContext(frameId: number) {
-        const context = new ExecContext(this.nodeVars, this.getDebug());
+        const context = new ExecContext(this.getDebug());
 
         /* Initialize using default builtin values */
         const sm = context.specialMemberRegistry;
@@ -5542,7 +5536,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         }
         
         /* Initialize using configuration file - last, so user can override */
-        this.initializeExecContextFromConfig(context);  
+        this.initializeExecContextFromConfig(context);
         
         return context;
     }

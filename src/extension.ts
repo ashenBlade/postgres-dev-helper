@@ -460,9 +460,8 @@ async function bootstrapExtensionCommand() {
     await vscode.window.showTextDocument(td);
 }
 
-export function createPgVariablesView(context: vscode.ExtensionContext,
-                                      nodeVars: vars.NodeVarRegistry) {
-    const nodesView = new vars.PgVariablesViewProvider(nodeVars);
+export function createPgVariablesView(context: vscode.ExtensionContext) {
+    const nodesView = new vars.PgVariablesViewProvider();
     const nodesViewName = Configuration.Views.NodePreviewTreeView;
     const treeDisposable = vscode.window.registerTreeDataProvider(nodesViewName,
                                                                   nodesView);
@@ -511,9 +510,10 @@ export function setupExtension(context: vscode.ExtensionContext) {
 }
 
 function setupPgVariablesView(context: vscode.ExtensionContext) {
-    const nodeVars = new vars.NodeVarRegistry();
-    const pgvars = createPgVariablesView(context, nodeVars);
+    const pgvars = createPgVariablesView(context);
     
+    /* TODO: unused - remove */
+    const nodeVars = new vars.NodeVarRegistry();
     setupNodeTagFiles(context, nodeVars);
 
     return pgvars;
