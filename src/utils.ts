@@ -22,26 +22,47 @@ export function isValidIdentifier(value: string) {
 
 /* Get start-end indexes range for given type */
 function getStructNameRange(type: string) {
-    /* Start locating from end, because we can use '*' as TODO */
-    /* XXX: может ли здесь оказаться FLA? */
+    /*
+     * Start locating from end, because we can use '*' as the boundary of
+     * typename end.
+     *
+     * During some manual testing observed common behavior of debuggers:
+     * after type name can be only pointer - that is no qualifiers will follow.
+     * 
+     * i.e. declared in src -> DAP 'type':
+     * 
+     *  PlannerInfo const *   -> const PlannerInfo *
+     *  int volatile * const  -> volatile int * const
+     *  int const * const     -> const int * const;
+     *  const Relids          -> const Relids
+     * 
+     * XXX: this is broken for FLA (they have [] at the end), but they
+     *      don't get here yet, so don't worry.
+     */
     const lastPtrIndex = type.indexOf('*');
     let endOfIdentifier;
     if (lastPtrIndex === -1) {
+        /* Type without any pointer */
         endOfIdentifier = type.length;
     } else {
-        
         endOfIdentifier = lastPtrIndex - 1;
         while (endOfIdentifier >= 0 && type.charAt(endOfIdentifier) === ' ') {
             endOfIdentifier--;
             continue;
         }
 
-        /* TODO: тут может ситуация быть с пользовательскими typedef'ами - в комменте описать, что проверка нужна */
+        /* 
+         * Another observation is that all debuggers add spaces around pointers,
+         * so one might think we can omit such check. But do not forget that
+         * we are working with *effective* types - after we have substituted
+         * aliased typename and user can omit spaces in between.
+         */
         if (endOfIdentifier < 0) {
             endOfIdentifier = lastPtrIndex;
         }
     }
     
+    /* Search for start of typename - it must be first space before typename */
     let startOfIndentifier = type.lastIndexOf(' ', endOfIdentifier);
     if (startOfIndentifier === -1) {
         /* Type without any qualifiers */
