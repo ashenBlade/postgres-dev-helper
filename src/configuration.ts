@@ -18,6 +18,8 @@ export interface VariablesConfiguration {
     simpleHashTableTypes?: vars.SimplehashEntryInfo[];
     /* Enum values for integer fields */
     bitmaskEnumMembers?: vars.BitmaskMemberInfo[];
+    /* Extra NodeTags */
+    nodetags?: string[];
 }
 
 export interface PgindentConfiguration {
@@ -456,6 +458,32 @@ export function parseVariablesConfiguration(configFile: unknown): VariablesConfi
         
         return members;
     };
+    
+    const parseNodeTags = (obj: unknown): string[] | undefined => {
+        if (!Array.isArray(obj)) {
+            return;
+        }
+        
+        const result: string[] = [];
+        for (let o of obj) {
+            if (typeof o !== 'string') {
+                continue;
+            }
+            
+            if (o.startsWith('T_')) {
+                o = o.substring(2);
+            }
+
+            o = o.trim();
+            if (!utils.isValidIdentifier(o)) {
+                continue;
+            }
+
+            result.push(o);
+        }
+        
+        return result;
+    };
 
     if (!(typeof configFile === 'object' && configFile)) {
         return;
@@ -487,13 +515,17 @@ export function parseVariablesConfiguration(configFile: unknown): VariablesConfi
     const bitmaskEnumMembers = 'enums' in configFile 
         ? parseEnumBitmasks(configFile.enums)
         : undefined;
+    const nodetags = 'nodetags' in configFile
+        ? parseNodeTags(configFile.nodetags)
+        : undefined;
 
     if (   arrayInfos?.length
         || aliasInfos?.length
         || customListTypes?.length
         || htabTypes?.length
         || simpleHashTableTypes?.length
-        || bitmaskEnumMembers?.length) {
+        || bitmaskEnumMembers?.length
+        || nodetags?.length) {
         return {
             arrayInfos,
             aliasInfos,
@@ -501,6 +533,7 @@ export function parseVariablesConfiguration(configFile: unknown): VariablesConfi
             htabTypes,
             simpleHashTableTypes,
             bitmaskEnumMembers,
+            nodetags,
         };
     }
 }

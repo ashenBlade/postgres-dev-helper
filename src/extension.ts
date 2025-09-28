@@ -496,15 +496,12 @@ export function setupExtension(context: vscode.ExtensionContext) {
     /* Variables view */
     const pgvars = setupPgVariablesView(context);
     
-    /* Completion support for postgresql.conf */
-    setupPgConfSupport(context);
-    
-    /* Setup debugger specific function */
-    dbg.setupDebugger(context, pgvars);
-    
     /* Formatter */
     setupFormatting();
-    
+
+    /* Completion support for postgresql.conf */
+    setupPgConfSupport(context);
+
     /* Miscellaneous (remaining) commands */
     registerCommands(context, pgvars);
 }
@@ -512,19 +509,32 @@ export function setupExtension(context: vscode.ExtensionContext) {
 function setupPgVariablesView(context: vscode.ExtensionContext) {
     const pgvars = createPgVariablesView(context);
     
-    /* TODO: unused - remove */
-    const nodeVars = new vars.NodeVarRegistry();
-    setupNodeTagFiles(context, nodeVars);
+    /* Setup debugger specific function */
+    dbg.setupDebugger(context, pgvars);
 
     return pgvars;
 }
 
 function setupConfigurationFile(context: vscode.ExtensionContext) {
     /* Mark configuration dirty when user changes it - no eager parsing */
-    const configFileWatcher = vscode.workspace.createFileSystemWatcher(Configuration.ExtensionSettingsFileName, false, false, true);
-    context.subscriptions.push(configFileWatcher);
-    configFileWatcher.onDidChange(markConfigFileDirty, undefined, context.subscriptions);
-    configFileWatcher.onDidCreate(markConfigFileDirty, undefined, context.subscriptions);
+    const registerFolderWatcher = (folder: vscode.WorkspaceFolder) => {
+        const pattern = new vscode.RelativePattern(
+            folder, `.vscode/${Configuration.ExtensionSettingsFileName}`);
+        const configFileWatcher = vscode.workspace.createFileSystemWatcher(
+            pattern, false, false, false);
+        context.subscriptions.push(configFileWatcher);
+        configFileWatcher.onDidChange(markConfigFileDirty, undefined, context.subscriptions);
+        configFileWatcher.onDidCreate(markConfigFileDirty, undefined, context.subscriptions);
+        configFileWatcher.onDidDelete(markConfigFileDirty, undefined, context.subscriptions);  
+    };
+    
+    if (vscode.workspace.workspaceFolders?.length) {
+        vscode.workspace.workspaceFolders.forEach(registerFolderWatcher);
+    } else {
+        vscode.workspace.onDidChangeWorkspaceFolders(e => {
+            e.added.forEach(registerFolderWatcher);
+        }, undefined, context.subscriptions);
+    }
 }
 
 function registerCommands(context: vscode.ExtensionContext, pgvars: vars.PgVariablesViewProvider) {
@@ -627,6 +637,7 @@ function registerCommands(context: vscode.ExtensionContext, pgvars: vars.PgVaria
                             simplehash: [],
                             enums: [],
                             typedefs: [],
+                            nodetags: [],
                         },
                         undefined, '    '));
                 } catch (err: unknown) {
@@ -719,77 +730,7 @@ function registerCommands(context: vscode.ExtensionContext, pgvars: vars.PgVaria
     registerCommand(Configuration.Commands.FindCustomTypedefsLists, findCustomTypedefsListCmd);
 }
 
-async function setupNodeTagFiles(context: vscode.ExtensionContext,
-                                 nodeVars: vars.NodeVarRegistry) {
-    /* TODO: remove this thing with setting */
-    const getNodeTagFiles = () => {
-        /* TODO: remove this setting */
-        const customNodeTagFiles = Configuration.getCustomNodeTagFiles();
-        if (customNodeTagFiles?.length) {
-            return customNodeTagFiles;
-        }
-
-        return [
-            /* TODO: use getWorkspacePgSrcFile */
-            utils.getPgSrcFile('src', 'include', 'nodes', 'nodes.h'),
-            utils.getPgSrcFile('src', 'include', 'nodes', 'nodetags.h'),
-        ];
-    };
-    
-    const handleNodeTagFile = async (path: vscode.Uri) => {
-        if (!await utils.fileExists(path)) {
-            return;
-        }
-
-        logger.debug('processing %s NodeTags file', path.fsPath);
-        const document = await vscode.workspace.openTextDocument(path);
-        try {
-            const added = nodeVars.updateNodeTypesFromFile(document);
-            logger.debug('added %i NodeTags from %s file', added, path.fsPath);
-        } catch (err: unknown) {
-            logger.error('could not initialize node tags array', err);
-        }
-    };
-
-    const setupSingleFolder = async (folder: vscode.WorkspaceFolder) => {
-        const nodeTagFiles = getNodeTagFiles();
-
-        for (const filePath of nodeTagFiles) {
-            const file = utils.joinPath(folder.uri, filePath);
-            await handleNodeTagFile(file);
-            const pattern = new vscode.RelativePattern(folder, filePath);
-            const watcher = vscode.workspace.createFileSystemWatcher(pattern,
-                                                                     false, false, 
-                                                                     /* ignoreDeleteEvents */ true);
-            watcher.onDidChange(async uri => {
-                logger.info('detected change in NodeTag file: %s', uri);
-                await handleNodeTagFile(uri);
-            }, context.subscriptions);
-            watcher.onDidCreate(async uri => {
-                logger.info('detected creation of NodeTag file: %s', uri);
-                await handleNodeTagFile(uri);
-            }, context.subscriptions);
-    
-            context.subscriptions.push(watcher);
-        }
-    };
-
-    if (vscode.workspace.workspaceFolders?.length) {
-        /* TODO: throttle */
-        await Promise.all(
-            vscode.workspace.workspaceFolders.map(async folder =>
-                await setupSingleFolder(folder),
-            ),
-        );
-    }
-
-    vscode.workspace.onDidChangeWorkspaceFolders(async e => {
-        for (const folder of e.added) {
-            await setupSingleFolder(folder);
-        }
-    }, undefined, context.subscriptions);
-}
-
+/* TODO: move to configuration.ts */
 export class Configuration {
     static ExtensionName = 'postgresql-hacker-helper';
     static ExtensionPrettyName = 'PostgreSQL Hacker Helper';

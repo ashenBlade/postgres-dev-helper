@@ -159,16 +159,6 @@ There are 4 settings:
   required files (node tag files, `pg_bsd_indent` and so on). If not specified
   search starts from workspace root. (Next, this settings will be used as `*SrcPath*`).
 
-- `postgresql-hacker-helper.nodeTagFiles` - Files with NodeTag files
-  
-  List of paths points to files that contain NodeTags.
-  
-  - If path is absolute - specified files will be used directly.
-  - If path is relative, search starts from source files directory (see
-  `postgresql-hacker-helper.srcPath`).
-  - If not specified, `*SrcPath*/src/include/nodes/nodes.h`
-  and `*SrcPath*/src/include/nodes/nodetags.h` will be used.
-
 - `postgresql-hacker-helper.pg_bsd_indentPath` - Path to `pg_bsd_indent`
   
   Path to `pg_bsd_indent` tool. Required for formatting support. Use it if you have `pg_bsd_indent` installed globally or want to use specific version.

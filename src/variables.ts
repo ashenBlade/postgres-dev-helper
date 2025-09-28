@@ -5485,6 +5485,18 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
                 logger.error('error occurred during adding enum bitmask types', e);
             }
         }
+
+        if (config.nodetags?.length) {
+            logger.debug('adding %i custom NodeTags');
+            try {
+                /* TODO: add command to parse NodeTag files and find custom */
+                for (const tag of config.nodetags) {
+                    context.nodeVarRegistry.nodeTags.add(tag);
+                }
+            } catch (err) {
+                logger.error('could not add custom NodeTags', err);
+            }
+        }
     }
 
     async tryGetPgVersion(frameId: number) {

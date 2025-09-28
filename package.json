@@ -179,7 +179,8 @@
                     "title": "Files with NodeTags",
                     "type": "array",
                     "default": null,
-                    "description": "Files, where NodeTag values defined. It will be used to check if variable can have NodeTag.\nCan be either relative or absolute path. Relative paths will be applied with base path of `srcPath` setting"
+                    "description": "Files, where NodeTag values defined. It will be used to check if variable can have NodeTag.\nCan be either relative or absolute path. Relative paths will be applied with base path of `srcPath` setting",
+                    "deprecationMessage": "This is not used any more due to significant performance impact.\nPlease, use \"nodetags\" parameter in extension's configuration file."
                 },
                 "postgresql-hacker-helper.logLevel": {
                     "title": "Log level",
