@@ -4,7 +4,7 @@ import { Features } from './utils';
 import * as vars from './variables';
 import * as dbg from './debugger';
 import * as dap from './dap';
-import { markConfigFileDirty, refreshConfiguration } from './configuration';
+import { Commands, ExtensionSettingsFileName, PgVariablesViewName, getExtensionConfigFile, markConfigFileDirty, refreshConfiguration } from './configuration';
 import { Log as logger } from './logger';
 import { setupPgConfSupport } from './pgconf';
 import { setupFormatting } from './formatter';
@@ -462,9 +462,8 @@ async function bootstrapExtensionCommand() {
 
 export function createPgVariablesView(context: vscode.ExtensionContext) {
     const nodesView = new vars.PgVariablesViewProvider();
-    const nodesViewName = Configuration.Views.NodePreviewTreeView;
-    const treeDisposable = vscode.window.registerTreeDataProvider(nodesViewName,
-                                                                  nodesView);
+    const treeDisposable = vscode.window.registerTreeDataProvider(
+        PgVariablesViewName, nodesView);
     context.subscriptions.push(
         treeDisposable,
         nodesView,
@@ -519,7 +518,7 @@ function setupConfigurationFile(context: vscode.ExtensionContext) {
     /* Mark configuration dirty when user changes it - no eager parsing */
     const registerFolderWatcher = (folder: vscode.WorkspaceFolder) => {
         const pattern = new vscode.RelativePattern(
-            folder, `.vscode/${Configuration.ExtensionSettingsFileName}`);
+            folder, `.vscode/${ExtensionSettingsFileName}`);
         const configFileWatcher = vscode.workspace.createFileSystemWatcher(
             pattern, false, false, false);
         context.subscriptions.push(configFileWatcher);
@@ -603,15 +602,12 @@ function registerCommands(context: vscode.ExtensionContext, pgvars: vars.PgVaria
         }
 
         for (const folder of vscode.workspace.workspaceFolders) {
-            const configFilePath = utils.joinPath(
-                folder.uri,
-                '.vscode',
-                Configuration.ExtensionSettingsFileName);
+            const configFilePath = getExtensionConfigFile(folder.uri);
             const propertiesFileExists = await utils.fileExists(configFilePath);
             /* Create default configuration file if not exists */
             if (!propertiesFileExists) {
                 if (await utils.fsEntryExists(configFilePath)) {
-                    vscode.window.showErrorMessage(`Can not create ${Configuration.ExtensionSettingsFileName} - fs entry exists and not file`);
+                    vscode.window.showErrorMessage(`Can not create ${ExtensionSettingsFileName} - fs entry exists and not file`);
                     return;
                 }
 
@@ -718,73 +714,14 @@ function registerCommands(context: vscode.ExtensionContext, pgvars: vars.PgVaria
         context.subscriptions.push(disposable);
     };
 
-    registerCommand(Configuration.Commands.RefreshConfigFile, refreshConfigCmd);
-    registerCommand(Configuration.Commands.OpenConfigFile, openConfigFileCmd);
-    registerCommand(Configuration.Commands.DumpNodeToLog, pprintVarToLogCmd);
-    registerCommand(Configuration.Commands.DumpNodeToDoc, dumpNodeToDocCmd);
-    registerCommand(Configuration.Commands.RefreshPostgresVariables, refreshVariablesCmd);
-    registerCommand(Configuration.Commands.BootstrapExtension, bootstrapExtensionCmd);
-    registerCommand(Configuration.Commands.AddToWatchView, addVariableToWatchCmd);
-    registerCommand(Configuration.Commands.GetVariables, getVariablesCmd);
-    registerCommand(Configuration.Commands.GetTreeViewProvider, getNodeTreeProviderCmd);
-    registerCommand(Configuration.Commands.FindCustomTypedefsLists, findCustomTypedefsListCmd);
-}
-
-/* TODO: move to configuration.ts */
-export class Configuration {
-    static ExtensionName = 'postgresql-hacker-helper';
-    static ExtensionPrettyName = 'PostgreSQL Hacker Helper';
-    static ConfigSections = {
-        TopLevelSection: this.ExtensionName,
-        NodeTagFiles: 'nodeTagFiles',
-        LogLevel: 'logLevel',
-        PgbsdindentPath: 'pg_bsd_indentPath',
-        SrcPath: 'srcPath',
-    };
-    static Commands = {
-        DumpNodeToLog: `${this.ExtensionName}.dumpNodeToLog`,
-        DumpNodeToDoc: `${this.ExtensionName}.dumpNodeToDoc`,
-        OpenConfigFile: `${this.ExtensionName}.openConfigurationFile`,
-        RefreshPostgresVariables: `${this.ExtensionName}.refreshPostgresVariablesView`,
-        RefreshConfigFile: `${this.ExtensionName}.refreshConfigFile`,
-        FormatterDiffView: `${this.ExtensionName}.formatterShowDiff`,
-        BootstrapExtension: `${this.ExtensionName}.bootstrapExtension`,
-        AddToWatchView: `${this.ExtensionName}.addVariableToWatch`,
-        GetVariables: `${this.ExtensionName}.getVariables`,
-        GetTreeViewProvider: `${this.ExtensionName}.getTreeViewProvider`,
-        FindCustomTypedefsLists: `${this.ExtensionName}.formatterFindTypedefsList`,
-    };
-    static Views = {
-        NodePreviewTreeView: `${this.ExtensionName}.node-tree-view`,
-    };
-    static ExtensionSettingsFileName = 'pgsql_hacker_helper.json';
-    
-    static getConfigFile(workspace: vscode.Uri) {
-        return vscode.Uri.joinPath(workspace, '.vscode', this.ExtensionSettingsFileName);
-    }
-
-    static getLogLevel() {
-        return this.getConfig<string>(this.ConfigSections.LogLevel);
-    };
-
-    static getCustomNodeTagFiles() {
-        return this.getConfig<string[]>(this.ConfigSections.NodeTagFiles);
-    };
-
-    static getCustomPgbsdindentPath() {
-        return this.getConfig<string>(this.ConfigSections.PgbsdindentPath);
-    }
-
-    static getSrcPath() {
-        return this.getConfig<string>(this.ConfigSections.SrcPath);
-    }
-
-    static getConfig<T>(section: string) {
-        const topLevelSection = this.ConfigSections.TopLevelSection;
-        const config = vscode.workspace.getConfiguration(topLevelSection);
-        return config.get<T>(section);
-    };
-    static getFullConfigSection(section: string) {
-        return `${this.ConfigSections.TopLevelSection}.${section}`;
-    }
+    registerCommand(Commands.RefreshConfigFile, refreshConfigCmd);
+    registerCommand(Commands.OpenConfigFile, openConfigFileCmd);
+    registerCommand(Commands.DumpNodeToLog, pprintVarToLogCmd);
+    registerCommand(Commands.DumpNodeToDoc, dumpNodeToDocCmd);
+    registerCommand(Commands.RefreshPostgresVariables, refreshVariablesCmd);
+    registerCommand(Commands.BootstrapExtension, bootstrapExtensionCmd);
+    registerCommand(Commands.AddToWatchView, addVariableToWatchCmd);
+    registerCommand(Commands.GetVariables, getVariablesCmd);
+    registerCommand(Commands.GetTreeViewProvider, getNodeTreeProviderCmd);
+    registerCommand(Commands.FindCustomTypedefsLists, findCustomTypedefsListCmd);
 }

@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 import {TreeItemCollapsibleState as CollapsibleState} from 'vscode';
 import * as pg from 'pg';
 
-import { Configuration } from '../../extension';
+import { Commands } from '../../configuration';
 import * as vars from '../../variables';
 import { unnullify } from '../../error';
 
@@ -122,7 +122,7 @@ const sleep = async (ms: number) => await new Promise(r => setTimeout(r, ms));
 const intRegexp = (value: number) => new RegExp(`^\\s*${value}\\s*$`);
 const execGetVariables = async () => {
     return await vscode.commands.executeCommand<vars.Variable[] | undefined>(
-        Configuration.Commands.GetVariables);
+        Commands.GetVariables);
 };
 
 suite('Variables', async function () {

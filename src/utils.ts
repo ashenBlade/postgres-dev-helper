@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as cp from 'child_process';
-import { Configuration } from './extension';
 import * as https from 'https';
 import * as os from 'os';
 import { PghhError } from './error';
 import * as crypto from 'crypto';
+import { VsCodeSettings } from './configuration';
 
 const identifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
@@ -336,7 +336,7 @@ export async function downloadFile(url: string) {
     });
 }
 export function getWorkspacePgSrcFile(workspace: vscode.Uri, ...paths: string[]) {
-    const customDir = Configuration.getSrcPath();
+    const customDir = VsCodeSettings.getSrcPath();
     if (customDir) {
         return joinPath(workspace, customDir, ...paths);
     }
@@ -345,7 +345,7 @@ export function getWorkspacePgSrcFile(workspace: vscode.Uri, ...paths: string[])
 }
 
 export function getPgSrcFile(...paths: string[]) {
-    const customDir = Configuration.getSrcPath();
+    const customDir = VsCodeSettings.getSrcPath();
     if (customDir) {
         return path.join(customDir, ...paths);
     }

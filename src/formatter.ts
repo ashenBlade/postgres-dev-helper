@@ -3,9 +3,9 @@ import {languages} from 'vscode';
 import * as utils from './utils';
 import { Log as logger } from './logger';
 import { getWellKnownBuiltinContribs } from './constants';
-import { Configuration } from './extension';
-import { getFormatterConfiguration,
-         PgindentConfiguration } from './configuration';
+import { Commands, getFormatterConfiguration,
+         PgindentConfiguration,
+         VsCodeSettings } from './configuration';
 import { PghhError } from './error';
 import * as path from 'path';
 import * as os from 'os';
@@ -332,7 +332,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
             this.savedPgbsdPath = undefined;
         }
 
-        const userPgbsdindent = Configuration.getCustomPgbsdindentPath();
+        const userPgbsdindent = VsCodeSettings.getCustomPgbsdindentPath();
         if (userPgbsdindent) {
             return path.isAbsolute(userPgbsdindent) 
                 ? vscode.Uri.file(userPgbsdindent)
@@ -507,7 +507,7 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
 
 function registerDiffCommand(formatter: PgindentDocumentFormatterProvider) {
     /* Preview formatter changes command */
-    vscode.commands.registerCommand(Configuration.Commands.FormatterDiffView, async () => {
+    vscode.commands.registerCommand(Commands.FormatterDiffView, async () => {
         if (!vscode.window.activeTextEditor) {
             return;
         }

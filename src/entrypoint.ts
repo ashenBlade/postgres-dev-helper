@@ -1,12 +1,10 @@
 import * as vscode from 'vscode';
 import { Log as logger, initLogger } from './logger';
-import {
-    Configuration as config,
-    setupExtension,
-} from './extension';
+import { setupExtension } from './extension';
+import { ExtensionId } from './configuration';
 
 function setExtensionActive(status: boolean) {
-    const context = `${config.ExtensionName}:activated`;
+    const context = `${ExtensionId}:activated`;
     vscode.commands.executeCommand('setContext', context, status);
 }
 

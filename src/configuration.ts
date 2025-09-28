@@ -3,7 +3,6 @@ import * as vscode from 'vscode';
 import * as vars from './variables';
 import * as utils from './utils';
 import { Log as logger } from './logger';
-import { Configuration } from './extension';
 
 export interface VariablesConfiguration {
     /* Array special members */
@@ -604,7 +603,7 @@ export async function refreshConfiguration() {
     }
 
     for (const folder of vscode.workspace.workspaceFolders) {
-        const file = Configuration.getConfigFile(folder.uri);
+        const file = getExtensionConfigFile(folder.uri);
         const config = await readConfigFile(file);
         if (!config) {
             return;
@@ -629,3 +628,64 @@ export async function refreshConfiguration() {
 export function markConfigFileDirty() {
     configDirty = true;
 }
+
+export const ExtensionPrettyName = 'PostgreSQL Hacker Helper';
+export const ExtensionId = 'postgresql-hacker-helper';
+
+export const ExtensionSettingsFileName = 'pgsql_hacker_helper.json';
+export function getExtensionConfigFile(workspace: vscode.Uri) {
+    return vscode.Uri.joinPath(workspace, '.vscode', ExtensionSettingsFileName);
+}
+
+export const PgVariablesViewName = `${ExtensionId}.node-tree-view`;
+
+/* TODO: add caching - changes rarely */
+export class VsCodeSettings {
+    static ConfigSections = {
+        TopLevelSection: ExtensionId,
+        NodeTagFiles: 'nodeTagFiles',
+        LogLevel: 'logLevel',
+        PgbsdindentPath: 'pg_bsd_indentPath',
+        SrcPath: 'srcPath',
+    };
+    static getLogLevel() {
+        return this.getConfig<string>(this.ConfigSections.LogLevel);
+    };
+
+    static getCustomNodeTagFiles() {
+        return this.getConfig<string[]>(this.ConfigSections.NodeTagFiles);
+    };
+
+    static getCustomPgbsdindentPath() {
+        return this.getConfig<string>(this.ConfigSections.PgbsdindentPath);
+    }
+
+    static getSrcPath() {
+        return this.getConfig<string>(this.ConfigSections.SrcPath);
+    }
+
+    static getConfig<T>(section: string) {
+        const topLevelSection = this.ConfigSections.TopLevelSection;
+        const config = vscode.workspace.getConfiguration(topLevelSection);
+        return config.get<T>(section);
+    };
+    
+    static getFullConfigSection(section: string) {
+        return `${this.ConfigSections.TopLevelSection}.${section}`;
+    }
+}
+
+export class Commands {
+    static DumpNodeToLog = `${ExtensionId}.dumpNodeToLog`;
+    static DumpNodeToDoc = `${ExtensionId}.dumpNodeToDoc`;
+    static OpenConfigFile = `${ExtensionId}.openConfigurationFile`;
+    static RefreshConfigFile = `${ExtensionId}.refreshConfigFile`;
+    static FormatterDiffView = `${ExtensionId}.formatterShowDiff`;
+    static RefreshPostgresVariables = `${ExtensionId}.refreshPostgresVariablesView`;
+    static BootstrapExtension = `${ExtensionId}.bootstrapExtension`;
+    static AddToWatchView = `${ExtensionId}.addVariableToWatch`;
+    static GetVariables = `${ExtensionId}.getVariables`;
+    static GetTreeViewProvider = `${ExtensionId}.getTreeViewProvider`;
+    static FindCustomTypedefsLists = `${ExtensionId}.formatterFindTypedefsList`;
+}
+

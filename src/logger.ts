@@ -1,7 +1,7 @@
 import { format } from 'util';
 import * as vscode from 'vscode';
 import * as utils from './utils';
-import { Configuration } from './extension';
+import { ExtensionPrettyName, VsCodeSettings } from './configuration';
 
 interface ILogger {
     debug: (message: string, args: unknown[]) => void;
@@ -137,7 +137,7 @@ export class Log {
 }
 
 export function initLogger(context: vscode.ExtensionContext) {
-    const extName = Configuration.ExtensionPrettyName;
+    const extName = ExtensionPrettyName;
 
     let outputChannel;
     let logger;    
@@ -147,11 +147,11 @@ export function initLogger(context: vscode.ExtensionContext) {
     } else {
         outputChannel = vscode.window.createOutputChannel(extName, 'log');
 
-        const logLevelConfigSection = Configuration.ConfigSections.LogLevel;
-        const fullConfigSectionName = Configuration.getFullConfigSection(logLevelConfigSection);
+        const logLevelConfigSection = VsCodeSettings.ConfigSections.LogLevel;
+        const fullConfigSectionName = VsCodeSettings.getFullConfigSection(logLevelConfigSection);
         const getCurrentLogLevel = () => {
             /* Legacy versions without LogOutputChannel with builtin log levels */
-            const configValue = Configuration.getLogLevel();
+            const configValue = VsCodeSettings.getLogLevel();
             switch (configValue) {
                 case 'INFO':
                     return LogLevel.Info;
