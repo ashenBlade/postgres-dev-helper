@@ -4,7 +4,7 @@ import { Features } from './utils';
 import * as vars from './variables';
 import * as dbg from './debugger';
 import * as dap from './dap';
-import { Commands, ExtensionSettingsFileName, PgVariablesViewName, getExtensionConfigFile, markConfigFileDirty, refreshConfiguration } from './configuration';
+import { Commands, ExtensionSettingsFileName, PgVariablesViewName, getExtensionConfigFile, markConfigFileDirty, refreshConfiguration, setupVsCodeSettings } from './configuration';
 import { Log as logger } from './logger';
 import { setupPgConfSupport } from './pgconf';
 import { setupFormatting } from './formatter';
@@ -489,8 +489,8 @@ export function createPgVariablesView(context: vscode.ExtensionContext) {
 }
 
 export function setupExtension(context: vscode.ExtensionContext) {    
-    /* Extension's configuration file */
-    setupConfigurationFile(context);
+    /* Extension's configuration file and VS Code settings */
+    setupConfiguration(context);
 
     /* Variables view */
     const pgvars = setupPgVariablesView(context);
@@ -514,7 +514,7 @@ function setupPgVariablesView(context: vscode.ExtensionContext) {
     return pgvars;
 }
 
-function setupConfigurationFile(context: vscode.ExtensionContext) {
+function setupConfiguration(context: vscode.ExtensionContext) {
     /* Mark configuration dirty when user changes it - no eager parsing */
     const registerFolderWatcher = (folder: vscode.WorkspaceFolder) => {
         const pattern = new vscode.RelativePattern(
@@ -534,6 +534,9 @@ function setupConfigurationFile(context: vscode.ExtensionContext) {
             e.added.forEach(registerFolderWatcher);
         }, undefined, context.subscriptions);
     }
+
+    /* VS Code configuration changes quiet rarely, so it's also cached */
+    setupVsCodeSettings(context);
 }
 
 function registerCommands(context: vscode.ExtensionContext, pgvars: vars.PgVariablesViewProvider) {

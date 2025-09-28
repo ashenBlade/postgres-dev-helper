@@ -639,7 +639,6 @@ export function getExtensionConfigFile(workspace: vscode.Uri) {
 
 export const PgVariablesViewName = `${ExtensionId}.node-tree-view`;
 
-/* TODO: add caching - changes rarely */
 export class VsCodeSettings {
     static ConfigSections = {
         TopLevelSection: ExtensionId,
@@ -648,20 +647,26 @@ export class VsCodeSettings {
         PgbsdindentPath: 'pg_bsd_indentPath',
         SrcPath: 'srcPath',
     };
+    
+    static logLevel: string | undefined;
     static getLogLevel() {
-        return this.getConfig<string>(this.ConfigSections.LogLevel);
+        return this.logLevel ??= this.getConfig<string>(this.ConfigSections.LogLevel);
     };
 
+    static customNodeTagFiles: string[] | undefined;
     static getCustomNodeTagFiles() {
-        return this.getConfig<string[]>(this.ConfigSections.NodeTagFiles);
+        return this.customNodeTagFiles ??= this.getConfig<string[]>(this.ConfigSections.NodeTagFiles);
     };
 
+    static customPgBsdIndentPath: string | undefined;
     static getCustomPgbsdindentPath() {
-        return this.getConfig<string>(this.ConfigSections.PgbsdindentPath);
+        return this.customPgBsdIndentPath ??=
+            this.getConfig<string>(this.ConfigSections.PgbsdindentPath);
     }
 
+    static srcPath: string | undefined;
     static getSrcPath() {
-        return this.getConfig<string>(this.ConfigSections.SrcPath);
+        return this.srcPath ??= this.getConfig<string>(this.ConfigSections.SrcPath);
     }
 
     static getConfig<T>(section: string) {
@@ -673,6 +678,23 @@ export class VsCodeSettings {
     static getFullConfigSection(section: string) {
         return `${this.ConfigSections.TopLevelSection}.${section}`;
     }
+    
+    static refreshConfiguration() {
+        this.logLevel = this.getConfig<string>(this.ConfigSections.LogLevel);
+        this.srcPath = this.getConfig<string>(this.ConfigSections.SrcPath);
+        this.customPgBsdIndentPath = this.getConfig<string>(this.ConfigSections.PgbsdindentPath);
+        this.customNodeTagFiles = this.getConfig<string[]>(this.ConfigSections.NodeTagFiles);
+    }
+}
+
+export function setupVsCodeSettings(context: vscode.ExtensionContext) {
+    vscode.workspace.onDidChangeConfiguration(e => {
+        if (!e.affectsConfiguration(VsCodeSettings.ConfigSections.TopLevelSection)) {
+            return;
+        }
+
+        VsCodeSettings.refreshConfiguration();
+    }, undefined, context.subscriptions);
 }
 
 export class Commands {
