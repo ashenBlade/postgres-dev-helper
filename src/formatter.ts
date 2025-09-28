@@ -3,7 +3,9 @@ import {languages} from 'vscode';
 import * as utils from './utils';
 import { Log as logger } from './logger';
 import { getWellKnownBuiltinContribs } from './constants';
-import { Configuration, parseFormatterConfiguration, readConfigFile } from './extension';
+import { Configuration, readConfigFile } from './extension';
+import { parseFormatterConfiguration, 
+         PgindentConfiguration } from './configuration';
 import { PghhError } from './error';
 import * as path from 'path';
 import * as os from 'os';
@@ -29,9 +31,6 @@ function isBuiltinContrib(name: string) {
     return getWellKnownBuiltinContribs().has(name);
 }
 
-export interface PgindentConfiguration {
-    typedefs?: string[];
-}
 export const FormatterConfiguration: PgindentConfiguration = {};
 
 class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEditProvider {
