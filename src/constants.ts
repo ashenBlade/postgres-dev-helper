@@ -2321,8 +2321,6 @@ function getVersionedFlagMembers() {
             ['XLHL_KEYS_UPDATED', '0x10'],
         ]),
     ]);
-    
-    /* TODO: FF_* src/include/tsearch/dicts/spell.h */
 
     /* 
      * In contrast to other features this one actually requires from us
