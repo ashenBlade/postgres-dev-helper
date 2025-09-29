@@ -150,6 +150,7 @@ suite('Variables', function () {
     let client: pg.Client;
     let pid: number;
     let workspace: vscode.WorkspaceFolder;
+    let bpLocation: vscode.Location;
 
     suiteSetup('Prepare environment', async () => {
         env = getTestEnv();
@@ -180,9 +181,7 @@ suite('Variables', function () {
 
         /* Setup breakpoints */
         vscode.debug.removeBreakpoints(vscode.debug.breakpoints);
-        vscode.debug.addBreakpoints([
-            new vscode.SourceBreakpoint(await searchBreakpointLocation(), true),
-        ]);
+        bpLocation = await searchBreakpointLocation();
     });
     
     suiteTeardown('Clean environment', async () => {
@@ -201,6 +200,10 @@ suite('Variables', function () {
         let variables: vars.Variable[] | undefined;
         let queryPromise: Promise<unknown>;
         suiteSetup('Run debug and get variables', async () => {
+            vscode.debug.addBreakpoints([
+                new vscode.SourceBreakpoint(bpLocation, true),
+            ]);
+            
             if (!await vscode.debug.startDebugging(workspace, getDebugConfiguration(dbg, pid))) {
                 throw new Error('Failed to start debug session');
             }
@@ -239,6 +242,8 @@ suite('Variables', function () {
 
             /* Wait for query end, otherwise we might get another race condition */
             await queryPromise;
+            
+            vscode.debug.removeBreakpoints(vscode.debug.breakpoints);
         });
 
         const getVar = (name: string, vars?: vars.Variable[]) => {
