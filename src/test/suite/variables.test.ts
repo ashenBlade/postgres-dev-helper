@@ -150,6 +150,7 @@ suite('Variables', function () {
     let client: pg.Client;
     let pid: number;
     let workspace: vscode.WorkspaceFolder;
+
     suiteSetup('Prepare environment', async () => {
         env = getTestEnv();
         client = new pg.Client({
@@ -177,7 +178,8 @@ suite('Variables', function () {
             throw new Error('Failed to obtain PID from backend');
         }
 
-        /* Run debug session */
+        /* Setup breakpoints */
+        vscode.debug.removeBreakpoints(vscode.debug.breakpoints);
         vscode.debug.addBreakpoints([
             new vscode.SourceBreakpoint(await searchBreakpointLocation(), true),
         ]);
@@ -197,12 +199,13 @@ suite('Variables', function () {
 
     [DebuggerType.CppDbg, DebuggerType.CodeLLDB].forEach(dbg => suite.only(dbg, () => {
         let variables: vars.Variable[] | undefined;
+        let queryPromise: Promise<unknown>;
         suiteSetup('Run debug and get variables', async () => {
             if (!await vscode.debug.startDebugging(workspace, getDebugConfiguration(dbg, pid))) {
                 throw new Error('Failed to start debug session');
             }
 
-            client.query(query);
+            queryPromise = client.query(query);
 
             /*
              * Wait for breakpoint and collect variables.
@@ -215,13 +218,9 @@ suite('Variables', function () {
             const timeout = 2 * 1000;
             while (attempt < maxAttempt) {
                 await sleep(timeout);
-                try {
-                    variables = await execGetVariables();
-                    if (variables && 0 < variables.length) {
-                        break;
-                    }
-                } catch {
-                    /* nothing */
+                variables = await execGetVariables();
+                if (variables && 0 < variables.length) {
+                    break;
                 }
 
                 attempt++;
@@ -237,6 +236,9 @@ suite('Variables', function () {
             if (vscode.debug.activeDebugSession) {
                 await vscode.debug.activeDebugSession.customRequest('disconnect', {});
             }
+
+            /* Wait for query end, otherwise we might get another race condition */
+            await queryPromise;
         });
 
         const getVar = (name: string, vars?: vars.Variable[]) => {
