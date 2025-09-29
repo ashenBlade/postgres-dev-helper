@@ -4846,7 +4846,7 @@ class HTABSpecialMember extends RealVariable {
             return members;
         }
 
-        members.push(new HTABElementsMember(this, entryType));
+        members.unshift(new HTABElementsMember(this, entryType));
         return members;
     }
 }
@@ -5040,7 +5040,7 @@ class SimplehashMember extends RealVariable {
             return members;
         }
 
-        members.push(new SimplehashElementsMember(this));
+        members.unshift(new SimplehashElementsMember(this));
         return members;
     }
 
