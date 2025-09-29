@@ -4112,7 +4112,7 @@ class BitmapSetSpecialMember extends NodeVariable {
     
     safeToObserve() {
         return this.context.step.isSafeToObserveBitmapset 
-            ??= !!vscode.debug.breakpoints.find(this.isBreakpointDangerous);
+            ??= !vscode.debug.breakpoints.find(this.isBreakpointDangerous);
     }
 
     async getSetElements(members: Variable[]): Promise<number[] | undefined> {
@@ -4753,7 +4753,7 @@ class HTABSpecialMember extends RealVariable {
 
     safeToObserve(): boolean {
         return this.context.step.isSafeToObserveHTAB
-            ??= !!vscode.debug.breakpoints.find(this.isDangerousBreakpoint);
+            ??= !vscode.debug.breakpoints.find(this.isDangerousBreakpoint);
     }
 
     async doGetChildren(): Promise<Variable[] | undefined> {
