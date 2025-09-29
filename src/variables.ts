@@ -1568,9 +1568,9 @@ export class RealVariable extends Variable {
 
 /*
  * Some constants from source code.
- * Using them in such way is quite safe, because they haven't
- * changed for many years (and I do not think will be changed
- * in near future).
+ * 
+ * Using them in such way is quite safe, because they haven't changed for many
+ * years (and I do not think will be changed in near future).
  */
 const InvalidOid = 0;
 const oidIsValid = (oid: number) => Number.isInteger(oid) && oid !== InvalidOid;
@@ -1585,13 +1585,18 @@ const InvalidAttrNumber = 0;
 export class NodeVariable extends RealVariable {
     /**
      * Real tag of node without 'T_' prefix.
-     * @example AggPath
+     * 
+     * NOTE: if you want to remove 'T_' prefix, then do not use replace('T_', ''),
+     *       because it can replace substring *inside* typename. Instead
+     *       for check use `startsWith('T_')` and to trim `substring(2)`
+     * 
+     * @example AggPath, List
      */
     realNodeTag: string;
 
     constructor(realNodeTag: string, args: RealVariableArgs) {
         super(args);
-        this.realNodeTag = realNodeTag.replace('T_', '');
+        this.realNodeTag = realNodeTag;
     }
 
     protected computeEffectiveType() {
