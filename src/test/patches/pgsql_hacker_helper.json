@@ -28,7 +28,8 @@
     "htab": [
         {
             "type": "TestHtabEntry *",
-            "variable": ["vscode_test_helper", "htab"]
+            "parent": "vscode_test_helper",
+            "member": "htab"
         }
     ],
     "simplehash": [
@@ -40,11 +41,13 @@
     "customListTypes": [
         {
             "type": "CustomListElement *",
-            "variable": ["vscode_test_helper", "custom_list"]
+            "parent": "vscode_test_helper",
+            "member": "custom_list"
         },
         {
             "type": "CustomListElement *",
-            "member": ["CustomListVariable", "custom_list"]
+            "parent": "CustomListVariable",
+            "member": "custom_list"
         }
     ]
 }

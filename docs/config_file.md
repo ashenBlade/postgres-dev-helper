@@ -191,11 +191,13 @@ This information stored in `customListTypes` member. This is array of objects:
     "customListTypes": [
         {
             "type": "MyCustomType *",
-            "member": ["ParentStruct", "parent_member"]
+            "parent": "ParentStruct",
+            "member": "parent_member"
         },
         {
             "type": "MyCustomType *",
-            "variable": ["ParentFunction", "variable_name"]
+            "parent": "ParentFunction",
+            "member": "variable_name"
         }
     ]
 }
@@ -204,24 +206,23 @@ This information stored in `customListTypes` member. This is array of objects:
 Each object contain:
 
 - `type` - fully-qualified type name (that is `struct` or `pointer` should be included) to which pointer will be casted.
-- `member` - pair of struct name and member of this struct. Definition looks like this:
+- `parent` - name of struct or function (parent entity) containing this member or variable.
+- `member` - name of member or variable that contains `List *` value.
 
-    ```c
-    typedef struct ParentStruct
-    {
-        List *parent_member;
-    } ParentStruct;
-    ```
+As you can mention this configuration is generalized, because it's clear from context how to handle `parent`. Example above is for following code:
 
-- `variable` - pair of function name and variable inside it. Definition looks like this:
+```c
+typedef struct ParentStruct
+{
+    List *parent_member;
+} ParentStruct;
 
-    ```c
-    void
-    ParentFunction()
-    {
-        List *variable_name;
-    }
-    ```
+void
+ParentFunction()
+{
+    List *variable_name;
+}
+```
 
 With this 2 strategies extension detects `List`s with custom types.
 
@@ -237,11 +238,13 @@ This information stored in `htab` member. This is an array of objects similar to
     "htab": [
         {
             "type": "SampleType *",
-            "member": ["ParentStruct", "parent_member"]
+            "parent": "ParentStruct",
+            "member": "parent_member"
         },
         {
             "type": "SampleType *",
-            "variable": ["ParentFunction", "variable_name"]
+            "parent": "ParentFunction",
+            "member": "variable_name"
         }
     ]
 }
@@ -250,23 +253,24 @@ This information stored in `htab` member. This is an array of objects similar to
 Each object contain:
 
 - `type` - fully qualified type name of entry in `HTAB`
-- `member` - array of struct name and member inside this struct with `HTAB *` type. Definition looks like this:
+- `parent` - name of struct or function (parent entity) containing this member or variable.
+- `member` - name of member or variable that contains `List *` value.
 
-    ```c
-    typedef struct ParentStruct
-    {
-        HTAB *parent_member;
-    } ParentStruct;
-    ```
+> You can notice that schema is the same as for custom `List *` type.
 
-- `variable` - array of function name and variable inside this function with `HTAB *` type. Definition looks like this
+Example aboves is for following code:
 
-    ```c
-    void ParentFunction()
-    {
-        HTAB *variable_name;
-    }
-    ```
+```c
+typedef struct ParentStruct
+{
+    HTAB *parent_member;
+}
+
+void ParentFunction()
+{
+    HTAB *variable_name;
+}
+```
 
 Also, there is support for `simplehash.c` hash tables ("simplehash" further). They are code generated using macros, so for each specific hash table there are functions and structures defined.
 Several builtin simplehashes exists and using configuration file you can add your own.
@@ -323,3 +327,31 @@ Fields:
 - `member` - name of the member with enum type (`type->member`)
 - `flags` - array of enum value definitions: MACRO VALUE + NUMERIC VALUE
 - `fields` - array of inner fields: human readable name of field + MACRO MASK for member + numeric value of mask
+
+Example above is for following code:
+
+```c
+#define EM_FIRST   0x01
+#define EM_SECOND  0x02
+#define EM_THIRD   0x04
+
+#define EM_FIELD_MASK 0xF
+
+typedef struct ParentType
+{
+    int enum_member;
+}
+
+void function()
+{
+    ParentType *value;
+    if (value->enum_member & EM_FIRST) {
+        /* ... */
+    }
+    
+    int innerField = value->enum_member & EM_FIELD_MASK;
+    if (innerField == 4) {
+        /* ... */
+    }
+}
+```

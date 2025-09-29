@@ -22,11 +22,11 @@ export interface VariablesConfiguration {
     nodetags?: string[];
 }
 
-export interface PgindentConfiguration {
+export interface FormatterConfiguration {
     typedefs?: string[];
 }
 
-export function parseFormatterConfiguration(configFile: unknown): PgindentConfiguration | undefined {
+function parseFormatterConfiguration(configFile: unknown): FormatterConfiguration | undefined {
     const parseTypedefs = (obj: unknown): string[] | undefined => {
         if (!obj) {
             return;
@@ -58,7 +58,34 @@ export function parseFormatterConfiguration(configFile: unknown): PgindentConfig
     }
 }
 
-export function parseVariablesConfiguration(configFile: unknown): VariablesConfiguration | undefined {
+function isStringTuple(o: unknown): o is [string, string] {
+    return    Array.isArray(o) && o.length === 2
+            && typeof o[0] === 'string' && o[0].length > 0
+            && typeof o[1] === 'string' && o[1].length > 0;
+};
+
+
+function normalizeFuncName(name: string) {
+    /*
+     * Earlier extension versions used .solib prefix in function name
+     * that cppdbg added, but after adding support for CodeLLDB we
+     * have to generalize things.
+     * This part is just to keep at least some kind of compatibility.
+     */
+    const argsIndex = name.indexOf('(');
+    if (argsIndex !== -1) {
+        name = name.substring(0, argsIndex);
+    }
+    
+    const shlibIndex = name.indexOf('!');
+    if (shlibIndex !== -1) {
+        name = name.substring(shlibIndex + 1);
+    }
+    
+    return name;
+};
+
+function parseVariablesConfiguration(configFile: unknown): VariablesConfiguration | undefined {
     const parseArrayMember = (obj: unknown): vars.ArraySpecialMemberInfo | undefined => {
         /* 
          * {
@@ -190,29 +217,17 @@ export function parseVariablesConfiguration(configFile: unknown): VariablesConfi
         }
     };
 
-    const normalizeFuncName = (name: string) => {
-        /*
-         * Earlier extension versions used solib prefix in function name
-         * that cppdbg added, but after adding support for CodeLLDB we
-         * have to generalize things.
-         * This part is just to keep at least some kind of compatibility.
-         */
-        const argsIndex = name.indexOf('(');
-        if (argsIndex !== -1) {
-            name = name.substring(0, argsIndex);
-        }
-        
-        const shlibIndex = name.indexOf('!');
-        if (shlibIndex !== -1) {
-            name = name.substring(shlibIndex + 1);
-        }
-        
-        return name;
-    };
-
     const parseListTypes = (obj: unknown): vars.ListPtrSpecialMemberInfo[] | undefined => {
         /* 
          * [
+         *     {
+         *         "type": "string",
+         *         "parent": "string",
+         *         "member": "string",
+         *     }
+         * 
+         *     or (old version)
+         * 
          *     {
          *         "type": "string",
          *         "member": ["string", "string"],
@@ -223,56 +238,65 @@ export function parseVariablesConfiguration(configFile: unknown): VariablesConfi
         if (!Array.isArray(obj)) {
             return;
         }
+        
+        /* Old version just for compatibility */
+        const tryParseOldVersion = (o: unknown): vars.ListPtrSpecialMemberInfo | undefined => {
+            if (!(typeof o === 'object' && o)) {
+                return;
+            }
+
+            if (!('type' in o && typeof o.type === 'string' && o.type.length)) {
+                return;
+            }
+            
+            if ('member' in o && isStringTuple(o.member)) {
+                return {
+                    type: o.type,
+                    parent: o.member[0],
+                    member: o.member[1],
+                };
+            }
+            
+            if ('variable' in o && isStringTuple(o.variable)) {
+                return {
+                    type: o.type,
+                    parent: o.variable[0],
+                    member: o.variable[1],
+                };
+            }
+        };
+        
+        const tryParse = (o: unknown): vars.ListPtrSpecialMemberInfo | undefined => {
+            if (!(typeof o === 'object' && o)) {
+                return;
+            }
+
+            if (!('type' in o && typeof o.type === 'string' && o.type.length)) {
+                return;
+            }
+            
+            if (!('member' in o && typeof o.member === 'string' && o.member.length)) {
+                return;
+            }
+
+            if (!('parent' in o && typeof o.parent === 'string' && o.parent.length)) {
+                return;
+            }
+            
+            return {
+                type: o.type,
+                parent: o.parent,
+                member: o.member,
+            };
+        };
 
         const elements: vars.ListPtrSpecialMemberInfo[] = [];
         for (const o of obj) {
-            if (!(typeof o === 'object' && o)) {
-                continue;
+            const record = tryParse(o) ?? tryParseOldVersion(o);
+            if (record) {
+                record.parent = normalizeFuncName(record.parent);
+                elements.push(record);
             }
-
-            if (!('type' in o && typeof o.type === 'string' && o.type)) {
-                continue;
-            }
-
-            const type = o.type;
-            let memberEntry: [string, string] | undefined;
-            if (Array.isArray(o.member) && o.member.length === 2) {
-                const struct = o.member[0];
-                const member = o.member[1];
-                if (!(typeof struct === 'string' && typeof member === 'string' &&
-                             struct              &&        member)) {
-                    vscode.window.showErrorMessage(`"member" entry should be array of struct and member strings. given: [${typeof struct}, ${typeof member}]`);
-                    continue;
-                }
-
-                memberEntry = [struct, member];
-            }
-
-            let variableEntry: [string, string] | undefined;
-            if (Array.isArray(o.variable) && o.variable.length === 2) {
-                let func = o.variable[0];
-                let variable = o.variable[1];
-                if (!(typeof func === 'string' && typeof variable === 'string' &&
-                             func              &&        variable)) {
-                    vscode.window.showErrorMessage(`"variable" entry should be array of function name and variable strings. given: [${typeof func}, ${typeof variable}]`);
-                    continue;
-                }
-                
-                func = normalizeFuncName(func.trim());
-                variable = variable.trim();
-                
-                if (!(func && variable)) {
-                    continue;
-                }
-
-                variableEntry = [func, variable];
-            }
-            
-            elements.push({
-                type,
-                member: memberEntry,
-                variable: variableEntry,
-            });
         }
 
         return elements;
@@ -280,61 +304,84 @@ export function parseVariablesConfiguration(configFile: unknown): VariablesConfi
 
     const parseHtabTypes = (obj: unknown): vars.HtabEntryInfo[] | undefined => {
         /*
-         * {
-         *     "parent": "string",
-         *     "member": ["string", "string"],
-         *     "variable": ["string", "string"]
-         * }
+         * [
+         *     {
+         *         "type": "string",
+         *         "parent": "string",
+         *         "member": "string"
+         *     }
+         * 
+         *     or old version
+         * 
+         *     {
+         *         "type": "string",
+         *         "member": ["string", "string"],
+         *         "variable": ["string", "string"]
+         *     }
+         * ]
          */
-        const extractParentMember = (o: unknown): [string, string] | undefined => {
-            if (!(Array.isArray(o) && o.length === 2)) {
-                return;
-            }
-
-            let [parent, member] = o;
-            if (!(typeof parent === 'string' && typeof member === 'string'
-                      && parent              &&        member)) {
-                return;
-            }
-
-            parent = normalizeFuncName(parent.trim());
-            member = member.trim();
-            if (!(parent && member)) {
-                return;
-            }
-
-            return [parent, member];
-        };
-
         if (!Array.isArray(obj)) {
             return;
         }
+        
+        /* Old version just for compatibility */
+        const tryParseOldVersion = (o: unknown): vars.HtabEntryInfo | undefined => {
+            if (!(typeof o === 'object' && o)) {
+                return;
+            }
+
+            if (!('type' in o && typeof o.type === 'string' && o.type.length)) {
+                return;
+            }
+            
+            if ('member' in o && isStringTuple(o.member)) {
+                return {
+                    type: o.type,
+                    parent: o.member[0],
+                    member: o.member[1],
+                };
+            }
+            
+            if ('variable' in o && isStringTuple(o.variable)) {
+                return {
+                    type: o.type,
+                    parent: o.variable[0],
+                    member: o.variable[1],
+                };
+            }
+        };
+        
+        const tryParse = (o: unknown): vars.HtabEntryInfo | undefined => {
+            if (!(typeof o === 'object' && o)) {
+                return;
+            }
+
+            if (!('type' in o && typeof o.type === 'string' && o.type.length)) {
+                return;
+            }
+            
+            if (!('member' in o && typeof o.member === 'string' && o.member.length)) {
+                return;
+            }
+
+            if (!('parent' in o && typeof o.parent === 'string' && o.parent.length)) {
+                return;
+            }
+
+            return {
+                type: o.type,
+                parent: o.parent,
+                member: o.member,
+            };
+        };
 
         const elements: vars.HtabEntryInfo[] = [];
         for (const o of obj) {
-            if (!(o && typeof o === 'object')) {
-                continue;
+            const record = tryParse(o) ?? tryParseOldVersion(o);
+            if (record) {
+                record.parent = normalizeFuncName(record.parent);
+                elements.push(record);
             }
-
-            const type = o.type;
-            if (typeof type !== 'string' && type) {
-                continue;
-            }
-
-            let pair = extractParentMember(o.member);
-            if (!pair) {
-                pair = extractParentMember(o.variable);
-            }
-            
-            if (!pair) {
-                continue;
-            }
-
-            elements.push({
-                type, 
-                member: pair[1],
-                parent: pair[0],
-            });
         }
 
         return elements;
@@ -349,7 +396,6 @@ export function parseVariablesConfiguration(configFile: unknown): VariablesConfi
          *     }
          * ]
          */
-
         if (!Array.isArray(obj)) {
             return;
         }
@@ -408,11 +454,11 @@ export function parseVariablesConfiguration(configFile: unknown): VariablesConfi
         for (const o of obj) {
             const type = o.type;
             const member = o.member;
-            if (typeof type !== 'string') {
+            if (!(typeof type === 'string' && type.length)) {
                 continue;
             }
             
-            if (typeof member !== 'string') {
+            if (!(typeof member === 'string' && member.length)) {
                 continue;
             }
             
@@ -585,7 +631,7 @@ async function readConfigFile(file: vscode.Uri) {
 }
 
 let variablesConfig: VariablesConfiguration | undefined;
-let formatterConfig: PgindentConfiguration | undefined;
+let formatterConfig: FormatterConfiguration | undefined;
 
 /* Flag indicating that configuration file should be refreshed */
 let configDirty = true;

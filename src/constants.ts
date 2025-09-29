@@ -635,710 +635,707 @@ export function getDisplayedExprs(): string[] {
 };
 
 export function getKnownCustomListPtrs(): ListPtrSpecialMemberInfo[] {
-    const member = (type: string, struct: string, member: string): ListPtrSpecialMemberInfo => ({
+    const _ = (type: string, parent: string, member: string): ListPtrSpecialMemberInfo => ({
         type: type + ' *',
-        member: [struct, member],
-    });
-
-    const variable = (type: string, func: string, variable: string): ListPtrSpecialMemberInfo => ({
-        type: type + ' *',
-        variable: [func, variable],
+        parent,
+        member,
     });
 
     return [
         /* contrib/amcheck/verify_heapam.c */
-        member('ToastedAttribute', 'HeapCheckContext', 'toasted_attributes'),
+        _('ToastedAttribute', 'HeapCheckContext', 'toasted_attributes'),
 
         /* src/backend/access/index/amvalidate.c */
-        variable('OpFamilyOpFuncGroup', 'indentify_opfamily_groups', 'result'),
+        _('OpFamilyOpFuncGroup', 'indentify_opfamily_groups', 'result'),
 
         /* contrib/bloom/blvalidate.c */
-        variable('OpFamilyOpFuncGroup', 'blvalidate', 'grouplist'),
+        _('OpFamilyOpFuncGroup', 'blvalidate', 'grouplist'),
 
         /* contrib/pg_trgm/trgm_regexp.c */
-        member('TrgmState', 'TrgmNFA', 'queue'),
-        member('TrgmStateKey', 'TrgmNFA', 'keysQueue'),
-        member('TrgmStateKey', 'TrgmNFA', 'enterKeys'),
-        member('TrgmArcInfo', 'ColorTrgmInfo', 'arcs'),
-        member('TrgmArc', 'TrgmState', 'arcs'),
+        _('TrgmState', 'TrgmNFA', 'queue'),
+        _('TrgmStateKey', 'TrgmNFA', 'keysQueue'),
+        _('TrgmStateKey', 'TrgmNFA', 'enterKeys'),
+        _('TrgmArcInfo', 'ColorTrgmInfo', 'arcs'),
+        _('TrgmArc', 'TrgmState', 'arcs'),
 
         /* contrib/postgres_fdw/connection.c */
-        variable('ConnCacheEntry', 'pgfdw_finish_pre_commit_cleanup', 'pending_entries'),
-        variable('ConnCacheEntry', 'pgfdw_xact_callback', 'pending_entries'),
-        variable('ConnCacheEntry', 'pgfdw_xact_callback', 'cancel_requested'),
-        variable('ConnCacheEntry', 'pgfdw_finish_pre_commit_cleanup', 'pending_deallocs'),
-        variable('ConnCacheEntry', 'pgfdw_finish_abort_cleanup', 'cancel_requested'),
-        variable('ConnCacheEntry', 'pgfdw_finish_abort_cleanup', 'pending_deallocs'),
-        variable('ConnCacheEntry', 'pgfdw_finish_abort_cleanup', 'pending_entries'),
+        _('ConnCacheEntry', 'pgfdw_finish_pre_commit_cleanup', 'pending_entries'),
+        _('ConnCacheEntry', 'pgfdw_xact_callback', 'pending_entries'),
+        _('ConnCacheEntry', 'pgfdw_xact_callback', 'cancel_requested'),
+        _('ConnCacheEntry', 'pgfdw_finish_pre_commit_cleanup', 'pending_deallocs'),
+        _('ConnCacheEntry', 'pgfdw_finish_abort_cleanup', 'cancel_requested'),
+        _('ConnCacheEntry', 'pgfdw_finish_abort_cleanup', 'pending_deallocs'),
+        _('ConnCacheEntry', 'pgfdw_finish_abort_cleanup', 'pending_entries'),
 
         /* contrib/postgres_fdw/deparse.c */
-        variable('char', 'appendWhereClause', 'additional_conds'),
-        variable('char', 'deparseFromExpr', 'additional_conds'),
-        variable('char', 'postgresImportForeignSchema', 'commands'),
-        variable('RelationData', 'deparseTruncateSql', 'rels'),
-        variable('RelationData', 'postgresExecForeignTruncate', 'rels'),
+        _('char', 'appendWhereClause', 'additional_conds'),
+        _('char', 'deparseFromExpr', 'additional_conds'),
+        _('char', 'postgresImportForeignSchema', 'commands'),
+        _('RelationData', 'deparseTruncateSql', 'rels'),
+        _('RelationData', 'postgresExecForeignTruncate', 'rels'),
 
 
         /* contrib/postgres_fdw/option.c */
-        variable('const char', 'ExtractExtensionList', 'extlist'),
+        _('const char', 'ExtractExtensionList', 'extlist'),
 
         /* contrib/sepgsql/label.c */
-        variable('pending_label', 'sepgsql_subxact_callback', 'client_label_pending'),
+        _('pending_label', 'sepgsql_subxact_callback', 'client_label_pending'),
 
         /* src/backend/access/brin/brin_validate.c */
-        variable('OpFamilyOpFuncGroup', 'brinvalidate', 'grouplist'),
-        member('local_relopt', 'local_relopts', 'options'),
-        member('void', 'local_relopts', 'validators'),
+        _('OpFamilyOpFuncGroup', 'brinvalidate', 'grouplist'),
+        _('local_relopt', 'local_relopts', 'options'),
+        _('void', 'local_relopts', 'validators'),
 
         /* src/backend/access/gin/ginvalidate.c */
-        variable('OpFamilyMember', 'ginadjustmembers', 'operators'),
-        variable('OpFamilyMember', 'ginadjustmembers', 'functions'),
+        _('OpFamilyMember', 'ginadjustmembers', 'operators'),
+        _('OpFamilyMember', 'ginadjustmembers', 'functions'),
 
         /* src/backend/access/gist/gistbuild.c */
-        variable('GISTPageSplitInfo', 'gistbufferinginserttuples', 'splitinfo'),
+        _('GISTPageSplitInfo', 'gistbufferinginserttuples', 'splitinfo'),
 
         /* src/backend/access/gist/gistbuildbuffers.c */
-        variable('GISTPageSplitInfo', 'gistRelocateBuildBuffersOnSplit', 'splitinfo'),
+        _('GISTPageSplitInfo', 'gistRelocateBuildBuffersOnSplit', 'splitinfo'),
 
         /* src/backend/access/gist/gistvalidate.c */
-        variable('OpFamilyOpFuncGroup', 'gistvalidate', 'grouplist'),
-        variable('OpFamilyMember', 'gistadjustmembers', 'operators'),
-        variable('OpFamilyMember', 'gistadjustmembers', 'functions'),
+        _('OpFamilyOpFuncGroup', 'gistvalidate', 'grouplist'),
+        _('OpFamilyMember', 'gistadjustmembers', 'operators'),
+        _('OpFamilyMember', 'gistadjustmembers', 'functions'),
 
         /* src/backend/access/hash/hashvalidate.c */
-        variable('OpFamilyOpFuncGroup', 'hashvalidate', 'grouplist'),
-        variable('OpFamilyMember', 'hashadjustmembers', 'operators'),
-        variable('OpFamilyMember', 'hashadjustmembers', 'functions'),
+        _('OpFamilyOpFuncGroup', 'hashvalidate', 'grouplist'),
+        _('OpFamilyMember', 'hashadjustmembers', 'operators'),
+        _('OpFamilyMember', 'hashadjustmembers', 'functions'),
 
         /* src/backend/access/nbtree/nbvalidate.c */
-        variable('OpFamilyOpFuncGroup', 'btvalidate', 'grouplist'),
-        variable('OpFamilyMember', 'btadjustmembers', 'operators'),
-        variable('OpFamilyMember', 'btadjustmembers', 'functions'),
+        _('OpFamilyOpFuncGroup', 'btvalidate', 'grouplist'),
+        _('OpFamilyMember', 'btadjustmembers', 'operators'),
+        _('OpFamilyMember', 'btadjustmembers', 'functions'),
 
         /* src/backend/access/spgist/spgvalidate.c */
-        variable('OpFamilyOpFuncGroup', 'spgvalidate', 'grouplist'),
-        variable('OpFamilyMember', 'spgadjustmembers', 'functions'),
-        variable('OpFamilyMember', 'spgadjustmembers', 'operators'),
+        _('OpFamilyOpFuncGroup', 'spgvalidate', 'grouplist'),
+        _('OpFamilyMember', 'spgadjustmembers', 'functions'),
+        _('OpFamilyMember', 'spgadjustmembers', 'operators'),
 
         /* src/backend/access/transam/timeline.c */
-        variable('TimeLineHistoryEntry', 'tliInHistory', 'expectedTLEs'),
-        variable('TimeLineHistoryEntry', 'tliOfPointInHistory', 'history'),
-        variable('TimeLineHistoryEntry', 'tliSwitchPoint', 'history'),
+        _('TimeLineHistoryEntry', 'tliInHistory', 'expectedTLEs'),
+        _('TimeLineHistoryEntry', 'tliOfPointInHistory', 'history'),
+        _('TimeLineHistoryEntry', 'tliSwitchPoint', 'history'),
 
         /* src/backend/access/transam/xlog.c */
-        variable('char *', 'check_wal_consistency_checking', 'elemlist'),
+        _('char *', 'check_wal_consistency_checking', 'elemlist'),
 
         /* src/backend/access/transam/timeline.c */
-        variable('TimeLineHistoryEntry', 'readTimeLineHistory', 'result'),
+        _('TimeLineHistoryEntry', 'readTimeLineHistory', 'result'),
 
         /* src/backend/access/transam/xlogrecovery.c */
-        variable('tablespaceinfo', 'InitWalRecovery', 'tablespaces'),
-        variable('TimeLineHistoryEntry', 'rescanLatestTimeLine', 'newExpectedTLEs'),
-        variable('TimeLineHistoryEntry', 'XLogFileReadAnyTLI', 'tles'),
-        variable('TimeLineHistoryEntry', 'checkTimeLineSwitch', 'exptectedTLEs'),
-        variable('TimeLineHistoryEntry', 'WaitForWALToBecomeAvailable', 'exptectedTLEs'),
+        _('tablespaceinfo', 'InitWalRecovery', 'tablespaces'),
+        _('TimeLineHistoryEntry', 'rescanLatestTimeLine', 'newExpectedTLEs'),
+        _('TimeLineHistoryEntry', 'XLogFileReadAnyTLI', 'tles'),
+        _('TimeLineHistoryEntry', 'checkTimeLineSwitch', 'exptectedTLEs'),
+        _('TimeLineHistoryEntry', 'WaitForWALToBecomeAvailable', 'exptectedTLEs'),
 
         /* src/backend/backup/backup_manifest.c */
-        variable('TimeLineHistoryEntry', 'AddWALInfoToBackupManifest', 'timelines'),
+        _('TimeLineHistoryEntry', 'AddWALInfoToBackupManifest', 'timelines'),
 
         /* src/backend/backup/basebackup_copy.c */
-        variable('tablespaceinfo', 'SendTablespaceList', 'tablespaces'),
+        _('tablespaceinfo', 'SendTablespaceList', 'tablespaces'),
 
         /* src/backend/backup/basebackup_incremental.c */
-        variable('TimeLineHistoryEntry', 'PrepareForIncrementalBackup', 'expectedTLEs'),
-        variable('TimeLineHistoryEntry', 'PrepareForIncrementalBackup', 'required_wslist'),
+        _('TimeLineHistoryEntry', 'PrepareForIncrementalBackup', 'expectedTLEs'),
+        _('TimeLineHistoryEntry', 'PrepareForIncrementalBackup', 'required_wslist'),
 
         /* src/backend/backup/basebackup_target.c */
-        variable('BaseBackupTargetType', 'BaseBackupAddTarget', 'BaseBackupTargetTypeList'),
-        variable('BaseBackupTargetType', 'BaseBackupGetTargetHandle', 'BaseBackupTargetTypeList'),
+        _('BaseBackupTargetType', 'BaseBackupAddTarget', 'BaseBackupTargetTypeList'),
+        _('BaseBackupTargetType', 'BaseBackupGetTargetHandle', 'BaseBackupTargetTypeList'),
 
         /* src/backend/{backup/relation}/basebackup.c */
-        member('tablespaceinfo', 'bbsink_state', 'tablespaces'),
-        variable('char', 'perform_base_backup', 'walFileList'),
-        variable('char', 'perform_base_backup', 'historyFileList'),
-        variable('tablespaceinfo', 'perform_base_backup', 'tablespaces'),
-        variable('tablespaceinfo', 'SendBackupHeader', 'tablespaces'),
-        variable('tablespaceinfo', 'sendDir', 'tablespaces'),
+        _('tablespaceinfo', 'bbsink_state', 'tablespaces'),
+        _('char', 'perform_base_backup', 'walFileList'),
+        _('char', 'perform_base_backup', 'historyFileList'),
+        _('tablespaceinfo', 'perform_base_backup', 'tablespaces'),
+        _('tablespaceinfo', 'SendBackupHeader', 'tablespaces'),
+        _('tablespaceinfo', 'sendDir', 'tablespaces'),
 
         /* src/backend/backup/walsummary.c */
-        variable('WalSummaryFile', 'FilterWalSummaries', 'wslist'),
-        variable('WalSummaryFile', 'WalSummariesAreComplete', 'wslist'),
-        variable('WalSummaryFile', 'GetWalSummaries', 'result'),
+        _('WalSummaryFile', 'FilterWalSummaries', 'wslist'),
+        _('WalSummaryFile', 'WalSummariesAreComplete', 'wslist'),
+        _('WalSummaryFile', 'GetWalSummaries', 'result'),
 
         /* src/backend/backup/walsummaryfuncs.c */
-        variable('WalSummaryFile', 'pg_available_wal_summaries', 'wslist'),
+        _('WalSummaryFile', 'pg_available_wal_summaries', 'wslist'),
 
         /* src/backned/bootstrap/bootstrap.c */
-        variable('strcut typmap', 'gettype', 'Typ'),
-        variable('strcut typmap', 'boot_get_type_io_data', 'Typ'),
+        _('strcut typmap', 'gettype', 'Typ'),
+        _('strcut typmap', 'boot_get_type_io_data', 'Typ'),
 
         /* src/backend/catalog/heap.c */
-        variable('CookedConstraint', 'StoreConstraints', 'cooked_constraints'),
-        variable('char', 'AddRelationNewConstraints', 'checknames'),
-        variable('char', 'AddRelationRawConstraints', 'checknames'),
-        variable('RawColumnDefault', 'AddRelationNewConstraints', 'newColDefaults'),
-        variable('RelationData', 'heap_truncate', 'relations'),
-        variable('RelationData', 'heap_truncate_check_FKs', 'relations'),
+        _('CookedConstraint', 'StoreConstraints', 'cooked_constraints'),
+        _('char', 'AddRelationNewConstraints', 'checknames'),
+        _('char', 'AddRelationRawConstraints', 'checknames'),
+        _('RawColumnDefault', 'AddRelationNewConstraints', 'newColDefaults'),
+        _('RelationData', 'heap_truncate', 'relations'),
+        _('RelationData', 'heap_truncate_check_FKs', 'relations'),
 
         /* src/backend/catalog/index.c */
-        variable('char', 'ConstructTupleDescriptor', 'indexColNames'),
-        variable('char', 'index_create', 'indexColNames'),
+        _('char', 'ConstructTupleDescriptor', 'indexColNames'),
+        _('char', 'index_create', 'indexColNames'),
 
         /* srck/backend/catalog/namespace.c */
-        variable('char', 'MatchNamedCall', 'argnames'),
-        variable('char', 'preprocessNamespacePath', 'namelist'),
-        variable('char', 'FuncnameGetCandidates', 'argnames'),
-        variable('char', 'recomputeNamespacePath', 'namelist'),
+        _('char', 'MatchNamedCall', 'argnames'),
+        _('char', 'preprocessNamespacePath', 'namelist'),
+        _('char', 'FuncnameGetCandidates', 'argnames'),
+        _('char', 'recomputeNamespacePath', 'namelist'),
 
         /* src/backend/catalog/objectaddress.c */
-        variable('char', 'strlist_to_textarray', 'list'),
-        variable('char', 'pg_identify_object_as_address', 'names'),
-        variable('char', 'pg_identify_object_as_address', 'args'),
+        _('char', 'strlist_to_textarray', 'list'),
+        _('char', 'pg_identify_object_as_address', 'names'),
+        _('char', 'pg_identify_object_as_address', 'args'),
 
         /* src/backend/catalog/pg_constraint.c */
-        variable('char', 'ChooseConstraintName', 'others'),
+        _('char', 'ChooseConstraintName', 'others'),
 
         /* src/backend/catalog/pg_subscription.c */
-        variable('SubscriptionRelState', 'GetSubscriptionRelations', 'res'),
-        variable('SubscriptionRelState', 'GetSubscriptionNotReadyRelations', 'res'),
+        _('SubscriptionRelState', 'GetSubscriptionRelations', 'res'),
+        _('SubscriptionRelState', 'GetSubscriptionNotReadyRelations', 'res'),
 
         /* src/backend/catalog/pg_publication.c */
-        variable('published_rel', 'is_ancestor_member_tableinfos', 'table_infos'),
-        variable('published_rel', 'filter_partitions', 'table_infos'),
-        variable('published_rel', 'pg_get_publication_tables', 'table_infos'),
+        _('published_rel', 'is_ancestor_member_tableinfos', 'table_infos'),
+        _('published_rel', 'filter_partitions', 'table_infos'),
+        _('published_rel', 'pg_get_publication_tables', 'table_infos'),
 
         /* src/backend/catalog/pg_shdepend.c */
-        variable('remoteDep', 'checkSharedDependencies', 'remDeps'),
+        _('remoteDep', 'checkSharedDependencies', 'remDeps'),
 
         /* src/backend/commands/async.c */
-        member('ListenAction', 'ActionList', 'actions'),
-        variable('char', 'Exec_ListenCommit', 'listenChannels'),
-        variable('char', 'IsListeningOn', 'listenChannels'),
-        member('Notification', 'NotificationList', 'events'),
-        variable('ListenAction', 'AtCommit_Notify', 'pendingActions'),
-        variable('char', 'AtCommit_Notify', 'pendingNotifies'),
+        _('ListenAction', 'ActionList', 'actions'),
+        _('char', 'Exec_ListenCommit', 'listenChannels'),
+        _('char', 'IsListeningOn', 'listenChannels'),
+        _('Notification', 'NotificationList', 'events'),
+        _('ListenAction', 'AtCommit_Notify', 'pendingActions'),
+        _('char', 'AtCommit_Notify', 'pendingNotifies'),
 
         /* src/backend/commands/cluster.c */
-        variable('RelToCluster', 'cluster_multiple_rels', 'rtcs'),
-        variable('RelToCluster', 'cluster', 'rtcs'),
-        variable('RelToCluster', 'cluster', 'rvs'),
-        variable('RelToCluster', 'get_tables_to_cluster', 'rtcs'),
-        variable('RelToCluster', 'get_tables_to_cluster', 'rvs'),
-        variable('RelToCluster', 'get_tables_to_cluster_partitioned', 'rtcs'),
+        _('RelToCluster', 'cluster_multiple_rels', 'rtcs'),
+        _('RelToCluster', 'cluster', 'rtcs'),
+        _('RelToCluster', 'cluster', 'rvs'),
+        _('RelToCluster', 'get_tables_to_cluster', 'rtcs'),
+        _('RelToCluster', 'get_tables_to_cluster', 'rvs'),
+        _('RelToCluster', 'get_tables_to_cluster_partitioned', 'rtcs'),
 
         /* src/backend/commands/copyfrom.c */
-        member('CopyMultiInsertBuffer', 'CopyMultiInsertInfo', 'multiInsertBuffers'),
+        _('CopyMultiInsertBuffer', 'CopyMultiInsertInfo', 'multiInsertBuffers'),
 
         /* src/backend/commands/dbcommands.c */
-        variable('CreateDBRelInfo', 'CreateDatabaseUsingWalLog', 'rlocatorlist'),
-        variable('CreateDBRelInfo', 'ScanSourceDatabasePgClass', 'rlocatorlist'),
-        variable('CreateDBRelInfo', 'ScanSourceDatabasePgClassPage', 'rlocatorlist'),
+        _('CreateDBRelInfo', 'CreateDatabaseUsingWalLog', 'rlocatorlist'),
+        _('CreateDBRelInfo', 'ScanSourceDatabasePgClass', 'rlocatorlist'),
+        _('CreateDBRelInfo', 'ScanSourceDatabasePgClassPage', 'rlocatorlist'),
 
         /* src/backend/commands/event_trigger.c */
-        variable('const char', 'filter_list_to_array', 'filterlist'),
-        variable('EventTriggerCacheItem', 'EventTriggerCommonSetup', 'cachelist'),
-        member('CollectedCommand', 'EventTriggerQueryState', 'commandList'),
-        member('char', 'SQLDropObject', 'addrnames'),
-        member('char', 'SQLDropObject', 'addrargs'),
+        _('const char', 'filter_list_to_array', 'filterlist'),
+        _('EventTriggerCacheItem', 'EventTriggerCommonSetup', 'cachelist'),
+        _('CollectedCommand', 'EventTriggerQueryState', 'commandList'),
+        _('char', 'SQLDropObject', 'addrnames'),
+        _('char', 'SQLDropObject', 'addrargs'),
 
         /* src/backend/commands/explain.c */
-        variable('const char', 'show_tablesample', 'params'),
-        variable('char', 'show_incremental_sort_group_info', 'methodNames'),
-        variable('const char', 'ExplainPropertyList', 'data'),
-        variable('const char', 'ExplainPropertyListNested', 'data'),
-        variable('const char', 'show_plan_tlist', 'result'),
-        variable('const char', 'show_sort_group_keys', 'result'),
-        variable('const char', 'show_sort_group_keys', 'resultPresorted'),
-        variable('const char', 'show_incremental_sort_group_info', 'methodNames'),
-        variable('const char', 'show_modifytable_info', 'idxNames'),
+        _('const char', 'show_tablesample', 'params'),
+        _('char', 'show_incremental_sort_group_info', 'methodNames'),
+        _('const char', 'ExplainPropertyList', 'data'),
+        _('const char', 'ExplainPropertyListNested', 'data'),
+        _('const char', 'show_plan_tlist', 'result'),
+        _('const char', 'show_sort_group_keys', 'result'),
+        _('const char', 'show_sort_group_keys', 'resultPresorted'),
+        _('const char', 'show_incremental_sort_group_info', 'methodNames'),
+        _('const char', 'show_modifytable_info', 'idxNames'),
 
         /* src/backend/commands/extension.c */
-        member('ExtensionVersionInfo', 'ExtensionVersionInfo', 'reachable'),
-        member('char', 'ExtensionControlFile', 'no_relocate'),
-        member('char', 'ExtensionControlFile', 'requires'),
-        variable('ExtensionVersionInfo', 'get_nearest_unprocessed_vertex', 'evi_list'),
-        variable('ExtensionVersionInfo', 'find_update_path', 'evi_list'),
-        variable('ExtensionVersionInfo', 'find_install_path', 'evi_list'),
-        variable('ExtensionVersionInfo', 'identify_update_path', 'evi_list'),
-        variable('ExtensionVersionInfo', 'CreateExtensionInternal', 'evi_list'),
-        variable('char', 'get_required_extension', 'parents'),
-        variable('ExtensionVersionInfo', 'get_available_versions_for_extension', 'evi_list'),
-        variable('char', 'convert_requires_to_datum', 'requires'),
-        variable('ExtensionVersionInfo', 'pg_extension_update_paths', 'evi_list'),
-        variable('char', 'pg_extension_update_paths', 'path'),
-        variable('char', 'ApplyExtensionUpdates', 'updateVersions'),
-        variable('ExtensionVersionInfo', 'get_ext_ver_list', 'evi_list'),
+        _('ExtensionVersionInfo', 'ExtensionVersionInfo', 'reachable'),
+        _('char', 'ExtensionControlFile', 'no_relocate'),
+        _('char', 'ExtensionControlFile', 'requires'),
+        _('ExtensionVersionInfo', 'get_nearest_unprocessed_vertex', 'evi_list'),
+        _('ExtensionVersionInfo', 'find_update_path', 'evi_list'),
+        _('ExtensionVersionInfo', 'find_install_path', 'evi_list'),
+        _('ExtensionVersionInfo', 'identify_update_path', 'evi_list'),
+        _('ExtensionVersionInfo', 'CreateExtensionInternal', 'evi_list'),
+        _('char', 'get_required_extension', 'parents'),
+        _('ExtensionVersionInfo', 'get_available_versions_for_extension', 'evi_list'),
+        _('char', 'convert_requires_to_datum', 'requires'),
+        _('ExtensionVersionInfo', 'pg_extension_update_paths', 'evi_list'),
+        _('char', 'pg_extension_update_paths', 'path'),
+        _('char', 'ApplyExtensionUpdates', 'updateVersions'),
+        _('ExtensionVersionInfo', 'get_ext_ver_list', 'evi_list'),
 
         /* src/backend/commands/foreigncmds.c */
-        variable('char', 'ImportForeignSchema', 'cmd_list'),
+        _('char', 'ImportForeignSchema', 'cmd_list'),
 
         /* src/backend/commands/indexcmds.c */
-        variable('char', 'ChooseIndexNameAddition', 'colnames'),
-        variable('char', 'ChooseIndexColumnNames', 'result'),
-        variable('ReindexIndexInfo', 'ReindexRelationConcurrently', 'indexIds'),
-        variable('ReindexIndexInfo', 'ReindexRelationConcurrently', 'newIndexIds'),
-        variable('LOCKTAG', 'ReindexRelationConcurrently', 'lockTags'),
-        variable('LockRelId', 'ReindexRelationConcurrently', 'relationLocks'),
-        variable('char', 'ChooseIndexName', 'colnames'),
-        variable('char', 'DefineIndex', 'indexColNames'),
+        _('char', 'ChooseIndexNameAddition', 'colnames'),
+        _('char', 'ChooseIndexColumnNames', 'result'),
+        _('ReindexIndexInfo', 'ReindexRelationConcurrently', 'indexIds'),
+        _('ReindexIndexInfo', 'ReindexRelationConcurrently', 'newIndexIds'),
+        _('LOCKTAG', 'ReindexRelationConcurrently', 'lockTags'),
+        _('LockRelId', 'ReindexRelationConcurrently', 'relationLocks'),
+        _('char', 'ChooseIndexName', 'colnames'),
+        _('char', 'DefineIndex', 'indexColNames'),
 
         /* src/backend/commands/opclasscmds.c */
-        variable('OpFamilyMember', 'DefineOpClass', 'operators'),
-        variable('OpFamilyMember', 'DefineOpClass', 'procedures'),
-        variable('OpFamilyMember', 'storeOperators', 'operators'),
-        variable('OpFamilyMember', 'storeProcedures', 'procedures'),
-        variable('OpFamilyMember', 'dropProcedures', 'procedures'),
+        _('OpFamilyMember', 'DefineOpClass', 'operators'),
+        _('OpFamilyMember', 'DefineOpClass', 'procedures'),
+        _('OpFamilyMember', 'storeOperators', 'operators'),
+        _('OpFamilyMember', 'storeProcedures', 'procedures'),
+        _('OpFamilyMember', 'dropProcedures', 'procedures'),
 
         /* src/backend/commands/publicationcmds.c */
-        variable('char', 'parse_publication_options', 'publish_list'),
-        variable('PublicationRelInfo', 'TransformPubWhereClauses', 'tables'),
-        variable('PublicationRelInfo', 'CheckPubRelationColumnList', 'tables'),
-        variable('PublicationRelInfo', 'AlterPublicationTables', 'rels'),
-        variable('PublicationRelInfo', 'CloseTableList', 'rels'),
-        variable('PublicationRelInfo', 'PublicationAddTables', 'rels'),
-        variable('PublicationRelInfo', 'PublicationDropTables', 'rels'),
-        variable('PublicationRelInfo', 'CreatePublication', 'rels'),
-        variable('PublicationRelInfo', 'OpenTableList', 'rels'),
+        _('char', 'parse_publication_options', 'publish_list'),
+        _('PublicationRelInfo', 'TransformPubWhereClauses', 'tables'),
+        _('PublicationRelInfo', 'CheckPubRelationColumnList', 'tables'),
+        _('PublicationRelInfo', 'AlterPublicationTables', 'rels'),
+        _('PublicationRelInfo', 'CloseTableList', 'rels'),
+        _('PublicationRelInfo', 'PublicationAddTables', 'rels'),
+        _('PublicationRelInfo', 'PublicationDropTables', 'rels'),
+        _('PublicationRelInfo', 'CreatePublication', 'rels'),
+        _('PublicationRelInfo', 'OpenTableList', 'rels'),
         /* old versions have plain 'Relation' instead of 'PublicationRelInfo' */
 
         /* src/backend/commands/seclabel.c */
-        variable('LabelProvider', 'ExecSecLabelStmt', 'label_provider_list'),
+        _('LabelProvider', 'ExecSecLabelStmt', 'label_provider_list'),
 
         /* src/backend/commands/subscriptioncmds.c */
-        variable('SubscriptionRelState', 'AlterSubscription_refresh', 'subrel_states'),
-        variable('LogicalRepWorker', 'DropSubscription', 'subworkers'),
-        variable('SubscriptionRelState', 'DropSubscription', 'rstates'),
-        variable('SubscriptionRelState', 'ReportSlotConnectionError', 'rstates'),
+        _('SubscriptionRelState', 'AlterSubscription_refresh', 'subrel_states'),
+        _('LogicalRepWorker', 'DropSubscription', 'subworkers'),
+        _('SubscriptionRelState', 'DropSubscription', 'rstates'),
+        _('SubscriptionRelState', 'ReportSlotConnectionError', 'rstates'),
 
         /* src/backend/commands/tablecmds.c */
-        variable('CookedConstraint', 'MergeCheckConstraint', 'constraints'),
-        member('NewConstraint', 'AlteredTableInfo', 'constraints'),
-        member('NewColumnValue', 'AlteredTableInfo', 'newvals'),
-        member('char', 'AlteredTableInfo', 'changedIndexDefs'),
-        member('char', 'AlteredTableInfo', 'changedConstraintDefs'),
-        member('char', 'AlteredTableInfo', 'changedStatisticsDefs'),
-        member('RelationData', 'ForeignTruncateInfo', 'rels'),
-        variable('const char', 'ChooseForeignKeyConstraintNameAddition', 'colnames'),
-        variable('CookedConstraint','ATAddCheckConstraint', 'newcons'),
-        variable('OnCommitItem', 'remove_on_commit_action', 'on_commits'),
-        variable('OnCommitItem', 'PreCommit_on_commit_actions', 'on_commits'),
-        variable('OnCommitItem', 'AtEOXact_on_commit_actions', 'on_commits'),
-        variable('OnCommitItem', 'AtEOSubXact_on_commit_actions', 'on_commits'),
-        variable('CookedConstraint', 'MergeAttributes', 'constraints'),
-        variable('RelationData', 'ExecuteTruncateGuts', 'rels'),
-        variable('RelationData', 'ExecuteTruncate', 'rels'),
-        variable('char', 'RemoveInheritance', 'connames'),
+        _('CookedConstraint', 'MergeCheckConstraint', 'constraints'),
+        _('NewConstraint', 'AlteredTableInfo', 'constraints'),
+        _('NewColumnValue', 'AlteredTableInfo', 'newvals'),
+        _('char', 'AlteredTableInfo', 'changedIndexDefs'),
+        _('char', 'AlteredTableInfo', 'changedConstraintDefs'),
+        _('char', 'AlteredTableInfo', 'changedStatisticsDefs'),
+        _('RelationData', 'ForeignTruncateInfo', 'rels'),
+        _('const char', 'ChooseForeignKeyConstraintNameAddition', 'colnames'),
+        _('CookedConstraint','ATAddCheckConstraint', 'newcons'),
+        _('OnCommitItem', 'remove_on_commit_action', 'on_commits'),
+        _('OnCommitItem', 'PreCommit_on_commit_actions', 'on_commits'),
+        _('OnCommitItem', 'AtEOXact_on_commit_actions', 'on_commits'),
+        _('OnCommitItem', 'AtEOSubXact_on_commit_actions', 'on_commits'),
+        _('CookedConstraint', 'MergeAttributes', 'constraints'),
+        _('RelationData', 'ExecuteTruncateGuts', 'rels'),
+        _('RelationData', 'ExecuteTruncate', 'rels'),
+        _('char', 'RemoveInheritance', 'connames'),
 
         /* src/backend/commands/tablespace.c */
-        variable('char', 'check_temp_tablespaces', 'namelist'),
-        variable('char', 'PrepareTempTablespaces', 'namelist'),
+        _('char', 'check_temp_tablespaces', 'namelist'),
+        _('char', 'PrepareTempTablespaces', 'namelist'),
 
         /* src/backend/commands/trigger.c */
-        member('AfterTriggersTableData', 'AfterTriggersQueryData', 'tables'),
-        variable('AfterTriggersTableData', 'AfterTriggerFreeQuery', 'tables'),
+        _('AfterTriggersTableData', 'AfterTriggersQueryData', 'tables'),
+        _('AfterTriggersTableData', 'AfterTriggerFreeQuery', 'tables'),
 
         /* src/backend/commands/tsearchcmds.c */
-        variable('TSTokenTypeItem', 'tstoken_list_member', 'tokens'),
-        variable('TSTokenTypeItem', 'MakeConfigurationMapping', 'tokens'),
-        variable('TSTokenTypeItem', 'getTokenTypes', 'result'),
+        _('TSTokenTypeItem', 'tstoken_list_member', 'tokens'),
+        _('TSTokenTypeItem', 'MakeConfigurationMapping', 'tokens'),
+        _('TSTokenTypeItem', 'getTokenTypes', 'result'),
 
         /* src/backend/commands/typecmds.c */
-        variable('RelToCheck', 'validateDomainNotNullConstraint', 'rels'),
-        variable('RelToCheck', 'validateDomainCheckConstraint', 'rels'),
-        variable('RelToCheck', 'get_rels_with_domain', 'result'),
+        _('RelToCheck', 'validateDomainNotNullConstraint', 'rels'),
+        _('RelToCheck', 'validateDomainCheckConstraint', 'rels'),
+        _('RelToCheck', 'get_rels_with_domain', 'result'),
 
         /* src/backend/commands/user.c */
-        variable('char', 'check_createrole_self_grant', 'elemlist'),
+        _('char', 'check_createrole_self_grant', 'elemlist'),
 
         /* src/backend/commands/variable.c */
-        variable('char', 'check_datestyle', 'elemlist'),
-        variable('char', 'assign_datestyle', 'elemlist'),
+        _('char', 'check_datestyle', 'elemlist'),
+        _('char', 'assign_datestyle', 'elemlist'),
 
         /* src/backend/executor/execMain.c */
-        member('ExecAuxRowMark', 'EPQState', 'arowMarks'),
+        _('ExecAuxRowMark', 'EPQState', 'arowMarks'),
 
         /* src/backend/executor/execPartition.c */
-        variable('PartitionPruneStepOp', 'InitPartitionPruneContext', 'pruning_steps'),
-        member('PartitionPruneStepOp', 'PartitionedRelPruneInfo', 'initial_pruning_steps'),
-        member('PartitionPruneStepOp', 'PartitionedRelPruneInfo', 'exec_pruning_steps'),
-        member('PartitionPruneStepOp', 'PartitionedRelPruningData', 'initial_pruning_steps'),
-        member('PartitionPruneStepOp', 'PartitionedRelPruningData', 'exec_pruning_steps'),
+        _('PartitionPruneStepOp', 'InitPartitionPruneContext', 'pruning_steps'),
+        _('PartitionPruneStepOp', 'PartitionedRelPruneInfo', 'initial_pruning_steps'),
+        _('PartitionPruneStepOp', 'PartitionedRelPruneInfo', 'exec_pruning_steps'),
+        _('PartitionPruneStepOp', 'PartitionedRelPruningData', 'initial_pruning_steps'),
+        _('PartitionPruneStepOp', 'PartitionedRelPruningData', 'exec_pruning_steps'),
 
         /* src/include/nodes/execnodes.h */
-        member('ResultRelInfoExtra', 'EState', 'es_resultrelinfo_extra'),
-        member('execRowMark', 'EState', 'es_rowMark'),
+        _('ResultRelInfoExtra', 'EState', 'es_resultrelinfo_extra'),
+        _('execRowMark', 'EState', 'es_rowMark'),
 
         /* src/backend/executor/functions.c */
-        variable('execution_state', 'fmgr_sql', 'eslist'),
-        member('execution_state', 'SQLFunctionCachePtr', 'func_state'),
-        variable('execution_state', 'init_execution_state', 'eslist'),
+        _('execution_state', 'fmgr_sql', 'eslist'),
+        _('execution_state', 'SQLFunctionCachePtr', 'func_state'),
+        _('execution_state', 'init_execution_state', 'eslist'),
 
         /* src/backend/executor/nodeLockRows.c */
-        member('ExecAuxRowMark', 'LockRowsState', 'lr_arowMarks'),
-        variable('ExecAuxRowMark', 'ExecInitLockRows', 'epq_arowmarks'),
+        _('ExecAuxRowMark', 'LockRowsState', 'lr_arowMarks'),
+        _('ExecAuxRowMark', 'ExecInitLockRows', 'epq_arowmarks'),
 
         /* src/backend/executor/nodeTidrangescan.c */
-        member('TidOpExpr', 'TidRangeScanState', 'trss_tidexprs'),
+        _('TidOpExpr', 'TidRangeScanState', 'trss_tidexprs'),
 
         /* src/backend/executor/nodeTidscan.c */
-        member('TidExpr', 'TidScanState', 'tss_tidexprs'),
+        _('TidExpr', 'TidScanState', 'tss_tidexprs'),
 
         /* src/backend/executor/spi.c */
-        member('CachedPlanSource', 'SPIPlanPtr', 'plancache_list'),
-        variable('CachedPlanSource', '_SPI_prepare_plan', 'plancache_list'),
+        _('CachedPlanSource', 'SPIPlanPtr', 'plancache_list'),
+        _('CachedPlanSource', '_SPI_prepare_plan', 'plancache_list'),
 
         /* src/backend/jit/llvm/llvmjit.c */
-        variable('LLVMJitHandle', 'LLVMJitContext', 'handles'),
+        _('LLVMJitHandle', 'LLVMJitContext', 'handles'),
 
         /* src/include/libpq/hba.h */
-        member('char', 'HbaLine', 'radiusservers'),
-        member('char', 'HbaLine', 'radiussecrets'),
-        member('char', 'HbaLine', 'radiusidentifiers'),
-        member('char', 'HbaLine', 'radiusports'),
-        member('AuthToken', 'HbaLine', 'databases'),
-        member('AuthToken', 'HbaLine', 'roles'),
+        _('char', 'HbaLine', 'radiusservers'),
+        _('char', 'HbaLine', 'radiussecrets'),
+        _('char', 'HbaLine', 'radiusidentifiers'),
+        _('char', 'HbaLine', 'radiusports'),
+        _('AuthToken', 'HbaLine', 'databases'),
+        _('AuthToken', 'HbaLine', 'roles'),
 
         /* src/backend/libpq/hba.c */
-        variable('char', 'tokenize_expand_file', 'inc_lines'),
-        variable('AuthToken', 'tokenize_expand_file', 'inc_tokens'),
-        variable('AuthToken', 'tokenize_expand_file', 'tokens'),
-        variable('AuthToken', 'check_role', 'tokens'),
-        variable('AuthToken', 'check_db', 'tokens'),
-        variable('AuthToken', 'parse_hba_line', 'tokens'),
+        _('char', 'tokenize_expand_file', 'inc_lines'),
+        _('AuthToken', 'tokenize_expand_file', 'inc_tokens'),
+        _('AuthToken', 'tokenize_expand_file', 'tokens'),
+        _('AuthToken', 'check_role', 'tokens'),
+        _('AuthToken', 'check_db', 'tokens'),
+        _('AuthToken', 'parse_hba_line', 'tokens'),
         /* old versions have 'HbaToken' instead of 'AuthToken' */
-        variable('char', 'parse_hba_auth_opt', 'parsed_servers'),
-        variable('char', 'parse_hba_auth_opt', 'parsed_ports'),
-        variable('HbaLine', 'check_hba', 'parsed_hba_lines'),
-        variable('IdentLine', 'check_usermap', 'parsed_ident_lines'),
-        variable('TokenizedAuthLine', 'load_hba', 'hba_lines'),
-        variable('TokenizedAuthLine', 'load_ident', 'ident_lines'),
+        _('char', 'parse_hba_auth_opt', 'parsed_servers'),
+        _('char', 'parse_hba_auth_opt', 'parsed_ports'),
+        _('HbaLine', 'check_hba', 'parsed_hba_lines'),
+        _('IdentLine', 'check_usermap', 'parsed_ident_lines'),
+        _('TokenizedAuthLine', 'load_hba', 'hba_lines'),
+        _('TokenizedAuthLine', 'load_ident', 'ident_lines'),
 
         /* old versions have 'TokenizedLine' instead of 'TokenizedAuthLine' */
-        variable('HbaToken', 'tokenize_inc_file', 'inc_tokens'),
+        _('HbaToken', 'tokenize_inc_file', 'inc_tokens'),
 
         /* src/backend/libpq/pqcomm.c */
-        variable('char', 'TouchSocketFiles', 'sock_paths'),
-        variable('char', 'RemoveSocketFiles', 'sock_paths'),
+        _('char', 'TouchSocketFiles', 'sock_paths'),
+        _('char', 'RemoveSocketFiles', 'sock_paths'),
 
         /* src/backend/optimizer/geqo/geqo_eval.c */
-        variable('Clump', 'gimme_tree', 'clumps'),
-        variable('Clump', 'merge_clump', 'clumps'),
+        _('Clump', 'gimme_tree', 'clumps'),
+        _('Clump', 'merge_clump', 'clumps'),
 
         /* src/backend/optimizer/path/allpaths.c */
-        variable('OpBtreeInterpretation', 'find_window_run_conditions', 'opinfos'),
+        _('OpBtreeInterpretation', 'find_window_run_conditions', 'opinfos'),
 
         /* src/backend/optimizer/prep/prepjointree.c */
-        member('reduce_outer_joins_state', 'reduce_outer_joins_state', 'sub_states'),
-        member('reduce_outer_joins_pass1_state', 'reduce_outer_joins_pass1_state', 'sub_states'),
-        member('reduce_outer_joins_partial_state', 'reduce_outer_joins_pass2_state', 'sub_states'),
+        _('reduce_outer_joins_state', 'reduce_outer_joins_state', 'sub_states'),
+        _('reduce_outer_joins_pass1_state', 'reduce_outer_joins_pass1_state', 'sub_states'),
+        _('reduce_outer_joins_partial_state', 'reduce_outer_joins_pass2_state', 'sub_states'),
 
         /* src/include/nodes/pathnodes.h */
-        member('MergeScanSelCache', 'RestrictInfo', 'scansel_cache'),
+        _('MergeScanSelCache', 'RestrictInfo', 'scansel_cache'),
 
         /* src/backend/utils/cache/lsyscache.c */
-        variable('OpBtreeInterpretation', 'get_op_btree_interpretation', 'result'),
+        _('OpBtreeInterpretation', 'get_op_btree_interpretation', 'result'),
 
         /* src/backend/utils/cache/typcache.c */
         {
             type: 'struct tupleDesc *',
-            member: ['RecordCacheEntry', 'tupdescs'],
+            member: 'tupdescs',
+            parent: 'RecordCacheEntry',
         },
 
         /* src/backend/optimizer/util/predtest.c */
-        variable('OpBtreeInterpretation', 'lookup_proof_cache', 'clause_op_infos'),
-        variable('OpBtreeInterpretation', 'lookup_proof_cache', 'pred_op_infos'),
+        _('OpBtreeInterpretation', 'lookup_proof_cache', 'clause_op_infos'),
+        _('OpBtreeInterpretation', 'lookup_proof_cache', 'pred_op_infos'),
 
         /* src/backend/optimizer/util/tlist.c */
-        variable('split_pathtarget_item', 'add_sp_items_to_pathtargets', 'items'),
-        variable('split_pathtarget_item', 'split_pathtarget_at_srfs', 'level_srfs'),
-        variable('split_pathtarget_item', 'split_pathtarget_at_srfs', 'input_vars'),
-        variable('split_pathtarget_item', 'split_pathtarget_at_srfs', 'input_srfs'),
+        _('split_pathtarget_item', 'add_sp_items_to_pathtargets', 'items'),
+        _('split_pathtarget_item', 'split_pathtarget_at_srfs', 'level_srfs'),
+        _('split_pathtarget_item', 'split_pathtarget_at_srfs', 'input_vars'),
+        _('split_pathtarget_item', 'split_pathtarget_at_srfs', 'input_srfs'),
 
         /* src/backend/optimizer/util/plancat.c */
-        member('PartitionSchemeData', 'PlannerInfo', 'part_schemes'),
+        _('PartitionSchemeData', 'PlannerInfo', 'part_schemes'),
 
         /* src/backend/parser/parse_clause.c */
-        variable('ParseNamespaceItem', 'setNamespaceColumnVisibility', 'namespace'),
-        variable('ParseNamespaceItem', 'setNamespaceLateralState', 'namespace'),
-        variable('ParseNamespaceItem', 'transformFromClauseItem', 'my_namespace'),
-        variable('ParseNamespaceItem', 'transformFromClauseItem', 'r_namespace'),
-        variable('ParseNamespaceItem', 'transformFromClauseItem', 'l_namespace'),
-        variable('ParseNamespaceItem', 'transformFromClause', 'namespace'),
+        _('ParseNamespaceItem', 'setNamespaceColumnVisibility', 'namespace'),
+        _('ParseNamespaceItem', 'setNamespaceLateralState', 'namespace'),
+        _('ParseNamespaceItem', 'transformFromClauseItem', 'my_namespace'),
+        _('ParseNamespaceItem', 'transformFromClauseItem', 'r_namespace'),
+        _('ParseNamespaceItem', 'transformFromClauseItem', 'l_namespace'),
+        _('ParseNamespaceItem', 'transformFromClause', 'namespace'),
 
         /* src/backend/parser/parse_func.c */
-        variable('char', 'ParseFuncOrColumn', 'argnames'),
-        variable('char', 'func_get_detail', 'fargnames'),
+        _('char', 'ParseFuncOrColumn', 'argnames'),
+        _('char', 'func_get_detail', 'fargnames'),
 
         /* src/backend/parser/parse_jsontable.c */
-        member('char', 'JsonTableParseContext', 'pathNames'),
+        _('char', 'JsonTableParseContext', 'pathNames'),
 
         /* src/backend/parser/parse_merge.c */
-        variable('ParseNamespaceItem', 'setNamespaceVisibilityForRTE', 'namespace'),
+        _('ParseNamespaceItem', 'setNamespaceVisibilityForRTE', 'namespace'),
 
         /* src/include/parser/parse_node.h */
-        member('ParseNamespaceItem', 'ParseState', 'p_namespace'),
+        _('ParseNamespaceItem', 'ParseState', 'p_namespace'),
 
         /* src/backend/parser/parse_relation.c */
-        variable('ParseNamespaceItem', 'checkNameSpaceConflicts', 'namespace1'),
-        variable('ParseNamespaceItem', 'checkNameSpaceConflicts', 'namespace2'),
+        _('ParseNamespaceItem', 'checkNameSpaceConflicts', 'namespace1'),
+        _('ParseNamespaceItem', 'checkNameSpaceConflicts', 'namespace2'),
 
         /* src/backend/partitioning/partbounds.c */
-        variable('Datum', 'build_merged_partition_bounds', 'merged_datums'),
-        variable('PartitionRangeDatumKind', 'build_merged_partition_bounds', 'merged_kinds'),
-        variable('Datum', 'merge_list_bounds', 'marged_datums'),
+        _('Datum', 'build_merged_partition_bounds', 'merged_datums'),
+        _('PartitionRangeDatumKind', 'build_merged_partition_bounds', 'merged_kinds'),
+        _('Datum', 'merge_list_bounds', 'marged_datums'),
 
         /* src/backend/partitioning/partprune.c */
-        variable('PartClauseInfo', 'gen_prune_steps_from_opexps', 'eq_clauses'),
-        variable('PartClauseInfo', 'gen_prune_steps_from_opexps', 'le_clauses'),
-        variable('PartClauseInfo', 'gen_prune_steps_from_opexps', 'ge_clauses'),
-        variable('PartClauseInfo', 'gen_prune_steps_from_opexps', 'clauselist'),
-        variable('PartClauseInfo', 'get_steps_using_prefix_recurse', 'prefix'),
-        variable('PartClauseInfo', 'get_steps_using_prefix', 'prefix'),
+        _('PartClauseInfo', 'gen_prune_steps_from_opexps', 'eq_clauses'),
+        _('PartClauseInfo', 'gen_prune_steps_from_opexps', 'le_clauses'),
+        _('PartClauseInfo', 'gen_prune_steps_from_opexps', 'ge_clauses'),
+        _('PartClauseInfo', 'gen_prune_steps_from_opexps', 'clauselist'),
+        _('PartClauseInfo', 'get_steps_using_prefix_recurse', 'prefix'),
+        _('PartClauseInfo', 'get_steps_using_prefix', 'prefix'),
 
         /* src/backend/postmaster/autovacuum.c */
-        variable('avw_dbase', 'rebuild_database_list', 'dblist'),
-        variable('avw_dbase', 'do_start_worker', 'dblist'),
+        _('avw_dbase', 'rebuild_database_list', 'dblist'),
+        _('avw_dbase', 'do_start_worker', 'dblist'),
 
         /* src/backend/postmaster/postmaster.c */
-        variable('char', 'PostmasterMain', 'elemlist'),
+        _('char', 'PostmasterMain', 'elemlist'),
 
         /* src/backend/postmaster/syslogger.c */
-        variable('save_buffer', 'process_pipe_input', 'buffer_list'),
-        variable('save_buffer', 'flush_pipe_input', 'list'),
+        _('save_buffer', 'process_pipe_input', 'buffer_list'),
+        _('save_buffer', 'flush_pipe_input', 'list'),
 
         /* src/backend/postmaster/walsummarizer.c */
-        variable('WalSummaryFile', 'GetOldestUnsummarizedLSN', 'existing_summaries'),
-        variable('WalSummaryFile', 'MayberemoveOldWalSummaries', 'wslist'),
+        _('WalSummaryFile', 'GetOldestUnsummarizedLSN', 'existing_summaries'),
+        _('WalSummaryFile', 'MayberemoveOldWalSummaries', 'wslist'),
 
         /* src/backend/replication/syncrep_gram.c */
-        variable('char', 'create_syncrep_config', 'members'),
+        _('char', 'create_syncrep_config', 'members'),
 
         /* src/backend/replication/logical/applyparallelworker.c */
-        variable('ParallelApplyWorkerInfo', 'pa_launch_parallel_worker', 'ParallelApplyWorkerPool'),
-        variable('ParallelApplyWorkerInfo', 'pa_launch_parallel_worker', 'ParallelApplyWorkerPool'),
-        variable('ParallelApplyWorkerInfo', 'HandleParallelApplyMessages', 'ParallelApplyWorkerPool'),
+        _('ParallelApplyWorkerInfo', 'pa_launch_parallel_worker', 'ParallelApplyWorkerPool'),
+        _('ParallelApplyWorkerInfo', 'pa_launch_parallel_worker', 'ParallelApplyWorkerPool'),
+        _('ParallelApplyWorkerInfo', 'HandleParallelApplyMessages', 'ParallelApplyWorkerPool'),
 
         /* src/backend/replication/logical/launcher.c */
-        variable('LogicalRepWorker', 'logicalrep_worker_detach','workers'),
-        variable('LogicalRepWorker', 'logicalrep_workers_find', 'res'),
-        variable('Subscription', 'ApplyLauncherMain', 'sublist'),
-        variable('Subscription', 'get_subscription_list', 'res'),
+        _('LogicalRepWorker', 'logicalrep_worker_detach','workers'),
+        _('LogicalRepWorker', 'logicalrep_workers_find', 'res'),
+        _('Subscription', 'ApplyLauncherMain', 'sublist'),
+        _('Subscription', 'get_subscription_list', 'res'),
 
         /* src/backend/replication/logical/reorderbuffer.c */
-        variable('RewriteMappingFile', 'UpdateLogicalMappings', 'files'),
+        _('RewriteMappingFile', 'UpdateLogicalMappings', 'files'),
 
         /* src/backend/replication/logical/tablesync.c */
-        variable('SubscriptionRelState', 'process_syncing_tables_for_apply', 'table_states_not_ready'),
-        variable('SubscriptionRelState', 'FetchTableStates', 'rstates'),
+        _('SubscriptionRelState', 'process_syncing_tables_for_apply', 'table_states_not_ready'),
+        _('SubscriptionRelState', 'FetchTableStates', 'rstates'),
 
         /* src/backend/replication/logical/worker.c */
-        variable('LogicalRepRelMapEntry', 'apply_handle_truncate', 'remote_rels'),
-        variable('RelationData', 'apply_handle_truncate', 'part_rels'),
-        variable('RelationData', 'apply_handle_truncate', 'rels'),
-        variable('LogicalRepWorker', 'AtEOXact_LogicalRepWorkers', 'workers'),
+        _('LogicalRepRelMapEntry', 'apply_handle_truncate', 'remote_rels'),
+        _('RelationData', 'apply_handle_truncate', 'part_rels'),
+        _('RelationData', 'apply_handle_truncate', 'rels'),
+        _('LogicalRepWorker', 'AtEOXact_LogicalRepWorkers', 'workers'),
 
         /* src/backend/replication/pgoutput/pgoutput.c */
-        variable('Publication', 'pgoutput_row_filter_init', 'publications'),
-        variable('Publication', 'pgoutput_column_list_init', 'publications'),
-        variable('char', 'LoadPublications', 'pubnames'),
-        member('Publication', 'PGOutputData', 'publications'),
-        member('Publication', 'PGOutputData', 'publication_names'),
+        _('Publication', 'pgoutput_row_filter_init', 'publications'),
+        _('Publication', 'pgoutput_column_list_init', 'publications'),
+        _('char', 'LoadPublications', 'pubnames'),
+        _('Publication', 'PGOutputData', 'publications'),
+        _('Publication', 'PGOutputData', 'publication_names'),
 
         /* src/backend/rewrite/rewriteHandler.c */
-        variable('RewriteRule', 'rewriteValuesRTE', 'locks'),
-        variable('RewriteRule', 'fireRIRrules', 'locks'),
-        variable('RewriteRule', 'fireRules', 'locks'),
-        variable('rewrite_event', 'RewriteQuery', 'rewrite_events'),
-        variable('RewriteRule', 'matchLocks', 'matching_locks'),
+        _('RewriteRule', 'rewriteValuesRTE', 'locks'),
+        _('RewriteRule', 'fireRIRrules', 'locks'),
+        _('RewriteRule', 'fireRules', 'locks'),
+        _('rewrite_event', 'RewriteQuery', 'rewrite_events'),
+        _('RewriteRule', 'matchLocks', 'matching_locks'),
 
         /* src/backend/rewrite/rowsecurity.c */
-        member('RowSecurityPolicy', 'RowSecurityDesc', 'policies'),
-        variable('RowSecurityPolicy', 'add_security_quals', 'permissive_policies'),
-        variable('RowSecurityPolicy', 'add_security_quals', 'restrictive_policies'),
-        variable('RowSecurityPolicy', 'add_with_check_options', 'permissive_policies'),
-        variable('RowSecurityPolicy', 'add_with_check_options', 'restrictive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'update_permissive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'update_restrictive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'permissive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'restrictive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'select_permissive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'select_restrictive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'conflict_permissive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'conflict_restrictive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'conflict_select_permissive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'conflict_select_restrictive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'merge_update_permissive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'merge_update_restrictive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'merge_delete_permissive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'merge_delete_restrictive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'merge_insert_permissive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'merge_insert_restrictive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'merge_select_permissive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'merge_select_restrictive_policies'),
-        variable('RowSecurityPolicy', 'get_row_security_policies', 'hook_policies'),
+        _('RowSecurityPolicy', 'RowSecurityDesc', 'policies'),
+        _('RowSecurityPolicy', 'add_security_quals', 'permissive_policies'),
+        _('RowSecurityPolicy', 'add_security_quals', 'restrictive_policies'),
+        _('RowSecurityPolicy', 'add_with_check_options', 'permissive_policies'),
+        _('RowSecurityPolicy', 'add_with_check_options', 'restrictive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'update_permissive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'update_restrictive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'permissive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'restrictive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'select_permissive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'select_restrictive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'conflict_permissive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'conflict_restrictive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'conflict_select_permissive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'conflict_select_restrictive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'merge_update_permissive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'merge_update_restrictive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'merge_delete_permissive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'merge_delete_restrictive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'merge_insert_permissive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'merge_insert_restrictive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'merge_select_permissive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'merge_select_restrictive_policies'),
+        _('RowSecurityPolicy', 'get_row_security_policies', 'hook_policies'),
 
         /* src/backend/statistics/extended_stats.c */
-        variable('StatExtEntry', 'BuildRelationExtStatistics', 'statslist'),
-        variable('StatExtEntry', 'ComputeExtStatisticsRows', 'lstats'),
-        variable('StatExtEntry', 'fetch_statentries_for_relation', 'result'),
+        _('StatExtEntry', 'BuildRelationExtStatistics', 'statslist'),
+        _('StatExtEntry', 'ComputeExtStatisticsRows', 'lstats'),
+        _('StatExtEntry', 'fetch_statentries_for_relation', 'result'),
 
         /* src/backend/storage/file/fd.c */
-        variable('char', 'check_debug_io_direct', 'elemlist'),
+        _('char', 'check_debug_io_direct', 'elemlist'),
 
         /* src/backend/storage/file/sharedfileset.c */
-        variable('SharedFileSet', 'SharedFileSetUnregister', 'filesetlist'),
-        variable('SharedFileSet', 'SharedFileSetInit', 'filesetlist'),
-        variable('SharedFileSet', 'SharedFileSetDeleteOnProcExit', 'filesetlist'),
+        _('SharedFileSet', 'SharedFileSetUnregister', 'filesetlist'),
+        _('SharedFileSet', 'SharedFileSetInit', 'filesetlist'),
+        _('SharedFileSet', 'SharedFileSetDeleteOnProcExit', 'filesetlist'),
 
         /* src/backend/storage/ipc/standby.c */
-        variable('xl_standby_lock', 'StandbyReleaseLockList', 'locks'),
-        member('xl_standby_lock', 'RecoveryLockListsEntry', 'locks'),
+        _('xl_standby_lock', 'StandbyReleaseLockList', 'locks'),
+        _('xl_standby_lock', 'RecoveryLockListsEntry', 'locks'),
 
         /* src/backend/storage/lmgr/lmgr.c */
-        variable('LOCKTAG', 'WaitForLockersMultiple', 'locktags'),
-        variable('VirtualTransactionId', 'WaitForLockersMultiple', 'holders'),
+        _('LOCKTAG', 'WaitForLockersMultiple', 'locktags'),
+        _('VirtualTransactionId', 'WaitForLockersMultiple', 'holders'),
 
         /* src/backend/storage/sync/sync.c */
-        variable('PendingUnlinkEntry', 'SyncPostCheckpoint', 'pendingUnlinks'),
-        variable('PendingUnlinkEntry', 'RememberSyncRequest', 'pendingUnlinks'),
+        _('PendingUnlinkEntry', 'SyncPostCheckpoint', 'pendingUnlinks'),
+        _('PendingUnlinkEntry', 'RememberSyncRequest', 'pendingUnlinks'),
 
         /* src/backend/tcop/backend_startup.c */
-        variable('const char', 'SendNegotiateProtocolVersion', 'unrecognized_protocol_options'),
-        variable('const char', 'ProcessStartupPacket', 'unrecognized_protocol_options'),
+        _('const char', 'SendNegotiateProtocolVersion', 'unrecognized_protocol_options'),
+        _('const char', 'ProcessStartupPacket', 'unrecognized_protocol_options'),
 
         /* src/backend/tcop/postgres.c */
-        variable('char', 'check_restrict_nonsystem_relation_kind', 'elemlist'),
-        variable('char', 'PostgresMain', 'guc_names'),
-        variable('char', 'PostgresMain', 'guc_values'),
+        _('char', 'check_restrict_nonsystem_relation_kind', 'elemlist'),
+        _('char', 'PostgresMain', 'guc_names'),
+        _('char', 'PostgresMain', 'guc_values'),
 
         /* src/backend/tsearch/wparser_def.c */
-        variable('ExecPhraseData', 'hlCover', 'locations'),
-        variable('ExecPhraseData', 'mark_hl_fragments', 'locations'),
-        variable('ExecPhraseData', 'prsd_headline', 'locations'),
+        _('ExecPhraseData', 'hlCover', 'locations'),
+        _('ExecPhraseData', 'mark_hl_fragments', 'locations'),
+        _('ExecPhraseData', 'prsd_headline', 'locations'),
 
         /* src/backend/utils/adt/hbafuncs.c */
-        variable('TokenizedAuthLine', 'fill_hba_view', 'hba_lines'),
-        variable('TokenizedAuthLine', 'fill_ident_view', 'ident_lines'),
-        variable('char', 'fill_hba_line', 'names'),
+        _('TokenizedAuthLine', 'fill_hba_view', 'hba_lines'),
+        _('TokenizedAuthLine', 'fill_ident_view', 'ident_lines'),
+        _('char', 'fill_hba_line', 'names'),
 
         /* src/backend/utils/adt/jsonb_gin.c */
-        variable('JsonPathGinNode', 'make_jsp_expr_node_args', 'args'),
-        variable('JsonPathGinNode', 'extract_jsp_path_expr', 'nodes'),
-        variable('JsonPathGinNode', 'extract_jsp_path_expr_nodes', 'nodes'),
-        variable('JsonPathGinNode', 'jsonb_ops__extract_nodes', 'nodes'),
-        variable('JsonPathGinNode', 'jsonb_path_ops__extract_nodes', 'nodes'),
+        _('JsonPathGinNode', 'make_jsp_expr_node_args', 'args'),
+        _('JsonPathGinNode', 'extract_jsp_path_expr', 'nodes'),
+        _('JsonPathGinNode', 'extract_jsp_path_expr_nodes', 'nodes'),
+        _('JsonPathGinNode', 'jsonb_ops__extract_nodes', 'nodes'),
+        _('JsonPathGinNode', 'jsonb_path_ops__extract_nodes', 'nodes'),
 
         /* src/backend/utils/adt/jsonpath_exec.c */
-        variable('JsonPathVariable', 'GetJsonPathVar', 'vars'),
-        member('JsonValue', 'JsonValueList', 'list'),
+        _('JsonPathVariable', 'GetJsonPathVar', 'vars'),
+        _('JsonValue', 'JsonValueList', 'list'),
 
         /* src/backend/utils/adt/regproc.c */
-        variable('char', 'stringToQualifiedNameList', 'namelist'),
+        _('char', 'stringToQualifiedNameList', 'namelist'),
 
         /* src/backend/utils/adt/ruleutils.c */
-        variable('char', 'pg_get_functiondef', 'namelist'),
-        variable('deparse_namespace', 'set_rtable_names', 'parent_namespaces'),
-        variable('deparse_namespace', 'set_deparse_for_query', 'parent_namespaces'),
-        member('char', 'deparse_namespace', 'rtable_names'),
-        member('char', 'deparse_namespace', 'using_names'),
-        member('deparse_columns', 'deparse_namespace', 'rtable_columns'),
-        member('char', 'deparse_columns', 'parentUsing'),
-        member('char', 'deparse_columns', 'usingNames'),
-        member('deparse_namespace', 'deparse_context', 'namespaces'),
-        variable('deparse_namespace', 'generate_relation_name', 'namespaces'),
-        variable('deparse_namespace', 'get_query_def', 'parentnamespace'),
-        variable('deparse_namespace', 'get_name_for_var_field', 'parent_namespaces'),
+        _('char', 'pg_get_functiondef', 'namelist'),
+        _('deparse_namespace', 'set_rtable_names', 'parent_namespaces'),
+        _('deparse_namespace', 'set_deparse_for_query', 'parent_namespaces'),
+        _('char', 'deparse_namespace', 'rtable_names'),
+        _('char', 'deparse_namespace', 'using_names'),
+        _('deparse_columns', 'deparse_namespace', 'rtable_columns'),
+        _('char', 'deparse_columns', 'parentUsing'),
+        _('char', 'deparse_columns', 'usingNames'),
+        _('deparse_namespace', 'deparse_context', 'namespaces'),
+        _('deparse_namespace', 'generate_relation_name', 'namespaces'),
+        _('deparse_namespace', 'get_query_def', 'parentnamespace'),
+        _('deparse_namespace', 'get_name_for_var_field', 'parent_namespaces'),
 
         /* src/backend/utils/adt/selfuncs.c */
-        variable('GroupVarInfo', 'add_unique_group_var', 'varinfos'),
-        variable('GroupVarInfo', 'estimate_num_groups', 'varinfos'),
-        variable('GroupVarInfo', 'estimate_num_groups', 'relvarinfos'),
-        variable('GroupVarInfo', 'estimate_num_groups', 'newvarinfos'),
+        _('GroupVarInfo', 'add_unique_group_var', 'varinfos'),
+        _('GroupVarInfo', 'estimate_num_groups', 'varinfos'),
+        _('GroupVarInfo', 'estimate_num_groups', 'relvarinfos'),
+        _('GroupVarInfo', 'estimate_num_groups', 'newvarinfos'),
 
         /* src/backend/utils/adt/tsquery.c */
-        member('QueryItem', 'TSQueryParserStateData', 'polstr'),
+        _('QueryItem', 'TSQueryParserStateData', 'polstr'),
 
         /* src/backend/utils/adt/tsvector_op.c */
-        variable('ExecPhraseData', 'TS_execute_locations_recurse', 'llocations'),
-        variable('ExecPhraseData', 'TS_execute_locations_recurse', 'rlocations'),
+        _('ExecPhraseData', 'TS_execute_locations_recurse', 'llocations'),
+        _('ExecPhraseData', 'TS_execute_locations_recurse', 'rlocations'),
 
         /* src/backend/utils/adt/varlena.c */
-        variable('char', 'textToQualifiedNameList', 'namelist'),
+        _('char', 'textToQualifiedNameList', 'namelist'),
 
         /* src/backend/utils/adt/xml.c */
-        variable('TupleDescData', 'map_sql_typecoll_to_xmlschema_types', 'tupdesc_list'),
-        variable('TupleDescData', 'schema_to_xmlschema_internal', 'tupdesc_list'),
-        variable('TupleDescData', 'database_to_xmlschema_internal', 'tupdesc_list'),
-        variable('char', 'xmlelement', 'arg_strings'),
-        variable('char', 'xmlelement', 'named_arg_strings'),
+        _('TupleDescData', 'map_sql_typecoll_to_xmlschema_types', 'tupdesc_list'),
+        _('TupleDescData', 'schema_to_xmlschema_internal', 'tupdesc_list'),
+        _('TupleDescData', 'database_to_xmlschema_internal', 'tupdesc_list'),
+        _('char', 'xmlelement', 'arg_strings'),
+        _('char', 'xmlelement', 'named_arg_strings'),
 
         /* src/backend/utils/cache/catcache.c */
-        variable('CatCTup', 'SearchCatCacheList', 'ctlist'),
+        _('CatCTup', 'SearchCatCacheList', 'ctlist'),
 
         /* src/backend/utils/cache/relcache.c */
-        variable('RelationData', 'RelationCacheInvalidate', 'rebuildFirstList'),
-        variable('RelationData', 'RelationCacheInvalidate', 'rebuildList'),
+        _('RelationData', 'RelationCacheInvalidate', 'rebuildFirstList'),
+        _('RelationData', 'RelationCacheInvalidate', 'rebuildList'),
 
         /* src/backend/utils/error/elog.c */
-        variable('char', 'check_log_destination', 'elemlist'),
+        _('char', 'check_log_destination', 'elemlist'),
 
         /* src/backend/utils/fmgr/fmgr.c */
-        member('char', 'fmgr_security_definer_cache', 'configNames'),
-        member('char', 'fmgr_security_definer_cache', 'configValues'),
+        _('char', 'fmgr_security_definer_cache', 'configNames'),
+        _('char', 'fmgr_security_definer_cache', 'configValues'),
 
         /* src/backend/utils/init/miscinit.c */
-        variable('char', 'UnlinkLockFiles', 'lock_files'),
-        variable('char', 'TouchSocketLockFiles', 'lock_files'),
-        variable('char', 'load_libraries', 'elemlist'),
-        variable('char', 'process_preload_libraries', 'elemlist'),
+        _('char', 'UnlinkLockFiles', 'lock_files'),
+        _('char', 'TouchSocketLockFiles', 'lock_files'),
+        _('char', 'load_libraries', 'elemlist'),
+        _('char', 'process_preload_libraries', 'elemlist'),
 
         /* src/backend/utils/init/postinit.c */
-        member('char', 'Port', 'guc_options'),
+        _('char', 'Port', 'guc_options'),
 
         /* src/backend/utils/mb/mbutils.c */
-        variable('ConvProcInfo', 'PrepareClientEncoding', 'ConvProcList'),
-        variable('ConvProcInfo', 'SetClientEncoding', 'ConvProcList'),
+        _('ConvProcInfo', 'PrepareClientEncoding', 'ConvProcList'),
+        _('ConvProcInfo', 'SetClientEncoding', 'ConvProcList'),
 
         /* src/backend/utils/misc/guc.c */
-        variable('const char', 'assignable_custom_variable_name', 'reserved_class_prefix'),
-        variable('char', 'check_wal_consistency_checking', 'elemlist'),
-        variable('char', 'check_log_destination', 'elemlist'),
-        variable('char', 'assign_log_destination', 'elemlist'),
+        _('const char', 'assignable_custom_variable_name', 'reserved_class_prefix'),
+        _('char', 'check_wal_consistency_checking', 'elemlist'),
+        _('char', 'check_log_destination', 'elemlist'),
+        _('char', 'assign_log_destination', 'elemlist'),
 
         /* src/backend/utils/misc/queryenvironment.c */
-        member('EphemeralNamedRelation', 'QueryEnvironment', 'namedRelList'),
+        _('EphemeralNamedRelation', 'QueryEnvironment', 'namedRelList'),
 
         /* src/backend/utils/time/snapmgr.c */
-        variable('ExportedSnapshot', 'AtEOXact_Snapshot', 'exportedSnapshots'),
+        _('ExportedSnapshot', 'AtEOXact_Snapshot', 'exportedSnapshots'),
 
         /* src/pl/plpgsql/src/plpgsql.h */
-        member('PLpgSQL_exception', 'PLpgSQL_exception_block', 'exc_list'),
-        member('PLpgSQL_diag_item', 'PLpgSQL_stmt_getdiag', 'diag_items'),
-        member('PLpgSQL_if_elsif', 'PLpgSQL_stmt_if', 'elsif_list'),
-        member('PLpgSQL_case_when', 'PLpgSQL_stmt_case', 'case_when_list'),
-        member('PLpgSQL_raise_option', 'PLpgSQL_stmt_raise', 'options'),
-        member('PLpgSQL_expr', 'PLpgSQL_stmt_return_query', 'params'),
-        member('PLpgSQL_expr', 'PLpgSQL_stmt_open', 'params'),
-        member('PLpgSQL_expr', 'PLpgSQL_stmt_raise', 'params'),
-        member('PLpgSQL_raise_option', 'PLpgSQL_stmt_raise', 'options'),
-        member('PLpgSQL_expr', 'PLpgSQL_stmt_dynexecute', 'params'),
-        member('PLpgSQL_expr', 'PLpgSQL_stmt_dynfors', 'params'),
+        _('PLpgSQL_exception', 'PLpgSQL_exception_block', 'exc_list'),
+        _('PLpgSQL_diag_item', 'PLpgSQL_stmt_getdiag', 'diag_items'),
+        _('PLpgSQL_if_elsif', 'PLpgSQL_stmt_if', 'elsif_list'),
+        _('PLpgSQL_case_when', 'PLpgSQL_stmt_case', 'case_when_list'),
+        _('PLpgSQL_raise_option', 'PLpgSQL_stmt_raise', 'options'),
+        _('PLpgSQL_expr', 'PLpgSQL_stmt_return_query', 'params'),
+        _('PLpgSQL_expr', 'PLpgSQL_stmt_open', 'params'),
+        _('PLpgSQL_expr', 'PLpgSQL_stmt_raise', 'params'),
+        _('PLpgSQL_raise_option', 'PLpgSQL_stmt_raise', 'options'),
+        _('PLpgSQL_expr', 'PLpgSQL_stmt_dynexecute', 'params'),
+        _('PLpgSQL_expr', 'PLpgSQL_stmt_dynfors', 'params'),
 
         /* src/pl/plpgsql/src/pl_exec.c */
-        variable('PLpgSQL_stmt', 'exec_stmts', 'stmts'),
-        variable('PLpgSQL_expr', 'exec_eval_using_params', 'params'),
+        _('PLpgSQL_stmt', 'exec_stmts', 'stmts'),
+        _('PLpgSQL_expr', 'exec_eval_using_params', 'params'),
 
         /* src/pl/plpgsql/src/pl_funcs.c */
-        variable('PLpgSQL_stmt', 'free_stmts', 'stmts'),
+        _('PLpgSQL_stmt', 'free_stmts', 'stmts'),
 
         /* src/pl/plpgsql/src/pl_handler.c */
-        variable('char', 'plpgsql_extra_checks_check_hook', 'elemlist'),
+        _('char', 'plpgsql_extra_checks_check_hook', 'elemlist'),
 
         /* src/pl/tcl/pltcl.c */
-        variable('char', 'pltcl_SPI_prepare', 'names'),
+        _('char', 'pltcl_SPI_prepare', 'names'),
 
         /* src/test/modules/injection_points/injection_points.c */
-        variable('char', 'injection_points_cleanup', 'inj_list_local'),
+        _('char', 'injection_points_cleanup', 'inj_list_local'),
     ];
 };
 

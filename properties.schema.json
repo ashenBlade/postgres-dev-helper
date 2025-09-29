@@ -79,21 +79,17 @@
                     "pattern": "\\*$",
                     "description": "Type to which 'ListCell's will be casted. Must be pointer."
                 },
-                "member": {
-                    "type": "array",
-                    "minItems": 2,
-                    "maxItems": 2,
-                    "description": "Pair of parent struct name and member name inside this struct, identifying this List*"
+                "parent": {
+                    "type": "string",
+                    "description": "Name of struct or function which this 'List *' belongs to. If this is a member then name of structure, otherwise if this is variable in function, then enter function name."
                 },
-                "variable": {
-                    "type": "array",
-                    "minItems": 2,
-                    "maxItems": 2,
-                    "description": "Pair of function name and variable name inside this function, identifying this List*"
+                "member": {
+                    "type": "string",
+                    "description": "Name of member of variable which contains this 'List *'."
                 }
             },
             "required": [
-                "type"
+                "type", "parent", "member"
             ]
         },
         "htab": {
@@ -103,23 +99,19 @@
                 "type": {
                     "type": "string",
                     "pattern": "\\*$",
-                    "description": "Type of entry in Hash Table. Must be pointer."
+                    "description": "Type of entry in Hash Table to which entry will be casted. Must be pointer."
+                },
+                "parent": {
+                    "type": "string",
+                    "description": "Name of struct or function which this 'HTAB *' belongs to. If this is a member then name of structure, otherwise if this is variable in function, then enter function name."
                 },
                 "member": {
-                    "type": "array",
-                    "minItems": 2,
-                    "maxItems": 2,
-                    "description": "Pair of parent struct name and member name inside this struct, identifying this HTAB*"
-                },
-                "variable": {
-                    "type": "array",
-                    "minItems": 2,
-                    "maxItems": 2,
-                    "description": "Pair of function name and variable inside this function, identifying this HTAB*"
+                    "type": "string",
+                    "description": "Name of member of variable which contains this 'HTAB *'"
                 }
             },
             "required": [
-                "type"
+                "type", "parent", "member"
             ]
         },
         "simplehash": {

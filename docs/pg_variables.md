@@ -10,7 +10,7 @@ While debug session there is `Pg variables` view available in debug view contain
 
 It contains all variables that available in default `variables` view, but
 stored variables are processed by extension.
-Description of processing methods are [below](#type-investigation).
+Description of processing methods are [below](#type-exploring).
 
 This view refreshed after each step, but you can force refresh it using
 refresh button in right upper corner.

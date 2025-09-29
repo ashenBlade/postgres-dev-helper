@@ -75,8 +75,11 @@ export class NodeVarRegistry {
 }
 
 export interface ArraySpecialMemberInfo {
+    /* Parent type containing pointer to array */
     typeName: string;
+    /* Name of member which stores array */
     memberName: string;
+    /* Expression to get length of array */
     lengthExpr: string;
 }
 
@@ -86,15 +89,16 @@ export interface ListPtrSpecialMemberInfo {
      */
     type: string;
 
-    /**
-     * Pair of [Struct, Member] identifying this member
+    /*
+     * Name of 'List *' member or variable.
+     *
      */
-    member?: [string, string];
-
-    /**
-     * Pair of [Function, Variable] identifying this member
+    member: string;
+    
+    /* 
+     * Entity containing this List. Can be function name or struct name.
      */
-    variable?: [string, string];
+    parent: string;
 }
 
 /* 
@@ -124,9 +128,9 @@ export interface BitmaskMemberInfo {
     /* Name of parent member */
     member: string;
     /* All flags for this member */
-    flags: FlagMemberInfo[];
+    flags?: FlagMemberInfo[];
     /* All fields stored in this member */
-    fields: FieldMemberInfo[];
+    fields?: FieldMemberInfo[];
 }
 
 export class SpecialMemberRegistry {
@@ -165,27 +169,12 @@ export class SpecialMemberRegistry {
     }
 
     addListCustomPtrSpecialMembers(elements: ListPtrSpecialMemberInfo[]) {
-        const addRecord = (member: string, funcOrStruct: string,
-                           info: ListPtrSpecialMemberInfo) => {
-            const map = this.listCustomPtrs.get(member);
-            if (map === undefined) {
-                this.listCustomPtrs.set(member, new Map([
-                    [funcOrStruct, info],
-                ]));
-            } else {
-                map.set(funcOrStruct, info);
-            }
-        };
-
         for (const e of elements) {
-            if (e.member) {
-                const [struct, member] = e.member;
-                addRecord(member, struct, e);
-            }
-
-            if (e.variable) {
-                const [func, variable] = e.variable;
-                addRecord(variable, func, e);
+            const map = this.listCustomPtrs.get(e.member);
+            if (map === undefined) {
+                this.listCustomPtrs.set(e.member, new Map([[e.parent, e]]));
+            } else {
+                map.set(e.parent, e);
             }
         }
     }
@@ -216,7 +205,7 @@ export class SpecialMemberRegistry {
 
         return info;
     }
-    
+
     getFlagsMember(type: string, member: string) {
         const typeMap = this.bitmasks.get(type);
         if (!typeMap) {
@@ -5211,12 +5200,16 @@ class FlagsMemberVariable extends RealVariable {
     protected isExpandable(): boolean {
         /* 
          * Mask values are shown in description, but for fields it is
-         * more convinient to show as children elements.
+         * more convenient to show as children elements.
          */
-        return this.bitmaskInfo.fields.length > 0;
+        return !!this.bitmaskInfo.fields?.length;
     }
 
     private async collectFlagValuesInternal(exprFormatter: (m: FlagMemberInfo) => string) {
+        if (!this.bitmaskInfo.flags) {
+            return;
+        }
+        
         const flags = [];
         
         for (const f of this.bitmaskInfo.flags) {
@@ -5263,6 +5256,10 @@ class FlagsMemberVariable extends RealVariable {
     }
     
     private async collectFieldValuesInternal(exprFormatter: (m: FieldMemberInfo) => string) {
+        if (!this.bitmaskInfo.fields) {
+            return;
+        }
+        
         const fields: [string, string][] = [];
         
         for (const f of this.bitmaskInfo.fields) {
@@ -5310,17 +5307,13 @@ class FlagsMemberVariable extends RealVariable {
     }
 
     async getDescription(): Promise<string> {
-        if (this.bitmaskInfo.flags.length === 0) {
-            return this.value;
+        if (!this.bitmaskInfo.flags?.length) {
+            return await super.getDescription();
         }
 
+        let flagValues;
         try {
-            const flagValues = await this.collectFlagValues();
-            /* 
-             * XXX: for large amount of flags it is better to show
-             * as child elements, otherwise desciption will be too long
-             */
-            return flagValues.join(' | ');
+            flagValues = await this.collectFlagValues();
         } catch (err) {
             if (!(err instanceof EvaluationError)) {
                 throw err;
@@ -5328,19 +5321,25 @@ class FlagsMemberVariable extends RealVariable {
 
             logger.error('failed to evaluate flags for %s', this.name, err);
             this.context.canUseMacros = false;
-            return this.value;
+            return await super.getDescription();
         }
+        
+        /* 
+         * XXX: for large amount of flags it is better to show
+         * as child elements, otherwise desciption will be too long
+         */
+        return flagValues?.join(' | ') ?? await super.getDescription();
     }
     
     async doGetChildren() {
-        if (this.bitmaskInfo.fields.length === 0) {
+        if (!this.bitmaskInfo.fields?.length) {
             return [];
         }
         
         try {
             const fields = await this.collectFieldsValues();
-            return fields.map(([name, value]) => 
-                new ScalarVariable(name, value, '', this.context, this));
+            return fields?.map(([name, value]) => 
+                new ScalarVariable(name, value, '', this.context, this)) ?? [];
         } catch (err) {
             logger.error('failed to evaluate fields for %s', this.name, err);
             this.context.canUseMacros = false;

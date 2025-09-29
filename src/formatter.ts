@@ -3,8 +3,8 @@ import {languages} from 'vscode';
 import * as utils from './utils';
 import { Log as logger } from './logger';
 import { getWellKnownBuiltinContribs } from './constants';
-import { Commands, getFormatterConfiguration,
-         PgindentConfiguration,
+import { Commands,
+         getFormatterConfiguration,
          VsCodeSettings } from './configuration';
 import { PghhError } from './error';
 import * as path from 'path';
@@ -30,8 +30,6 @@ function findSuitableWorkspace(document: vscode.TextDocument) {
 function isBuiltinContrib(name: string) {
     return getWellKnownBuiltinContribs().has(name);
 }
-
-export const FormatterConfiguration: PgindentConfiguration = {};
 
 class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEditProvider {
     private savedPgindentPath?: vscode.Uri;
