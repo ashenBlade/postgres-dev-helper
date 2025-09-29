@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import * as vars from './variables';
 import * as utils from './utils';
 import { Log as logger } from './logger';
+import { PghhError } from './error';
 
 export interface VariablesConfiguration {
     /* Array special members */
@@ -59,6 +60,13 @@ export function parseFormatterConfiguration(configFile: unknown): PgindentConfig
 
 export function parseVariablesConfiguration(configFile: unknown): VariablesConfiguration | undefined {
     const parseArrayMember = (obj: unknown): vars.ArraySpecialMemberInfo | undefined => {
+        /* 
+         * {
+         *     "typeName": "parentType",
+         *     "memberName": "memberOfParent",
+         *     "lengthExpr": "expression to get length"
+         * }
+         */
         if (!(typeof obj === 'object' && obj)) {
             return;
         }
@@ -135,6 +143,12 @@ export function parseVariablesConfiguration(configFile: unknown): VariablesConfi
     };
 
     const parseSingleAlias = (obj: unknown): vars.AliasInfo | undefined => {
+        /* 
+         * {
+         *     "alias": "name of alias",
+         *     "type": "real type"
+         * }
+         */
         if (!(typeof obj === 'object' && obj)) {
             return;
         }
@@ -597,7 +611,6 @@ export async function getFormatterConfiguration() {
 
 export async function refreshConfiguration() {
     /* Do not check 'dirtyFlag', because this function must be invoked explicitly */
-
     if (!vscode.workspace.workspaceFolders?.length) {
         return;
     }
@@ -623,6 +636,56 @@ export async function refreshConfiguration() {
     }
     
     configDirty = false;
+}
+
+async function findConfigurationFile() {
+    if (!vscode.workspace.workspaceFolders?.length) {
+        throw new PghhError('No workspace folders opened');
+    }
+    
+    for (const folder of vscode.workspace.workspaceFolders) {
+        const file = getExtensionConfigFile(folder.uri);
+        if (await utils.fileExists(file)) {
+            return file;
+        }
+    }
+
+    const file = getExtensionConfigFile(vscode.workspace.workspaceFolders[0].uri);
+    const directory = utils.joinPath(file, '..');
+    if (!await utils.directoryExists(directory)) {
+        logger.info('.vscode directory does not exist - creating one at %s', directory.fsPath);
+        await utils.createDirectory(directory);
+    }
+    
+    /* It will be created if necessary */
+    return file;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function mutateConfiguration(mutator: (config: any) => unknown) {
+    const configFile = await findConfigurationFile();
+
+    let contents: string | undefined;    
+    try {
+        contents = await utils.readFile(configFile);
+    } catch (err) {
+        if (!(err instanceof Error && err.name.indexOf('EntryNotFound') !== -1)) {
+            throw err;
+        }
+        contents = undefined;
+    }
+
+    let config;
+    if (contents?.length) {
+        config = JSON.parse(contents);
+    } else {
+        config = undefined;
+    }
+
+    config = mutator(config);
+
+    await utils.writeFile(configFile, JSON.stringify(config, undefined, '    '));
+    configDirty = true;
 }
 
 export function markConfigFileDirty() {

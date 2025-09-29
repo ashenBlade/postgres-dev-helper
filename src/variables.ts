@@ -436,6 +436,11 @@ export class StepContext {
  * Context of current execution.
  */
 export class ExecContext {
+    /* 
+     * Version number of debugging PG instance
+     */
+    pgversion?: number;
+
     /**
      * Registry about NodeTag variables information
      */
@@ -5404,7 +5409,14 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         this.context?.step.reset();
         this._onDidChangeTreeData.fire();
     }
-    
+
+    private _onDidDebugStart = new vscode.EventEmitter<ExecContext>();
+    /*
+     * Emitted when debug session started and we return data.
+     * Passes obtained PG version.
+     */
+    readonly onDidDebugStart = this._onDidDebugStart.event;
+
     startDebugging(debug: dbg.GenericDebuggerFacade) {
         this.debug?.dispose();
         this.debug = debug;
@@ -5590,7 +5602,12 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         }
         
         const context = new ExecContext(this.getDebug(), nodeVars, specialMembers, hashTables);
-        
+        context.pgversion = pgversion;
+
+        if (pgversion) {
+            this._onDidDebugStart.fire(context);
+        }
+
         return context;
     }
 
@@ -5663,4 +5680,52 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         this.stopDebugging();
         this._onDidChangeTreeData.dispose();
     }
+}
+
+function isSpace(char: string) {
+    return char === ' ' || char === '\t' || char === '\n';
+}
+
+function isIdentifierChar(char: string) {
+    return    ('a' <= char && char <= 'z') || ('A' <= char && char <= 'Z')
+           || char === '_' /* put it here, because underscore is more common, than digit */
+           || ('0' <= char && char <= '9');
+}
+
+export async function parseNodeTagsFile(file: vscode.Uri) {
+    let content;
+    try {
+        const document = await vscode.workspace.openTextDocument(file);
+        content = document.getText();
+    } catch (error) {
+        logger.error('could not open NodeTags file %s', file.fsPath, error);
+        return;
+    }
+
+    const nodeTags: string[] = [];
+    let prefixIndex = undefined;
+    while ((prefixIndex = content.indexOf('T_', prefixIndex)) !== -1) {
+        /* Check this is start of identifier (not false positive) */
+        if (prefixIndex > 0 && !isSpace(content[prefixIndex - 1])) {
+            prefixIndex += 2;
+            continue;
+        }
+
+        /* Search for end of identifier */
+        let endOfIdent = prefixIndex + 2;
+        while (endOfIdent < content.length && isIdentifierChar(content[endOfIdent])) {
+            endOfIdent++;
+        }
+
+        /* End of file - should not happen */
+        if (content.length <= endOfIdent) {
+            break;
+        }
+
+        const tag = content.substring(prefixIndex + 2, endOfIdent);
+        nodeTags.push(tag);
+        prefixIndex = endOfIdent + 1;
+    }
+    
+    return new Set(nodeTags);
 }
