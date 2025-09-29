@@ -381,6 +381,12 @@ export class StepContext {
      * Name of function which frame we are currently observing.
      */
     currentFunctionName?: string;
+    
+    /*
+     * Whether is it safe for not get elements of Bitmapset.
+     * Main concern are breakpoints in bitmapset.c
+     */
+    isSafeToObserveBitmapset?: boolean;
 
     reset() {
         this.isSafeToAllocateMemory = undefined;
@@ -388,6 +394,7 @@ export class StepContext {
         this.rtable.waiter = undefined;
         this.rtable.exists = false;
         this.currentFunctionName = undefined;
+        this.isSafeToObserveBitmapset = undefined;
     }
 }
 
@@ -4020,17 +4027,6 @@ export class ArraySpecialMember extends RealVariable {
  * Bitmapset variable
  */
 class BitmapSetSpecialMember extends NodeVariable {
-    /*
-     * List of functions that we are using for bitmapset evaluation.
-     * We need to ensure, that no breakpoints set on them, otherwise
-     * we encounter infinite loop
-     */
-    private static evaluationUsedFunctions = [
-        'bms_next_member',
-        'bms_first_member',
-        'bms_is_valid_set',
-    ];
-
     constructor(args: RealVariableArgs) {
         super('Bitmapset', args);
     }
@@ -4088,38 +4084,41 @@ class BitmapSetSpecialMember extends NodeVariable {
 
         return true;
     }
-
-    safeToObserve() {
+    
+    isBreakpointDangerous(bp: vscode.Breakpoint) {
         /*
-         * Fastest way I found is just to iterate all breakpoints and check
-         * - no bp in bitmapset.c source code for line breakpoints
-         * - no bp for bms_next_member function for function breakpoints
-         *
-         * I have found only these 2 subclasses of breakpoints.
-         * Seems that it is enough.
+         * Fastest way is just to iterate all breakpoints and check if
+         * breakpoint is dangerous, meaning that if we will stop, then can
+         * end up in infinite loop or precondition (state) can be violated.
+         * 
+         * For now such breakpoints includes all functions inside bitmapset.c -
+         * main file with all Bitmapset manipulation logic.
          */
-        for (const bp of vscode.debug.breakpoints) {
-            if (!bp.enabled) {
-                continue;
-            }
-
-            if (bp instanceof vscode.SourceBreakpoint) {
-                if (bp.location.uri.path.endsWith('bitmapset.c')) {
-                    logger.info('found breakpoint at bitmapset.c - set elements not shown');
-                    return false;
-                }
-            } else if (bp instanceof vscode.FunctionBreakpoint) {
-                /*
-                 * Need to check functions that are called to get set elements
-                 */
-                if (BitmapSetSpecialMember.evaluationUsedFunctions.indexOf(bp.functionName) !== -1) {
-                    logger.info('found breakpoint at %s - bms elements not shown',
-                                bp.functionName);
-                    return false;
-                }
-            }
+        if (!bp.enabled) {
+            return false;
         }
-        return true;
+
+        if (bp instanceof vscode.SourceBreakpoint) {
+            return bp.location.uri.path.endsWith('bitmapset.c');
+        }
+
+        if (bp instanceof vscode.FunctionBreakpoint) {
+            /*
+             * All Bitmapset functions have 'bms_' prefix.
+             * I can track which ones are dangerous, but if someday someone
+             * will create another dangerous function then logic will be broken,
+             * so add such simple check, so code will live longer.
+             */
+            return bp.functionName.startsWith('bms_');
+        }
+        
+        /* Other breakpoints must be safe */
+        return false;
+    }
+    
+    safeToObserve() {
+        return this.context.step.isSafeToObserveBitmapset 
+            ??= !!vscode.debug.breakpoints.find(this.isBreakpointDangerous);
     }
 
     async getSetElements(members: Variable[]): Promise<number[] | undefined> {
