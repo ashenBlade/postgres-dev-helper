@@ -183,6 +183,10 @@
                 }
             },
             "required": ["type", "member"]
+        },
+        "nodetag": {
+            "type": "string",
+            "description": "NodeTag value. Prefix 'T_' is ignored."
         }
     },
     "properties": {
@@ -225,6 +229,13 @@
             "description": "Array of definitions of enum types defined as integers and with MACROs used to access them",
             "items": {
                 "$ref": "#/definitions/enumBitmask"
+            }
+        },
+        "nodetags": {
+            "type": "array",
+            "description": "Array of custom NodeTag values. Can be added manually, or extension can find them during debugger start.",
+            "items": {
+                "$ref": "#/definitions/nodetag"
             }
         }
     }
