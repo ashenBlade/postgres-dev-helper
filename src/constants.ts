@@ -1,4 +1,4 @@
-import { BitmaskMemberInfo,
+import { ArraySpecialMemberInfo, BitmaskMemberInfo,
          HtabEntryInfo,
          ListPtrSpecialMemberInfo,
          SimplehashEntryInfo,
@@ -1393,11 +1393,11 @@ export interface ArraySpecialMember {
     lengthExpr: string
 }
 
-export function getArraySpecialMembers(): ArraySpecialMember[] {
-    const _ = (typeName: string, memberName: string, lengthExpr: string) => ({
+export function getArraySpecialMembers(): ArraySpecialMemberInfo[] {
+    const _ = (typeName: string, memberName: string, lengthExpression: string) => ({
         typeName,
         memberName,
-        lengthExpr,
+        lengthExpression,
     });
 
     return [
@@ -2147,9 +2147,7 @@ export function getWellKnownHTABTypes(): HtabEntryInfo[] {
 };
 
 export function getWellKnownSimpleHashTableTypes(): SimplehashEntryInfo[] {
-    const type = (prefix: string, elementType: string, canIterate = true) => ({
-        prefix, elementType, canIterate,
-    } as SimplehashEntryInfo);
+    const type = (prefix: string, type: string) => ({prefix, type});
 
     return [
         type('blockreftable', 'BlockRefTableEntry *'),
@@ -2163,16 +2161,17 @@ export function getWellKnownSimpleHashTableTypes(): SimplehashEntryInfo[] {
         /* 
          * These simple hash tables have iteration logic trimmed,
          * but leave it to show, that I hadn't forgotten it.
+         *
+         * type('backup_file', 'backup_file_entry *'),
+         * type('catalogid', 'CatalogIdMapEntry *'),
+         * type('collation_cache', 'collation_cache_entry *'),
+         * type('derives', 'ECDerivesEntry *'),
+         * type('keepwal', 'keepwal_entry *'),
+         * type('nsphash', 'SearchPathCacheEntry *'),
+         * type('pgstat_snapshot', 'PgStat_SnapshotEntry *'),
+         * type('rolename', 'RoleNameEntry *'),
+         * type('saophash', 'ScalarArrayOpExprHashEntry *'),
          */
-        type('backup_file', 'backup_file_entry *', false),
-        type('catalogid', 'CatalogIdMapEntry *', false),
-        type('collation_cache', 'collation_cache_entry *', false),
-        type('derives', 'ECDerivesEntry *', false),
-        type('keepwal', 'keepwal_entry *', false),
-        type('nsphash', 'SearchPathCacheEntry *', false),
-        type('pgstat_snapshot', 'PgStat_SnapshotEntry *', false),
-        type('rolename', 'RoleNameEntry *', false),
-        type('saophash', 'ScalarArrayOpExprHashEntry *', false),
     ];
 }
 

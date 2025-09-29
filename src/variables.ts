@@ -80,7 +80,7 @@ export interface ArraySpecialMemberInfo {
     /* Name of member which stores array */
     memberName: string;
     /* Expression to get length of array */
-    lengthExpr: string;
+    lengthExpression: string;
 }
 
 export interface ListPtrSpecialMemberInfo {
@@ -272,13 +272,7 @@ export interface SimplehashEntryInfo {
      * Type of element stored in this hash table.
      * Should be a pointer type, because no checks and adding pointer performed.
      */
-    elementType: string;
-
-    /* 
-     * Flag, indicating that 'start_iterate' and 'iterate' functions
-     * and 'iterator' struct exist.
-     */
-    canIterate: boolean;
+    type: string;
 }
 
 export class HashTableTypes {
@@ -3974,7 +3968,7 @@ export class ArraySpecialMember extends RealVariable {
          * invocation instead of simple member.
          */
         const parentExpr = `((${this.parent?.type})${this.parent?.getPointer()})`;
-        const lengthExpr = this.info.lengthExpr.replace(/{}/g, parentExpr);
+        const lengthExpr = this.info.lengthExpression.replace(/{}/g, parentExpr);
         if (lengthExpr.startsWith('!')) {
             return lengthExpr.substring(1);
         } else {
@@ -4952,7 +4946,7 @@ class SimplehashMember extends RealVariable {
     }
 
     get elementType(): string {
-        return this.entry.elementType;
+        return this.entry.type;
     }
   
     constructor(entry: SimplehashEntryInfo, args: RealVariableArgs) {
@@ -5052,6 +5046,16 @@ class SimplehashElementsMember extends Variable {
     private getIteratorType() {
         return this.iteratorType ??= `${this.hashTable.prefix}_iterator`;
     }
+    
+    private removeFromContext() {
+        /* 
+         * If we can not iterate over this simplehash, i.e. because of
+         * iteration function was trimmed from debug symbols, then we
+         * just remove ourselves from context, so we will not be handled
+         * further again.
+         */
+        this.context.hashTableTypes.simplehash.delete(this.hashTable.prefix);
+    }
 
     /* 
      * Allocate memory for iterator struct and invoke initialization function on it.
@@ -5068,7 +5072,7 @@ class SimplehashElementsMember extends Variable {
             iteratorPtr = await this.palloc(`sizeof(${iteratorType})`);
         } catch (error) {
             if (error instanceof EvaluationError) {
-                this.hashTable.entry.canIterate = false;
+                this.removeFromContext();
                 return undefined;
             }
             throw error;
@@ -5087,7 +5091,7 @@ class SimplehashElementsMember extends Variable {
             }
 
             await this.pfree(iteratorPtr);
-            this.hashTable.entry.canIterate = false;
+            this.removeFromContext();
             return undefined;
         }
 
@@ -5108,8 +5112,8 @@ class SimplehashElementsMember extends Variable {
             if (!(err instanceof EvaluationError)) {
                 throw err;
             }
-            
-            this.hashTable.entry.canIterate = false;
+
+            this.removeFromContext();
             return undefined;
         }
         

@@ -120,31 +120,31 @@ function parseConfiguration(configFile: unknown): ConfigurationFile | undefined 
             }
         }
 
-        let lengthExpr;
+        let lengthExpression;
         if ('lengthExpression' in obj) {
-            lengthExpr = obj.lengthExpression;
-            if (!lengthExpr) {
+            lengthExpression = obj.lengthExpression;
+            if (!lengthExpression) {
                 vscode.window.showErrorMessage(`lengthExpression not provided for: ${typeName}->${memberName}`);
                 return;
             }
     
-            if (typeof lengthExpr !== 'string') {
+            if (typeof lengthExpression !== 'string') {
                 vscode.window.showErrorMessage(`lengthExpression field must be string for: ${typeName}->${memberName}`);
                 return;
             }
     
-            lengthExpr = lengthExpr.trim();
-            if (!lengthExpr.length) {
+            lengthExpression = lengthExpression.trim();
+            if (!lengthExpression.length) {
                 vscode.window.showErrorMessage('lengthExpression can not be empty string');
                 return;
             }
         }
 
-        if (typeName && memberName && lengthExpr) {
+        if (typeName && memberName && lengthExpression) {
             return {
                 typeName,
                 memberName,
-                lengthExpr,
+                lengthExpression,
             };
         }
     };
@@ -367,7 +367,7 @@ function parseConfiguration(configFile: unknown): ConfigurationFile | undefined 
         return elements;
     };
 
-    const parseSimplehashTypes = (obj: unknown): vars.SimplehashEntryInfo[] | undefined => {
+    const parseSimplehashTypes = (obj: unknown) => {
         /* 
          * [
          *     {
@@ -380,12 +380,11 @@ function parseConfiguration(configFile: unknown): ConfigurationFile | undefined 
             return;
         }
 
-        const elements = [];
+        const elements: vars.SimplehashEntryInfo[] = [];
         for (const o of obj) {
             if (!(typeof o === 'object' && o)) {
                 continue;
             }
-
 
             const prefix = o.prefix;
             const type = o.type;
@@ -395,11 +394,7 @@ function parseConfiguration(configFile: unknown): ConfigurationFile | undefined 
                 continue;
             }
 
-            elements.push({
-                prefix,
-                canIterate: true,
-                elementType: type,
-            } as vars.SimplehashEntryInfo);
+            elements.push({prefix, type});
         }
         
         return elements;
