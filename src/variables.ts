@@ -383,10 +383,14 @@ export class StepContext {
     currentFunctionName?: string;
     
     /*
-     * Whether is it safe for not get elements of Bitmapset.
-     * Main concern are breakpoints in bitmapset.c
+     * Whether is it safe to get elements of Bitmapset.
      */
     isSafeToObserveBitmapset?: boolean;
+    
+    /* 
+     * Whether is it safe to get elements of HTAB.
+     */
+    isSafeToObserveHTAB?: boolean;
 
     reset() {
         this.isSafeToAllocateMemory = undefined;
@@ -395,6 +399,7 @@ export class StepContext {
         this.rtable.exists = false;
         this.currentFunctionName = undefined;
         this.isSafeToObserveBitmapset = undefined;
+        this.isSafeToObserveHTAB = undefined;
     }
 }
 
@@ -4741,30 +4746,25 @@ class HTABSpecialMember extends RealVariable {
         return info.type;
     }
 
-    safeToObserve(): boolean {
-        for (const bp of vscode.debug.breakpoints) {
-            if (!bp.enabled) {
-                continue;
-            }
-
-            if (bp instanceof vscode.SourceBreakpoint) {
-                if (bp.location.uri.path.endsWith('bitmapset.c')) {
-                    logger.info('found breakpoint at bitmapset.c - set elements not shown');
-                    return false;
-                }
-            } else if (bp instanceof vscode.FunctionBreakpoint) {
-                /*
-                 * Need to check functions that are called to get set elements
-                 */
-                if (HTABSpecialMember.evaluationUsedFunctions.indexOf(bp.functionName) !== -1) {
-                    logger.info('found breakpoint at %s - bms elements not shown',
-                                bp.functionName);
-                    return false;
-                }
-            }
+    isDangerousBreakpoint(breakpoint: vscode.Breakpoint) {
+        if (!breakpoint.enabled) {
+            return false;
         }
+        
+        if (breakpoint instanceof vscode.SourceBreakpoint) {
+            return breakpoint.location.uri.fsPath.endsWith('dynahash.c');
+        }
+        
+        if (breakpoint instanceof vscode.FunctionBreakpoint) {
+            return breakpoint.functionName.startsWith('hash_seq');
+        }
+        
+        return false;
+    }
 
-        return true;
+    safeToObserve(): boolean {
+        return this.context.step.isSafeToObserveHTAB
+            ??= !!vscode.debug.breakpoints.find(this.isDangerousBreakpoint);
     }
 
     async doGetChildren(): Promise<Variable[] | undefined> {
