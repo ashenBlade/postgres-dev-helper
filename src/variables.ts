@@ -5423,19 +5423,19 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
             return;
         }
         
-        if (config.arrayInfos?.length) {
-            logger.debug('adding %i array special members from config file', config.arrayInfos.length);
+        if (config.arrays?.length) {
+            logger.debug('adding %i array special members from config file', config.arrays.length);
             try {
-                specialMembers.addArraySpecialMembers(config.arrayInfos);
+                specialMembers.addArraySpecialMembers(config.arrays);
             } catch (err) {
                 logger.error('could not add custom array special members', err);
             }
         }
 
-        if (config.aliasInfos?.length) {
-            logger.debug('adding %i aliases from config file', config.aliasInfos.length);
+        if (config.aliases?.length) {
+            logger.debug('adding %i aliases from config file', config.aliases.length);
             try {
-                nodeVars.addAliases(config.aliasInfos);
+                nodeVars.addAliases(config.aliases);
             } catch (err) {
                 logger.error('could not add aliases from configuration', err);
             }
@@ -5450,28 +5450,28 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
             }
         }
 
-        if (config.htabTypes?.length) {
-            logger.debug('adding %i htab types', config.htabTypes.length);
+        if (config.htab?.length) {
+            logger.debug('adding %i htab types', config.htab.length);
             try {
-                hashTables.addHTABTypes(config.htabTypes);
+                hashTables.addHTABTypes(config.htab);
             } catch (e) {
                 logger.error('error occurred during adding custom HTAB types', e);
             }
         }
 
-        if (config.simpleHashTableTypes?.length) {
-            logger.debug('adding %i simplehash types', config.simpleHashTableTypes.length);
+        if (config.simplehash?.length) {
+            logger.debug('adding %i simplehash types', config.simplehash.length);
             try {
-                hashTables.addSimplehashTypes(config.simpleHashTableTypes);
+                hashTables.addSimplehashTypes(config.simplehash);
             } catch (e) {
                 logger.error('error occurred during adding custom simple hash table types', e);
             }
         }
         
-        if (config.bitmaskEnumMembers?.length) {
-            logger.debug('adding %i enum bitmask types', config.bitmaskEnumMembers.length);
+        if (config.enums?.length) {
+            logger.debug('adding %i enum bitmask types', config.enums.length);
             try {
-                specialMembers.addFlagsMembers(config.bitmaskEnumMembers);
+                specialMembers.addFlagsMembers(config.enums);
             } catch (e) {
                 logger.error('error occurred during adding enum bitmask types', e);
             }
@@ -5666,6 +5666,7 @@ function isIdentifierChar(char: string) {
 export async function parseNodeTagsFile(file: vscode.Uri) {
     let content;
     try {
+        logger.debug('opening NodeTag file %s', file.fsPath);
         const document = await vscode.workspace.openTextDocument(file);
         content = document.getText();
     } catch (error) {
@@ -5673,6 +5674,7 @@ export async function parseNodeTagsFile(file: vscode.Uri) {
         return;
     }
 
+    logger.debug('parsing contents of NodeTag file %s', file.fsPath);
     const nodeTags: string[] = [];
     let prefixIndex = undefined;
     while ((prefixIndex = content.indexOf('T_', prefixIndex)) !== -1) {

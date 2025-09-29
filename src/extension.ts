@@ -593,29 +593,9 @@ async function findAllFilesWithNodeTags(folders: readonly vscode.WorkspaceFolder
 
 async function addNodeTagsToConfiguration(nodetags: Set<string>) {
     logger.info('adding new NodeTags to configuration file');
-    try {
-        await mutateConfiguration((config) => {
-            /* 
-             * Configuration can not exist or it can contain some garbage.
-             * For now I don't know how to perfectly handle this, so
-             * just replace entire field if it's not an array.
-             */
-            if (config === undefined || config === null) {
-                return {
-                    nodetags: Array.from(nodetags),
-                };
-            } else if (typeof config === 'object') {
-                if ('nodetags' in config && Array.isArray(config.nodetags)) {
-                    config.nodetags.push(...Array.from(nodetags));
-                } else {
-                    config.nodetags = Array.from(nodetags);
-                }
-            }
-            return config;
-        });
-    } catch (err) {
-        logger.error('could not add nodetags to configuration file', err);
-    }
+    await mutateConfiguration((config) => {
+        (config.nodetags ??= []).push(...nodetags);
+    });
 }
 
 /*
@@ -646,10 +626,12 @@ async function searchNodeTagsWorker(context: vars.ExecContext) {
     const newNodeTags = new Set<string>();
     for (const path of paths) {
         const tags = await vars.parseNodeTagsFile(path);
-        if (tags?.size) {
-            for (const t of tags) {
-                newNodeTags.add(t);
-            }
+        if (!tags?.size) {
+            continue;
+        }
+
+        for (const t of tags) {
+            newNodeTags.add(t);
         }
     }
 

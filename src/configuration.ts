@@ -7,17 +7,17 @@ import { PghhError } from './error';
 
 export interface VariablesConfiguration {
     /* Array special members */
-    arrayInfos?: vars.ArraySpecialMemberInfo[];
+    arrays?: vars.ArraySpecialMemberInfo[];
     /* Information about type aliases */
-    aliasInfos?: vars.AliasInfo[];
+    aliases?: vars.AliasInfo[];
     /* Custom List types */
     customListTypes?: vars.ListPtrSpecialMemberInfo[];   
     /* Types stored in HTABs */
-    htabTypes?: vars.HtabEntryInfo[];
+    htab?: vars.HtabEntryInfo[];
     /* Types for simple hash */
-    simpleHashTableTypes?: vars.SimplehashEntryInfo[];
+    simplehash?: vars.SimplehashEntryInfo[];
     /* Enum values for integer fields */
-    bitmaskEnumMembers?: vars.BitmaskMemberInfo[];
+    enums?: vars.BitmaskMemberInfo[];
     /* Extra NodeTags */
     nodetags?: string[];
 }
@@ -26,36 +26,16 @@ export interface FormatterConfiguration {
     typedefs?: string[];
 }
 
-function parseFormatterConfiguration(configFile: unknown): FormatterConfiguration | undefined {
-    const parseTypedefs = (obj: unknown): string[] | undefined => {
-        if (!obj) {
-            return;
-        }
-
-        let arr: string[] | undefined;
-        if (typeof obj === 'string') {
-            arr = [obj.trim()];
-        } else if (Array.isArray(obj)) {
-            arr = obj.map(x => x.toString());
-        }
-        
-        if (!arr?.length) {
-            return;
-        }
-        
-        return arr.filter(x => x.length > 0);
-    };
-    
-    if (!(typeof configFile === 'object' && configFile && 'typedefs' in configFile)) {
-        return;
-    }
-    const typedefs = parseTypedefs(configFile.typedefs);
-
-    if (typedefs?.length) {
-        return {
-            typedefs,
-        };
-    }
+/* Schema of configuration file */
+interface ConfigurationFile {
+    arrays: vars.ArraySpecialMemberInfo[] | undefined;
+    aliases: vars.AliasInfo[] | undefined;
+    customListTypes: vars.ListPtrSpecialMemberInfo[] | undefined;
+    htab: vars.HtabEntryInfo[] | undefined;
+    simplehash: vars.SimplehashEntryInfo[] | undefined;
+    enums: vars.BitmaskMemberInfo[] | undefined;
+    nodetags: string[] | undefined;
+    typedefs: string[] | undefined;
 }
 
 function isStringTuple(o: unknown): o is [string, string] {
@@ -85,7 +65,7 @@ function normalizeFuncName(name: string) {
     return name;
 };
 
-function parseVariablesConfiguration(configFile: unknown): VariablesConfiguration | undefined {
+function parseConfiguration(configFile: unknown): ConfigurationFile | undefined {
     const parseArrayMember = (obj: unknown): vars.ArraySpecialMemberInfo | undefined => {
         /* 
          * {
@@ -544,60 +524,73 @@ function parseVariablesConfiguration(configFile: unknown): VariablesConfiguratio
         return result;
     };
 
+    const parseTypedefs = (obj: unknown): string[] | undefined => {
+        if (!obj) {
+            return;
+        }
+
+        let arr: string[] | undefined;
+        if (typeof obj === 'string') {
+            arr = [obj.trim()];
+        } else if (Array.isArray(obj)) {
+            arr = obj.filter(x => typeof x === 'string' && x.length > 0);
+        }
+
+        if (!arr?.length) {
+            return;
+        }
+
+        return arr.filter(x => x.length > 0);
+    };
+
     if (!(typeof configFile === 'object' && configFile)) {
         return;
     }
 
     const nonUndefined = <T>(arg: T | undefined) => arg !== undefined;
 
-    const arrayInfos = 'arrays' in configFile &&
+    const arrays = 'arrays' in configFile &&
                         Array.isArray(configFile.arrays) &&
                         configFile.arrays.length > 0
         ? configFile.arrays.map(parseArrayMember).filter(nonUndefined)
         : undefined;
-
-    const aliasInfos = 'aliases' in configFile &&
+    const aliases = 'aliases' in configFile &&
                         Array.isArray(configFile.aliases) &&
                         configFile.aliases.length > 0
         ? configFile.aliases.map(parseSingleAlias).filter(nonUndefined)
         : undefined;
-
     const customListTypes = 'customListTypes' in configFile
         ? parseListTypes(configFile.customListTypes)
         : undefined;
-    const htabTypes = 'htab' in configFile
+    const htab = 'htab' in configFile
         ? parseHtabTypes(configFile.htab)
         : undefined;
-    const simpleHashTableTypes = 'simplehash' in configFile
+    const simplehash = 'simplehash' in configFile
         ? parseSimplehashTypes(configFile.simplehash)
         : undefined;
-    const bitmaskEnumMembers = 'enums' in configFile 
+    const enums = 'enums' in configFile 
         ? parseEnumBitmasks(configFile.enums)
         : undefined;
     const nodetags = 'nodetags' in configFile
         ? parseNodeTags(configFile.nodetags)
         : undefined;
+    const typedefs = 'typedefs' in configFile 
+        ? parseTypedefs(configFile.typedefs)
+        : undefined;
 
-    if (   arrayInfos?.length
-        || aliasInfos?.length
-        || customListTypes?.length
-        || htabTypes?.length
-        || simpleHashTableTypes?.length
-        || bitmaskEnumMembers?.length
-        || nodetags?.length) {
-        return {
-            arrayInfos,
-            aliasInfos,
-            customListTypes,
-            htabTypes,
-            simpleHashTableTypes,
-            bitmaskEnumMembers,
-            nodetags,
-        };
-    }
+    return {
+        arrays,
+        aliases,
+        customListTypes,
+        htab,
+        simplehash,
+        enums,
+        nodetags,
+        typedefs,
+    };
 }
 
-async function readConfigFile(file: vscode.Uri) {
+async function readJsonFile(file: vscode.Uri) {
     let document;
     try {
         document = await vscode.workspace.openTextDocument(file);
@@ -630,8 +623,13 @@ async function readConfigFile(file: vscode.Uri) {
     return data;
 }
 
-let variablesConfig: VariablesConfiguration | undefined;
-let formatterConfig: FormatterConfiguration | undefined;
+export async function writeConfigFile(config: ConfigurationFile, file: vscode.Uri) {
+    const data = JSON.stringify(config, null, 4);
+    await utils.writeFile(file, data);
+}
+
+/* Main configuration file */
+let config: ConfigurationFile | undefined;
 
 /* Flag indicating that configuration file should be refreshed */
 let configDirty = true;
@@ -645,14 +643,14 @@ async function checkConfigurationFresh() {
     configDirty = false;
 }
 
-export async function getVariablesConfiguration() {
+export async function getVariablesConfiguration(): Promise<VariablesConfiguration | undefined> {
     await checkConfigurationFresh();
-    return variablesConfig;
+    return config;
 }
 
-export async function getFormatterConfiguration() {
+export async function getFormatterConfiguration(): Promise<FormatterConfiguration | undefined> {
     await checkConfigurationFresh();
-    return formatterConfig;
+    return config;
 }
 
 export async function refreshConfiguration() {
@@ -663,22 +661,20 @@ export async function refreshConfiguration() {
 
     for (const folder of vscode.workspace.workspaceFolders) {
         const file = getExtensionConfigFile(folder.uri);
-        const config = await readConfigFile(file);
-        if (!config) {
+        const contents = await readJsonFile(file);
+        if (!contents) {
             return;
         }
 
+        logger.debug('refreshing configuration from file %s', file.fsPath);
         try {
-            formatterConfig = parseFormatterConfiguration(config);
+            config = parseConfiguration(contents);
         } catch (err) {
-            logger.error('could not parse formatter configuration', err);
+            logger.error('could not parse configuration file', err);
         }
-        
-        try {
-            variablesConfig = parseVariablesConfiguration(config);
-        } catch (err) {
-            logger.error('could not parse variables configuration', err);
-        }
+
+        /* handle only 1 file - that's enough */
+        break;
     }
     
     configDirty = false;
@@ -707,34 +703,36 @@ async function findConfigurationFile() {
     return file;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function mutateConfiguration(mutator: (config: any) => unknown) {
-    const configFile = await findConfigurationFile();
+async function getConfigurationFile(): Promise<ConfigurationFile | undefined> {
+    await checkConfigurationFresh();
+    return config;
+}
 
-    let contents: string | undefined;    
-    try {
-        contents = await utils.readFile(configFile);
-    } catch (err) {
-        if (!(err instanceof Error && err.name.indexOf('EntryNotFound') !== -1)) {
-            throw err;
-        }
-        contents = undefined;
-    }
+function createEmptyConfigurationFile(): ConfigurationFile {
+    return {
+        customListTypes: undefined,
+        arrays: undefined,
+        aliases: undefined,
+        htab: undefined,
+        simplehash: undefined,
+        enums: undefined,
+        nodetags: undefined,
+        typedefs: undefined,
+    };
+}
 
-    let config;
-    if (contents?.length) {
-        config = JSON.parse(contents);
-    } else {
-        config = undefined;
-    }
+export async function mutateConfiguration(mutator: (config: ConfigurationFile) => void) {
+    const configFile = await getConfigurationFile() ?? createEmptyConfigurationFile();
 
-    config = mutator(config);
+    mutator(configFile);
 
-    await utils.writeFile(configFile, JSON.stringify(config, undefined, '    '));
-    configDirty = true;
+    const file = await findConfigurationFile();
+    await writeConfigFile(configFile, file);
+    config = configFile;
 }
 
 export function markConfigFileDirty() {
+    logger.debug('configuration marked dirty');
     configDirty = true;
 }
 
