@@ -20,8 +20,8 @@ export function isValidIdentifier(value: string) {
     return identifierRegex.test(value);
 }
 
-/* Get start-end indexes range for given type */
-function getStructNameRange(type: string) {
+export function getStructNameFromType(type: string) {
+    /* [const] [struct] NAME [*]+ */
     /*
      * Start locating from end, because we can use '*' as the boundary of
      * typename end.
@@ -71,13 +71,7 @@ function getStructNameRange(type: string) {
         startOfIndentifier++;
     }
 
-    return [startOfIndentifier, endOfIdentifier + 1] as const;
-}
-
-export function getStructNameFromType(type: string) {
-    /* [const] [struct] NAME [*]+ */
-    const [start, end] = getStructNameRange(type);
-    return type.substring(start, end);
+    return type.substring(startOfIndentifier, endOfIdentifier + 1);
 }
 
 /**
@@ -89,19 +83,8 @@ export function getStructNameFromType(type: string) {
  * @returns Result type name
  */
 export function substituteStructName(type: string, target: string) {
-    const [start, end] = getStructNameRange(type);
-    
-    /* Add some optimized paths to reduce number of allocations */
-    if (start === 0) {
-        return `${target}${type.substring(end)}`;
-    }
-    
-    if (end === type.length) {
-        return `${type.substring(0, start)}${target}`;
-    }
-    
-    return `${type.substring(0, start)}${target}${type.substring(end)}`;
-}
+    const typename = getStructNameFromType(type);
+    return type.replace(typename, target);}
 
 /*
  * Check that 'type' contains exact count of pointers in it
