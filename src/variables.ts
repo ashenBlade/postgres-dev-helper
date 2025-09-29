@@ -40,47 +40,6 @@ export class NodeVarRegistry {
      */
     bmsRefs = new Map<string, constants.BitmapsetReference>(constants.getWellKnownBitmapsetReferences());
 
-    /*
-     * Update stored node types for internal usage from provided
-     * node tag file. i.e. `nodes.h' or `nodetags.h'.
-     */
-    updateNodeTypesFromFile(file: vscode.TextDocument) {
-        let added = 0;
-        for (let lineNo = 0; lineNo < file.lineCount; lineNo++) {
-            /*
-             * NodeTag enum value has following representation:
-             *
-             * [spaces] T_*tag_name* [= *number*],
-             *
-             * We must obtain only *tag_name* part, because 'T_' prefix
-             * is constant and not important and *number* also not
-             * important because we must focus on words, not numbers - if
-             * there was garbage in structure, Node->type will be random numbers.
-             * That is how we find garbage.
-             */
-            const line = file.lineAt(lineNo);
-            if (line.isEmptyOrWhitespace) {
-                continue;
-            }
-
-            const text = line.text.trim();
-            if (!text.startsWith('T_')) {
-                continue;
-            }
-
-            const tag = text.replace(',', '')
-                            .replace('T_', '')
-                            .split(' ', 1)[0];
-            if (tag.trim() === '') {
-                continue;
-            }
-
-            this.nodeTags.add(tag);
-            added++;
-        }
-        return added;
-    }
-
     addAliases(aliases: AliasInfo[]) {
         aliases.forEach(a => {
             this.aliases.set(a.alias.trim(), a.type.trim());
@@ -4081,56 +4040,8 @@ class BitmapSetSpecialMember extends NodeVariable {
         super('Bitmapset', args);
     }
 
-    async isValidSet(): Promise<boolean> {
-        /*
-         * First, validate NodeTag. BitmapSetSpecialMember could be
-         * created using dumb type check, without actual NodeTag
-         * checking. So we do it here
-         */
-        if (this.context.hasBmsNodeTag) {
-            try {
-                const tag = await this.evaluate(`((Bitmapset *)${this.getPointer()})->type`);
-                if (tag.result !== 'T_Bitmapset') {
-                    if (!utils.isValidIdentifier(tag.result)) {
-                        /* Do not track NodeTag anymore and perform check again */
-                        this.context.hasBmsNodeTag = false;
-                        return await this.isValidSet();
-                    } else {
-                        /* Tags do not match */
-                        return false;
-                    }
-                }
-            } catch (err) {
-                if (!(err instanceof EvaluationError)) {
-                    throw err;
-                }
-
-                if (err.message.indexOf('no member') === -1) {
-                    throw err;
-                }
-
-                /* CodeLLDB path */
-                this.context.hasBmsNodeTag = false;
-                return await this.isValidSet();
-            }
-        } else {
-            /*
-             * If we do not have NodeTag, then try to check that we can deref
-             * pointer (means that pointer is valid).
-             * 'nwords' member is only available option in this case.
-             * If output is empty, then pointer is invalid.
-             *
-             * Also, pointer may give valid (at first glance) result,
-             * but it contains garbage and value will be too large - we
-             * check this too. 50 seems big enough to start worrying about.
-             */
-            const result = await this.evaluate(`((Bitmapset *)${this.getPointer()})->nwords`);
-            const nwords = Number(result.result);
-            if (!(Number.isInteger(nwords) && nwords < 50)) {
-                return false;
-            }
-        }
-
+    async isValidSet(members: Variable[]): Promise<boolean> {
+        /* This check is enough (if it exists) */
         if (this.context.hasBmsIsValidSet) {
             const expression = `bms_is_valid_set((Bitmapset *)${this.getPointer()})`;
             try {
@@ -4150,6 +4061,34 @@ class BitmapSetSpecialMember extends NodeVariable {
                 this.context.hasBmsIsValidSet = false;
                 return true;
             }
+        }
+        
+        /* Fallback checking children members for validity/look normal */
+
+        if (this.context.hasBmsNodeTag) {
+            /* Check NodeTag is the most straight-forward approach */
+            const nodeTag = members.find(m => m.name === 'type');
+            if (nodeTag) {
+                return nodeTag.value === 'T_Bitmapset';
+            }
+            
+            this.context.hasBmsNodeTag = false;
+        }
+        
+        /* If we do not have NodeTag, then check that member values looks normally */
+        const nwords = members.find(m => m.name === 'nwords');
+        if (!nwords) {
+            return false;
+        }
+        
+        const n = Number(nwords.value);
+        /* 
+         * For 64-bit system even 20 is large number: 10 * 64 = 640.
+         * Human will not be able to handle such amount of data.
+         */
+        const maxNWords = 10;
+        if (Number.isNaN(n) || maxNWords <= n) {
+            return false;
         }
 
         return true;
@@ -4188,7 +4127,7 @@ class BitmapSetSpecialMember extends NodeVariable {
         return true;
     }
 
-    async getSetElements(): Promise<number[] | undefined> {
+    async getSetElements(members: Variable[]): Promise<number[] | undefined> {
         /*
          * Must check we do not have breakpoints set in `bms_next_member`.
          * Otherwise, we will get infinite recursion and backend will crash.
@@ -4200,9 +4139,12 @@ class BitmapSetSpecialMember extends NodeVariable {
         /*
          * We MUST check validity of set, because, otherwise,
          * `Assert` will fail or SEGFAULT si thrown and whole
-         * backend will crash
+         * backend will crash.
+         * 
+         * Check performed using `bms_is_valid_set`, but if it
+         * is missing, then check members to look normally.
          */
-        if (!await this.isValidSet()) {
+        if (!await this.isValidSet(members)) {
             return;
         }
 
@@ -4343,12 +4285,12 @@ class BitmapSetSpecialMember extends NodeVariable {
         const members = await Variable.getVariables(this.variablesReference,
                                                     this.frameId, this.context,
                                                     this);
-        if (!members) {
+        if (!members?.length) {
             return members;
         }
 
         /* Add special members to explore set elements */
-        const setMembers = await this.getSetElements();
+        const setMembers = await this.getSetElements(members);
         if (setMembers !== undefined) {
             const ref = await this.getBmsRef();
     
@@ -4357,6 +4299,7 @@ class BitmapSetSpecialMember extends NodeVariable {
             members.push(new BitmapSetSpecialMember.BmsArrayVariable(this, setMembers, ref));
         }
 
+        /* Do not show 'words' flexible array member */
         return members.filter(v => v.name !== 'words');
     }
 
