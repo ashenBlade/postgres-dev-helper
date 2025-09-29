@@ -860,22 +860,9 @@ export abstract class Variable {
                  * because some runtime checks will end up in SEGFAULT.
                  * Currently, there is no need for that, but take this
                  * into account if you are planning to do this.
-                 */
-                return new ListNodeVariable('List', args);
-            }
-
-            if (context.debug.isNull(debugVariable) && 
-                debugVariable.type.endsWith('List *')) {
-                /* 
-                 * Empty List is NIL == NULL == '0x0' Also 'endsWith'
-                 * covers cases like 'const List *'.
                  * 
-                 * Note that even if 'Bitmapset' also falls in this
-                 * variable category (NULL is meaningful), by design
-                 * do not create 'BitmapSetSpecialMember' for it,
-                 * because some runtime checks will end up in SEGFAULT.
-                 * Currently, there is no need for that, but take this
-                 * into account if you are planning to do this.
+                 * XXX: this check will fail with trailing qualifiers, but
+                 *      I haven't seen someone uses them, so ok
                  */
                 return new ListNodeVariable('List', args);
             }
@@ -1413,11 +1400,6 @@ export class RealVariable extends Variable {
             return elements;
         }
 
-        /* NIL means 0x0, so List will be RealVariable */
-        if (this.debug.isNull(m)) {
-            return [];
-        }
-
         throw new UnexpectedOutputError(`member ${member} is not valid List`);
     }
 
@@ -1745,7 +1727,15 @@ export class NodeVariable extends RealVariable {
                             context: ExecContext, args: RealVariableArgs) {
         const getRealNodeTag = async () => {
             const expr = `((Node *)(${context.debug.getPointer(variable)}))->type`;
-            const response = await context.debug.evaluate(expr, frameId);
+            let response;
+
+            try {
+                response = await context.debug.evaluate(expr, frameId);
+            } catch (err) {
+                logger.error('could not get NodeTag for %s', expr, err);
+                return;
+            }
+
             if (!response.result.startsWith('T_')) {
                 return;
             }
