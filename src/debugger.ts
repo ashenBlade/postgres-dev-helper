@@ -506,17 +506,18 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
     }
 
     isValidPointerType(variable: IDebugVariable | dap.EvaluateResponse) {
-        return pointerRegex.test(this.getValue(variable)) && !this.isNull(variable);
+        /* Check isNull first, because lots of variables can be NULL, i.e. Bitmapset */
+        return !this.isNull(variable) && pointerRegex.test(this.getValue(variable));
     }
 
     isValueStruct(variable: IDebugVariable, type?: string) {
-        /* Top level variable */
-        if (variable.value === '{...}') {
+        /* Value struct (also check for flexible array member) */
+        if (!variable.value.length && !(type ?? variable.type).endsWith('[]')) {
             return true;
         }
-
-        /* Embedded structure (also check for flexible array member) */
-        if (variable.value === '' && !(type ?? variable.type).endsWith('[]')) {
+        
+        /* Top level variable */
+        if (variable.value === '{...}') {
             return true;
         }
 
@@ -765,18 +766,31 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
     }
 
     isNull(variable: IDebugVariable | dap.EvaluateResponse): boolean {
-        const value = this.getValue(variable);
-        return value === '<null>' || nullRegex.test(value);
+        if ('result' in variable) {
+            return variable.result === '<null>';
+        }
+        
+        /*
+         * CodeLLDB uses both 'memoryReference' and 'value', but value stored
+         * differs when we get NULL: memoryReference contains short '0x0', while
+         * 'value' contains long '0x000000000' - check short memoryReference first
+         */
+        if (variable.memoryReference) {
+            return variable.memoryReference === '0x0';
+        }
+
+        return nullRegex.test(variable.value);
     }
     
     isValidPointerType(variable: IDebugVariable | dap.EvaluateResponse): boolean {
-        const value = this.getValue(variable);
+        if ('result' in variable) {
+            return !(variable.result === '<null>' || variable.result === '<invalid address>');
+        }
 
-        /* CodeLLDB examine pointers itself, so this is handy for us */
-        if (value === '<invalid address>' || value === '<null>') {
+        if (variable.memoryReference === '0x0') {
             return false;
         }
-        
+
         /* 
          * CodeLLDB is smart, but it is problem for us, because it becomes hard
          * to detect which type of this type: pointer to struct or builtin basic
@@ -784,7 +798,7 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
          * So, here I try to be as flexible as I can - this is pointer type
          * if it contains any pointer in type or it is raw pointer value.
          */
-        return variable.type.indexOf('*') !== -1 || pointerRegex.test(value);
+        return variable.type.indexOf('*') !== -1 || pointerRegex.test(this.getValue(variable));
     }
 
     isScalarType(variable: IDebugVariable, type?: string) {

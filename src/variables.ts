@@ -856,14 +856,54 @@ export abstract class Variable {
             type: effectiveType,
             declaredType: debugVariable.type,
         };
+        
+        /* Value struct are not so interesting for us */
+        if (context.debug.isValueStruct(debugVariable, effectiveType)) {
+            if (parent) {
+                if (utils.isValueStructOrPointerType(parent.type)) {
+                    const flagsMember = context.specialMemberRegistry.getFlagsMember(
+                        utils.getStructNameFromType(parent.type),
+                        debugVariable.name);
+                    if (flagsMember) {
+                        return new FlagsMemberVariable(flagsMember, args);
+                    }
+                }
+            }
+            
+            if (effectiveType === 'bitmapword') {
+                /* Show bitmapword as bitmask, not integer */
+                return new BitmapwordVariable(args);
+            }
 
-        if (   context.debug.isValueStruct(debugVariable, effectiveType)
-            || !context.debug.isValidPointerType(debugVariable)) {
+            return new RealVariable(args);
+        }
+
+        /*
+         * Pointer types can be NULL or contain invalid pointers.
+         * cppdbg do not recognize invalid pointers, but CodeLLDB - <invalid pointer>.
+         */
+        if (!context.debug.isValidPointerType(debugVariable)) {
             /* 
              * We are here if got scalar type or value struct (not pointer).
              * These types are not so interesting for us, so pass here to
              * quickly return usual variable.
              */
+            
+            if (   context.debug.isNull(debugVariable)
+                && debugVariable.type.endsWith('List *')) {
+                /* 
+                 * Empty List is NIL == NULL == '0x0' Also 'endsWith'
+                 * covers cases like 'const List *'.
+                 * 
+                 * Note that even if 'Bitmapset' also falls in this
+                 * variable category (NULL is meaningful), by design
+                 * do not create 'BitmapSetSpecialMember' for it,
+                 * because some runtime checks will end up in SEGFAULT.
+                 * Currently, there is no need for that, but take this
+                 * into account if you are planning to do this.
+                 */
+                return new ListNodeVariable('List', args);
+            }
 
             if (context.debug.isNull(debugVariable) && 
                 debugVariable.type.endsWith('List *')) {
@@ -881,26 +921,12 @@ export abstract class Variable {
                 return new ListNodeVariable('List', args);
             }
 
-            if (effectiveType === 'bitmapword') {
-                /* Show bitmapword as bitmask, not integer */
-                return new BitmapwordVariable(args);
-            }
-
             if (parent) {
-                if (utils.isValueStructOrPointerType(parent.type)) {
-                    const flagsMember = context.specialMemberRegistry.getFlagsMember(
-                        utils.getStructNameFromType(parent.type),
-                        debugVariable.name);
-                    if (flagsMember) {
-                        return new FlagsMemberVariable(flagsMember, args);
-                    }
-                }
-                
                 /* 
                  * Flexible array members for now recognized as non-valid
                  * pointers/scalars, but we actually can handle them.
                  */
-                if (debugVariable.type.endsWith('[]')) {
+                if (utils.isFlexibleArrayMember(debugVariable.type)) {
                     const parentType = Variable.getRealType(parent.type, context);
                     const specialMember = context.specialMemberRegistry
                         .getArraySpecialMember(parentType, debugVariable.name);
@@ -931,6 +957,10 @@ export abstract class Variable {
         /*
          * PostgreSQL versions prior 16 do not have Bitmapset Node.
          * So handle Bitmapset (with Relids) here.
+         * 
+         * NOTE: this check must be before general 'isNodeVar', because
+         *       NULL is valid value otherwise this will break assumption
+         *       that passed 'debugVariable' is not NULL
          */
         if (BitmapSetSpecialMember.isBitmapsetType(effectiveType)) {
             return new BitmapSetSpecialMember(args);
@@ -951,7 +981,7 @@ export abstract class Variable {
             return new HTABSpecialMember(args);
         }
 
-        /* Simple hash table (simple hash) */
+        /* Simple hash table (lib/simplehash.h) */
         if (SimplehashMember.looksLikeSimpleHashTable(effectiveType)) {
             const entry = context.hashTableTypes.findSimpleHashTableType(effectiveType);
             if (entry) {
@@ -1750,9 +1780,14 @@ export class NodeVariable extends RealVariable {
     static async createNode(variable: dap.DebugVariable, frameId: number,
                             context: ExecContext, args: RealVariableArgs) {
         const getRealNodeTag = async () => {
-            const expr = `((Node*)(${context.debug.getPointer(variable)}))->type`;
+            const expr = `((Node *)(${context.debug.getPointer(variable)}))->type`;
             const response = await context.debug.evaluate(expr, frameId);
-            const realTag = response.result.replace('T_', '');
+            if (!response.result.startsWith('T_')) {
+                return;
+            }
+            
+            /* Do not use replace('T_', ''), because this 'T_' can be inside identifier */
+            const realTag = response.result.substring(2);
             if (!context.nodeVarRegistry.isNodeTag(realTag)) {
                 return;
             }
@@ -1783,22 +1818,23 @@ export class NodeVariable extends RealVariable {
             return new BitmapSetSpecialMember(args);
         }
 
-        /* Expressions with it's representation */
-        if (context.nodeVarRegistry.exprs.has(realTag)) {
-            if (realTag === 'TargetEntry') {
-                return new TargetEntryVariable(args);
-            }
-
-            return new ExprNodeVariable(realTag, args);
-        }
-
         /* Display expressions in EquivalenceMember and RestrictInfo */
+        if (realTag === 'TargetEntry') {
+            /* TargetEntry should be checked before 'exprs' - see class comment */
+            return new TargetEntryVariable(args);
+        }
+        
         if (realTag === 'EquivalenceMember') {
             return new DisplayExprReprVariable(realTag, 'em_expr', args);
         }
 
         if (realTag === 'RestrictInfo') {
             return new DisplayExprReprVariable(realTag, 'clause', args);
+        }
+        
+        /* Expressions with it's representation */
+        if (context.nodeVarRegistry.exprs.has(realTag)) {
+            return new ExprNodeVariable(realTag, args);
         }
 
         /* Check this is a tag of 'Value' */
@@ -3533,13 +3569,11 @@ class DisplayExprReprVariable extends NodeVariable {
 }
 
 /**
- *   Special case for 'TargetEntry' to display it's repr
- * in description.
- *   It can not be moved to 'DisplayExprReprVariable' because
- * it is Expr and can be used in 'ExprVariable.
- *   Also I do not want to move such logic to 'ExprVariable',
- * because repr evaluation is resource-intensive operation
- * and UI just blocks.
+ * Special case for 'TargetEntry' to display it's repr in description.
+ * It can not be moved to 'DisplayExprReprVariable' because it is Expr
+ * and can be used in 'ExprVariable'.  Also I do not want to move such
+ * logic to 'ExprVariable', because repr evaluation is resource-intensive
+ * operation and UI just blocks.
  */
 class TargetEntryVariable extends ExprNodeVariable {
     constructor(args: RealVariableArgs) {
@@ -4856,6 +4890,7 @@ class HTABElementsMember extends Variable {
 
         try {
             await this.evaluateVoid(expr);
+            return memory;
         } catch (err) {
             if (!(err instanceof EvaluationError)) {
                 throw err;
@@ -5023,7 +5058,8 @@ class SimplehashMember extends RealVariable {
         /* 
          * Check this is last part of typename, i.e. not part of whole typename
          */
-        if (type.length < index + '_hash'.length) {
+        const endOfType = index + '_hash'.length;
+        if (type.length < endOfType) {
             /*
              * I assume, every hash table object is a pointer type,
              * not allocated on stack.
@@ -5036,7 +5072,7 @@ class SimplehashMember extends RealVariable {
          * so typename actually ends with '_hash'.
          * In real life only available continuation is space or star.
          */
-        const nextChar = type[index + '_hash'.length];
+        const nextChar = type[endOfType];
         return nextChar === ' ' || nextChar === '*';
     }
 
@@ -5508,7 +5544,6 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         if (config.nodetags?.length) {
             logger.debug('adding %i custom NodeTags');
             try {
-                /* TODO: add command to parse NodeTag files and find custom */
                 for (const tag of config.nodetags) {
                     nodeVars.nodeTags.add(tag);
                 }

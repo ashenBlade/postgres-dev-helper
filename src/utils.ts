@@ -136,11 +136,13 @@ export function havePointersCount(type: string, count: number) {
 export function isValueStructOrPointerType(type: string) {
     const firstPointerPos = type.indexOf('*');
     if (firstPointerPos === -1) {
+        /* Value struct */
         return true;
     }
     
     const secondPointerPos = type.indexOf('*', firstPointerPos + 1);
     if (secondPointerPos === -1) {
+        /* Pointer type, not array */
         return true;
     }
     
@@ -156,6 +158,10 @@ export function isValueStructOrPointerType(type: string) {
  */
 export function isEnumResult(result: string) {
     return isValidIdentifier(result);
+}
+
+export function isFlexibleArrayMember(type: string) {
+    return type.endsWith('[]');
 }
 
 export function joinPath(base: vscode.Uri, ...paths: string[]) {

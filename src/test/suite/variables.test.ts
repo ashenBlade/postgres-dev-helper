@@ -126,6 +126,7 @@ const execGetVariables = async () => {
 };
 
 suite('Variables', async function () {
+    /* TODO: split by debugger type */
     /*
      * Store predicate and query together, so we can fast reflect any
      * changes in tested predicate.

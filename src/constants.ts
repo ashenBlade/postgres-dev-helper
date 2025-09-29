@@ -624,7 +624,6 @@ export function getDisplayedExprs(): string[] {
         'ScalarArrayOpExpr',
         'SubLink',
         'SubscriptingRef',
-        'TargetEntry',
         'Var',
         'WindowFunc',
         'WindowFuncFuncCondition',
