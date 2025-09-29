@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 
 export enum DebuggerType {
@@ -23,24 +24,17 @@ export class TestEnv {
     pgVersion: string;
     /* Version of VS Code we are running on */
     vscodeVersion: string;
-    /* Debugger extension is used */
-    debugger: DebuggerType | undefined;
+    /* Which tests are enabled */
     testMode: TestMode;
 
     constructor(pgVersion: string,
                 vscodeVersion: string,
-                debuggerType: string | undefined,
                 testMode: string) {
         if (Number.isNaN(Number(pgVersion))) {
             throw new Error(`Invalid PostgreSQL version "${pgVersion}".` +
                             'Version must be in "major.minor" form.');
         }
 
-        if (   debuggerType !== undefined
-            && !(debuggerType === DebuggerType.CppDbg || debuggerType === DebuggerType.CodeLLDB)) {
-            throw new Error(`Debugger ${debuggerType} is not supported`);
-        }
-        
         let mode: TestMode = TestMode.None;
         if (testMode.indexOf('vars') !== -1) {
             mode |= TestMode.Debug;
@@ -55,26 +49,12 @@ export class TestEnv {
         if (mode === TestMode.None) {
             throw new Error(`No test modes specified: accept between "vars" and "format"`);
         }
-        
-        if (mode & TestMode.Debug && !debuggerType) {
-            throw new Error('Test mode is "vars", but debugger is not specified');
-        }
 
         this.pgVersion = pgVersion;
         this.vscodeVersion = vscodeVersion;
-        this.debugger = debuggerType;
         this.testMode = mode;
     }
 
-    /* Which debugger is used to test variables */
-    debuggerIsCodeLLDB() {
-        return this.debugger === 'lldb';
-    }
-
-    debuggerIsCppDbg() {
-        return this.debugger === 'cppdbg';
-    }
-    
     /* Determine which tests to run */
     testDebugger() {
         return this.testMode & TestMode.Debug;
@@ -115,8 +95,5 @@ export function getTestEnv(): TestEnv {
     const pgVersion = process.env.PGHH_PG_VERSION ?? defaultPostgresVersion;
     const vscodeVersion = process.env.PGHH_VSCODE_VERSION ?? defaultVsCodeVersion;
     const testMode = process.env.PGHH_TEST_MODE ?? defaultTestMode;
-
-    /* Flag for variables tests */
-    const dbg = process.env.PGHH_DEBUGGER;
-    return new TestEnv(pgVersion, vscodeVersion, dbg, testMode);
+    return new TestEnv(pgVersion, vscodeVersion, testMode);
 }

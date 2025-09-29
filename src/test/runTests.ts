@@ -5,15 +5,6 @@ import { downloadAndUnzipVSCode,
          resolveCliArgsFromVSCodeExecutablePath,
          runTests } from '@vscode/test-electron';
 import { getTestEnv } from './suite/env';
-import { unnullify } from '../error';
-
-function getDebuggerExtensionId(debuggerType: string) {
-    if (debuggerType === 'cppdbg') {
-        return 'ms-vscode.cpptools';
-    } else {
-        return 'vadimcn.vscode-lldb';
-    }
-}
 
 async function main() {
     /*
@@ -37,11 +28,13 @@ async function main() {
     /* Install required debugger extension */
     let extraArgs: string[] = [];
     if (testEnv.testDebugger()) {
-        const dbgExtId = getDebuggerExtensionId(unnullify(testEnv.debugger, 'testEnv.debugger'));
-        cp.spawnSync(cliPath, [...args, '--install-extension', dbgExtId],
-                     { encoding: 'utf-8', stdio: 'inherit'});
-        /* Disable warnings if any */
-        extraArgs = ['--enable-proposed-api', dbgExtId];
+        extraArgs = [];
+        for (const dbgExt of ['ms-vscode.cpptools', 'vadimcn.vscode-lldb']) {
+            cp.spawnSync(cliPath, [...args, '--install-extension', dbgExt],
+                         { encoding: 'utf-8', stdio: 'inherit'});   
+            /* Disable warnings if any */
+            extraArgs.push('--enable-proposed-api', dbgExt);
+        }
     }
 
     /*

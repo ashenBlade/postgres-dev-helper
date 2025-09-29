@@ -53,8 +53,7 @@ There are useful flags that allows to specify which value range to use:
 
 ```bash
 ./src/test/test.sh --pg-versions="18 17 16" \
-                   --vscode-versions="stable 1.90" \
-                   --debuggers="lldb"
+                   --vscode-versions="stable 1.90"
 ```
 
 Use `--help` flag to get more info about.

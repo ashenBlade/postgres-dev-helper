@@ -54,7 +54,7 @@ suite('Formatting', async function () {
         });
         
         env = getTestEnv();
-        unformattedFilePath = env.getWorkspaceFile('unformatted.c');        
+        unformattedFilePath = env.getWorkspaceFile('unformatted.c');
         expected = getFormattedFile(env);
     });
 

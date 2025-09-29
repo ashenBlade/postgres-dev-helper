@@ -2,7 +2,6 @@
 
 DEFAULT_VSCODE_VERSIONS="stable 1.90.2 1.80.2 1.70.2"
 DEFAULT_PG_VERSIONS="18 17 16 15 14 13 12 11 10 9.6"
-DEFAULT_DEBUGGERS="cppdbg lldb"
 
 function print_help {
     cat <<EOM 
@@ -16,7 +15,6 @@ Options:
     --threads, -j           Number of threads to use during build
     --vscode-versions       List of VS Code versions to test against
     --pg-versions           List of PostgreSQL versions to test against
-    --debuggers             List of debug extensions to tests against
     --no-gui                Run tests without GUI (using 'xvfb')
     --tests                 Which test suites to run: "vars" (variables, default), "format", "unit".
                             Also, you can specify "all" to run all available tests.
@@ -27,13 +25,10 @@ Default value: $DEFAULT_PG_VERSIONS
 Supported VS Code versions all down to 1.67.0 and "stable" (refers to latest).
 Default value: $DEFAULT_VSCODE_VERSIONS
 
-Supported debuggers: cppdbg (C/C++), lldb (CodeLLDB). Using only latest version.
-Default value: $DEFAULT_DEBUGGERS
-
 Example:
     $0 --pg-versions="17 15 10"
     $0 --threads=15 --tests="vars,format,unit"
-    $0 -j 15 --vscode-versions="stable 1.78.2" --debuggers="lldb"
+    $0 -j 15 --vscode-versions="stable 1.78.2"
 EOM
 }
 
@@ -43,7 +38,6 @@ set -e -o pipefail
 VSCODE_VERSIONS=""
 THREADS=""
 PG_VERSIONS=""
-DEBUGGERS=""
 NO_GUI=""
 TEST_MODES=""
 while [ "$1" ]; do
@@ -65,9 +59,6 @@ while [ "$1" ]; do
         ;;
     --pg-versions=*)
         PG_VERSIONS="${ARG#*=}"
-        ;;
-    --debuggers=*)
-        DEBUGGERS="${ARG#*=}"
         ;;
     --no-gui)
         NO_GUI="1"
@@ -92,10 +83,6 @@ fi
 
 if [[ -z "$PG_VERSIONS" ]]; then
     PG_VERSIONS="$DEFAULT_PG_VERSIONS"
-fi
-
-if [[ -z "$DEBUGGERS" ]]; then
-    DEBUGGERS="$DEFAULT_DEBUGGERS"
 fi
 
 LOGDIR="$PWD/src/test/log"
@@ -133,15 +120,12 @@ for PGVERSION in $PG_VERSIONS; do
     for VSCODEVERSION in $VSCODE_VERSIONS; do
         export PGHH_VSCODE_VERSION="$VSCODEVERSION"
         if [[ -n "$TEST_VARS" ]]; then
-            for DEBUGGER in $DEBUGGERS; do
-                {
-                    echo "Variables testing: PostgreSQL $PGVERSION in VS Code $VSCODEVERSION using $DEBUGGER"
-                    export PGHH_DEBUGGER="$DEBUGGER"
-                    export PGHH_TEST_MODE="vars"
+            {
+                echo "Variables testing: PostgreSQL $PGVERSION in VS Code $VSCODEVERSION"
+                export PGHH_TEST_MODE="vars"
 
-                    $TEST_COMMAND
-                } 2>&1 | tee "$LOGFILE"
-            done
+                $TEST_COMMAND
+            } 2>&1 | tee "$LOGFILE"
         fi
         
         if [[ -n "$TEST_FORMAT" ]]; then
