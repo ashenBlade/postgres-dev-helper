@@ -24,6 +24,10 @@
         "type": "git",
         "url": "https://github.com/ashenBlade/postgres-dev-helper.git"
     },
+    "bugs": {
+        "url": "https://github.com/ashenBlade/postgres-dev-helper/issues"
+    },
+    "homepage": "https://github.com/ashenBlade/postgres-dev-helper",
     "keywords": [
         "PostgreSQL",
         "postgresql",
