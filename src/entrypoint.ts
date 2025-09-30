@@ -11,7 +11,7 @@ function setExtensionActive(status: boolean) {
 export function activate(context: vscode.ExtensionContext) {
     initLogger(context);
     try {
-        logger.info('Extension is activating');
+        logger.info('Extension is activating: %s', context.extension.packageJSON?.version);
         setupExtension(context);
         setExtensionActive(true);
         logger.info('Extension activated');
