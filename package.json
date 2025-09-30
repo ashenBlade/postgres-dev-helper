@@ -11,6 +11,7 @@
         "Formatters",
         "Other"
     ],
+    "extensionKind": ["workspace"],
     "icon": "resources/logo.png",
     "activationEvents": [
         "workspaceContains:.vscode/pgsql_hacker_helper.json",
