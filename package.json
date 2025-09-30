@@ -228,8 +228,9 @@
             {
                 "id": "pgconf",
                 "aliases": [
-                    "postgresqlconf",
-                    "postgresconf"
+                    "PostgreSQL configuration",
+                    "postgresconf",
+                    "postgresqlconf"
                 ],
                 "filenames": [
                     "postgresql.conf",
