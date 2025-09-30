@@ -6,14 +6,12 @@ import { Features } from './utils';
 import * as vars from './variables';
 import * as dbg from './debugger';
 import { Commands, 
-         ExtensionSettingsFileName,
-         PgVariablesViewName,
+         Configuration, 
+         ExtensionId, 
          VsCodeSettings,
-         markConfigFileDirty,
-         mutateConfiguration,
          openConfigFileCommand,
          refreshConfigCommand,
-         setupVsCodeSettings } from './configuration';
+         setupConfiguration } from './configuration';
 import { setupPgConfSupport } from './pgconf';
 import { PgindentDocumentFormatterProvider,
          setupFormatting } from './formatter';
@@ -46,24 +44,29 @@ function createDebuggerFacade(type: string, provider: vars.PgVariablesViewProvid
 }
 
 async function promptWorkspace() {
-    if (!vscode.workspace.workspaceFolders) {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders) {
         throw new Error('No workspaces opened');
     }
 
-    if (vscode.workspace.workspaceFolders.length === 1) {
-        return vscode.workspace.workspaceFolders[0];
+    if (folders.length === 1) {
+        return folders[0];
     }
 
+    /* 
+     * Extension works only with first workspace in array, but here
+     * it's ok to ask user input.
+     */
     const name = await vscode.window.showQuickPick(
-        vscode.workspace.workspaceFolders.map(wf => wf.name), {
+        folders.map(wf => wf.name), {
             title: 'Choose workspace',
-            placeHolder: vscode.workspace.workspaceFolders[0].name,
+            placeHolder: folders[0].name,
         });
     if (!name) {
         throw new Error('No workspaces chosen');
     }
 
-    const workspace = vscode.workspace.workspaceFolders.find(wf => wf.name === name);
+    const workspace = folders.find(wf => wf.name === name);
     if (!workspace) {
         throw new Error(`Workspace named ${name} not found`);
     }
@@ -345,10 +348,11 @@ async function bootstrapExtensionCommand() {
     await vscode.window.showTextDocument(td);
 }
 
-export function createPgVariablesView(context: vscode.ExtensionContext) {
-    const nodesView = new vars.PgVariablesViewProvider();
+export function createPgVariablesView(context: vscode.ExtensionContext,
+                                      config: Configuration) {
+    const nodesView = new vars.PgVariablesViewProvider(config);
     const treeDisposable = vscode.window.registerTreeDataProvider(
-        PgVariablesViewName, nodesView);
+        `${ExtensionId}.node-tree-view`, nodesView);
     context.subscriptions.push(
         treeDisposable,
         nodesView,
@@ -375,23 +379,24 @@ export function createPgVariablesView(context: vscode.ExtensionContext) {
 
 export function setupExtension(context: vscode.ExtensionContext) {    
     /* Extension's configuration file and VS Code settings */
-    setupConfiguration(context);
+    const config = setupConfiguration(context);
 
     /* Variables view */
-    const pgvars = setupPgVariablesView(context);
+    const pgvars = setupPgVariablesView(context, config);
 
     /* Formatter */
-    const formatter = setupFormatting(context);
+    const formatter = setupFormatting(context, config);
 
     /* Completion support for postgresql.conf */
     setupPgConfSupport(context);
 
     /* Miscellaneous (remaining) commands */
-    registerCommands(context, pgvars, formatter);
+    registerCommands(context, pgvars, formatter, config);
 }
 
-function setupPgVariablesView(context: vscode.ExtensionContext) {
-    const pgvars = createPgVariablesView(context);
+function setupPgVariablesView(context: vscode.ExtensionContext,
+                              config: Configuration) {
+    const pgvars = createPgVariablesView(context, config);
     
     /* Setup debugger specific function */
     dbg.setupDebugger(context, pgvars);
@@ -405,7 +410,7 @@ function setupPgVariablesView(context: vscode.ExtensionContext) {
         disposable.dispose();
         
         try {
-            await searchNodeTagsWorker(c);
+            await searchNodeTagsWorker(config, c);
         } catch (err) {
             logger.error('could not search for new NodeTags', err);
         }
@@ -466,13 +471,6 @@ async function findAllFilesWithNodeTags(folders: readonly vscode.WorkspaceFolder
     return paths;
 }
 
-async function addNodeTagsToConfiguration(nodetags: Set<string>) {
-    logger.info('adding new NodeTags to configuration file');
-    await mutateConfiguration((config) => {
-        (config.nodetags ??= []).push(...nodetags);
-    });
-}
-
 /*
  * Run Worker that will traverse all NodeTag containing files,
  * parse NodeTags and find which are missing - if find something,
@@ -480,8 +478,10 @@ async function addNodeTagsToConfiguration(nodetags: Set<string>) {
  * 
  * This is quiet CPU intensive operation, so perform in another thread.
  */
-async function searchNodeTagsWorker(context: vars.ExecContext) {
-    if (!vscode.workspace.workspaceFolders?.length) {
+async function searchNodeTagsWorker(config: Configuration,
+                                    context: vars.ExecContext) {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders?.length) {
         return;
     }
 
@@ -490,8 +490,7 @@ async function searchNodeTagsWorker(context: vars.ExecContext) {
     }
 
     /* Find all files containing NodeTags */
-    const paths = await findAllFilesWithNodeTags(
-        vscode.workspace.workspaceFolders, context.pgversion);
+    const paths = await findAllFilesWithNodeTags(folders, context.pgversion);
     if (!paths.length) {
         logger.debug('no NodeTag files found');
         return;
@@ -532,37 +531,14 @@ async function searchNodeTagsWorker(context: vars.ExecContext) {
         return;
     }
 
-    await addNodeTagsToConfiguration(newNodeTags);
-}
-
-function setupConfiguration(context: vscode.ExtensionContext) {
-    /* Mark configuration dirty when user changes it - no eager parsing */
-    const registerFolderWatcher = (folder: vscode.WorkspaceFolder) => {
-        const pattern = new vscode.RelativePattern(
-            folder, `.vscode/${ExtensionSettingsFileName}`);
-        const configFileWatcher = vscode.workspace.createFileSystemWatcher(
-            pattern, false, false, false);
-        context.subscriptions.push(configFileWatcher);
-        configFileWatcher.onDidChange(markConfigFileDirty, undefined, context.subscriptions);
-        configFileWatcher.onDidCreate(markConfigFileDirty, undefined, context.subscriptions);
-        configFileWatcher.onDidDelete(markConfigFileDirty, undefined, context.subscriptions);  
-    };
-
-    if (vscode.workspace.workspaceFolders?.length) {
-        vscode.workspace.workspaceFolders.forEach(registerFolderWatcher);
-    } else {
-        vscode.workspace.onDidChangeWorkspaceFolders(e => {
-            e.added.forEach(registerFolderWatcher);
-        }, undefined, context.subscriptions);
-    }
-
-    /* VS Code configuration changes quiet rarely, so it's also cached */
-    setupVsCodeSettings(context);
+    logger.info('adding new NodeTags to configuration');
+    await config.mutate((c) => (c.nodetags ??= []).push(...newNodeTags));
 }
 
 function registerCommands(context: vscode.ExtensionContext,
                           pgvars: vars.PgVariablesViewProvider,
-                          fmt: PgindentDocumentFormatterProvider) {
+                          fmt: PgindentDocumentFormatterProvider,
+                          config: Configuration) {
     const registerCommand = <T>(name: string, command: (...args: unknown[]) => T | Thenable<T>) => {
         const disposable = vscode.commands.registerCommand(name, async (...args: unknown[]) => {
             try {
@@ -577,7 +553,8 @@ function registerCommands(context: vscode.ExtensionContext,
     };
 
     /* Configuration commands */
-    registerCommand(Commands.RefreshConfigFile, refreshConfigCommand);
+    registerCommand(Commands.RefreshConfigFile,
+                    async () => refreshConfigCommand(config));
     registerCommand(Commands.OpenConfigFile, openConfigFileCommand);
 
     /* Formatter */

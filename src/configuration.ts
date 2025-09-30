@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 
 import * as vars from './variables';
 import * as utils from './utils';
@@ -65,7 +66,7 @@ function normalizeFuncName(name: string) {
     return name;
 };
 
-function parseConfiguration(configFile: unknown): ConfigurationFile | undefined {
+function parseConfiguration(contents: unknown): ConfigurationFile | undefined {
     const parseArrayMember = (obj: unknown): vars.ArraySpecialMemberInfo | undefined => {
         /* 
          * {
@@ -538,39 +539,39 @@ function parseConfiguration(configFile: unknown): ConfigurationFile | undefined 
         return arr.filter(x => x.length > 0);
     };
 
-    if (!(typeof configFile === 'object' && configFile)) {
+    if (!(typeof contents === 'object' && contents)) {
         return;
     }
 
     const nonUndefined = <T>(arg: T | undefined) => arg !== undefined;
 
-    const arrays = 'arrays' in configFile &&
-                        Array.isArray(configFile.arrays) &&
-                        configFile.arrays.length > 0
-        ? configFile.arrays.map(parseArrayMember).filter(nonUndefined)
+    const arrays = 'arrays' in contents &&
+                        Array.isArray(contents.arrays) &&
+                        contents.arrays.length > 0
+        ? contents.arrays.map(parseArrayMember).filter(nonUndefined)
         : undefined;
-    const aliases = 'aliases' in configFile &&
-                        Array.isArray(configFile.aliases) &&
-                        configFile.aliases.length > 0
-        ? configFile.aliases.map(parseSingleAlias).filter(nonUndefined)
+    const aliases = 'aliases' in contents &&
+                        Array.isArray(contents.aliases) &&
+                        contents.aliases.length > 0
+        ? contents.aliases.map(parseSingleAlias).filter(nonUndefined)
         : undefined;
-    const customListTypes = 'customListTypes' in configFile
-        ? parseListTypes(configFile.customListTypes)
+    const customListTypes = 'customListTypes' in contents
+        ? parseListTypes(contents.customListTypes)
         : undefined;
-    const htab = 'htab' in configFile
-        ? parseHtabTypes(configFile.htab)
+    const htab = 'htab' in contents
+        ? parseHtabTypes(contents.htab)
         : undefined;
-    const simplehash = 'simplehash' in configFile
-        ? parseSimplehashTypes(configFile.simplehash)
+    const simplehash = 'simplehash' in contents
+        ? parseSimplehashTypes(contents.simplehash)
         : undefined;
-    const enums = 'enums' in configFile 
-        ? parseEnumBitmasks(configFile.enums)
+    const enums = 'enums' in contents 
+        ? parseEnumBitmasks(contents.enums)
         : undefined;
-    const nodetags = 'nodetags' in configFile
-        ? parseNodeTags(configFile.nodetags)
+    const nodetags = 'nodetags' in contents
+        ? parseNodeTags(contents.nodetags)
         : undefined;
-    const typedefs = 'typedefs' in configFile 
-        ? parseTypedefs(configFile.typedefs)
+    const typedefs = 'typedefs' in contents 
+        ? parseTypedefs(contents.typedefs)
         : undefined;
 
     return {
@@ -615,93 +616,132 @@ async function readJsonFile(file: vscode.Uri) {
         return;
     }
     
-    return data;
+    return data as unknown;
 }
 
-export async function writeConfigFile(config: ConfigurationFile, file: vscode.Uri) {
+async function readConfigurationFile(path: vscode.Uri) {
+    const contents = await readJsonFile(path);
+    return parseConfiguration(contents);
+}
+
+async function writeConfigFile(config: ConfigurationFile, file: vscode.Uri) {
+    logger.info('writing configuration file %s', file.fsPath);
     const data = JSON.stringify(config, null, 4);
+
+    let vscodeDirPath;
+    try {
+        await utils.writeFile(file, data);
+        return;
+    } catch (err) {
+        if (!(err instanceof Error)) {
+            throw err;
+        }
+        
+        vscodeDirPath = utils.joinPath(file, '..');
+        if (!await utils.directoryExists(vscodeDirPath)) {
+            throw err;
+        }
+    }
+
+    logger.info('seems that .vscode directory does not exist - creating new one');
+    await utils.createDirectory(vscodeDirPath);
     await utils.writeFile(file, data);
 }
 
-/* TODO: make as object, not global variable */
-/* Main configuration file */
-let config: ConfigurationFile | undefined;
-
-/* Flag indicating that configuration file should be refreshed */
-let configDirty = true;
-
-async function checkConfigurationFresh() {
-    if (!configDirty) {
+export function getWorkspaceFolder() {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders?.length) {
         return;
     }
     
-    await refreshConfiguration();
-    configDirty = false;
+    /* 
+     * VS Code can be opened in multi-root workspace, that's because
+     * 'workspaceFolders' is an array.
+     * In order not to complicate things a lot I assume 99.999% of time
+     * developer will be working with single-rooted workspace, so take
+     * first element.
+     * 
+     * I can add support for multi-rooted workspace, but I don't know
+     * if there will be any profit. Moreover, if we have multiple
+     * workspaces and each of them have it's own copy of configuration
+     * file, then which one we should use?
+     * This question can be asked in many places, i.e. when we are creating
+     * new config file in 'Open or create configuration file' command.
+     */
+    return folders[0].uri;
 }
 
-export async function getVariablesConfiguration(): Promise<VariablesConfiguration | undefined> {
-    await checkConfigurationFresh();
-    return config;
-}
-
-export async function getFormatterConfiguration(): Promise<FormatterConfiguration | undefined> {
-    await checkConfigurationFresh();
-    return config;
-}
-
-export async function refreshConfiguration() {
-    /* Do not check 'dirtyFlag', because this function must be invoked explicitly */
-    if (!vscode.workspace.workspaceFolders?.length) {
-        return;
+export class Configuration {
+    /* 
+     * Pair of configuration file contents and path to that file
+     */
+    config: [ConfigurationFile, vscode.Uri] | undefined;
+   
+    /*
+     * Flag, indicating, that configuration file was changed
+     * and requires updating.
+     */
+    dirty = true;
+    
+    markDirty() {
+        this.dirty = true;
+    }
+    
+    isDirty() {
+        return this.dirty;
     }
 
-    for (const folder of vscode.workspace.workspaceFolders) {
-        const file = getExtensionConfigFile(folder.uri);
-        const contents = await readJsonFile(file);
-        if (!contents) {
+    async getConfigRefresh() {
+        if (!this.dirty) {
+            return this.config?.[0];
+        }
+
+        return await this.refreshConfig();
+    }
+    
+    async refreshConfig() {
+        const workspace = getWorkspaceFolder();
+        if (!workspace) {
             return;
         }
 
-        logger.debug('refreshing configuration from file %s', file.fsPath);
-        try {
-            config = parseConfiguration(contents);
-        } catch (err) {
-            logger.error('could not parse configuration file', err);
+        const path = getExtensionConfigFile(workspace);
+
+        let config;
+        if (await utils.fileExists(path)) {
+            config = await readConfigurationFile(path);
+        } else {
+            /* File is deleted */
+            config = undefined;
         }
 
-        /* handle only 1 file - that's enough */
-        break;
+        this.config = config ? [config, path] : undefined;
+        this.dirty = false;
+        return config;
     }
     
-    configDirty = false;
-}
+    async getVariablesConfiguration(): Promise<VariablesConfiguration | undefined> {
+        return await this.getConfigRefresh();
 
-async function findConfigurationFile() {
-    if (!vscode.workspace.workspaceFolders?.length) {
-        throw new PghhError('No workspace folders opened');
     }
     
-    for (const folder of vscode.workspace.workspaceFolders) {
-        const file = getExtensionConfigFile(folder.uri);
-        if (await utils.fileExists(file)) {
-            return file;
+    async getFormatterConfiguration(): Promise<FormatterConfiguration | undefined> {
+        return await this.getConfigRefresh();
+    }
+    
+    async mutate(mutator: (config: ConfigurationFile) => void) {
+        const workspace = getWorkspaceFolder();
+        if (!workspace) {
+            throw new PghhError('Workspace is not opened');
         }
-    }
 
-    const file = getExtensionConfigFile(vscode.workspace.workspaceFolders[0].uri);
-    const directory = utils.joinPath(file, '..');
-    if (!await utils.directoryExists(directory)) {
-        logger.info('.vscode directory does not exist - creating one at %s', directory.fsPath);
-        await utils.createDirectory(directory);
-    }
-    
-    /* It will be created if necessary */
-    return file;
-}
+        const file = getExtensionConfigFile(workspace);
+        const configFile = await this.getConfigRefresh() ?? createEmptyConfigurationFile();
+        mutator(configFile);
 
-async function getConfigurationFile(): Promise<ConfigurationFile | undefined> {
-    await checkConfigurationFresh();
-    return config;
+        await writeConfigFile(configFile, file);
+        this.config = [configFile, file];
+    }
 }
 
 function createEmptyConfigurationFile(): ConfigurationFile {
@@ -717,34 +757,18 @@ function createEmptyConfigurationFile(): ConfigurationFile {
     };
 }
 
-export async function mutateConfiguration(mutator: (config: ConfigurationFile) => void) {
-    const configFile = await getConfigurationFile() ?? createEmptyConfigurationFile();
-
-    mutator(configFile);
-
-    const file = await findConfigurationFile();
-    await writeConfigFile(configFile, file);
-    config = configFile;
-}
-
-export function markConfigFileDirty() {
-    logger.debug('configuration marked dirty');
-    configDirty = true;
-}
-
-export function isConfigFileDirty() {
-    return configDirty;
-}
-
 export const ExtensionPrettyName = 'PostgreSQL Hacker Helper';
 export const ExtensionId = 'postgresql-hacker-helper';
 
-export const ExtensionSettingsFileName = 'pgsql_hacker_helper.json';
-export function getExtensionConfigFile(workspace: vscode.Uri) {
-    return vscode.Uri.joinPath(workspace, '.vscode', ExtensionSettingsFileName);
+export function getExtensionConfigFile(): string;
+export function getExtensionConfigFile(base: vscode.Uri): vscode.Uri;
+export function getExtensionConfigFile(base?: vscode.Uri) {
+    if (base) {
+        return utils.joinPath(base, '.vscode', 'pgsql_hacker_helper.json');
+    } else {
+        return path.join('.vscode', 'pgsql_hacker_helper.json');
+    }
 }
-
-export const PgVariablesViewName = `${ExtensionId}.node-tree-view`;
 
 export class VsCodeSettings {
     static ConfigSections = {
@@ -794,7 +818,7 @@ export class VsCodeSettings {
     }
 }
 
-export function setupVsCodeSettings(context: vscode.ExtensionContext) {
+function setupVsCodeSettings(context: vscode.ExtensionContext) {
     vscode.workspace.onDidChangeConfiguration(e => {
         if (!e.affectsConfiguration(VsCodeSettings.ConfigSections.TopLevelSection)) {
             return;
@@ -803,6 +827,39 @@ export function setupVsCodeSettings(context: vscode.ExtensionContext) {
         VsCodeSettings.refreshConfiguration();
     }, undefined, context.subscriptions);
 }
+
+export function setupConfiguration(context: vscode.ExtensionContext) {
+    const config = new Configuration();
+    
+    /* Mark configuration dirty when user changes it - no eager parsing */
+    const registerFolderWatcher = (folder: vscode.Uri) => {
+        const pattern = new vscode.RelativePattern(
+            folder, getExtensionConfigFile());
+        const watcher = vscode.workspace.createFileSystemWatcher(
+            pattern, false, false, false);
+        context.subscriptions.push(watcher);
+        const markDirty = () => config.markDirty();
+        watcher.onDidChange(markDirty, undefined, context.subscriptions);
+        watcher.onDidCreate(markDirty, undefined, context.subscriptions);
+        watcher.onDidDelete(markDirty, undefined, context.subscriptions);  
+    };
+
+    const folder = getWorkspaceFolder();
+    if (folder) {
+        registerFolderWatcher(folder);
+    } else {
+        const d = vscode.workspace.onDidChangeWorkspaceFolders(e => {
+            d.dispose();
+            e.added.forEach(f => registerFolderWatcher(f.uri));
+        }, undefined, context.subscriptions);
+    }
+
+    /* VS Code configuration changes quiet rarely, so it's also cached */
+    setupVsCodeSettings(context);
+
+    return config;
+}
+
 
 export class Commands {
     static DumpNodeToLog = `${ExtensionId}.dumpNodeToLog`;
@@ -819,13 +876,17 @@ export class Commands {
 }
 
 export async function openConfigFileCommand() {
-    if (!vscode.workspace.workspaceFolders?.length) {
+    /* 
+     * No need to pass Configuration here and mark it dirty,
+     * because we will be notified of changes by fs watcher.
+     */
+    const folder = getWorkspaceFolder();
+    if (!folder) {
         vscode.window.showInformationMessage('No workspaces found - open directory first');
         return;
     }
 
-    const folder = vscode.workspace.workspaceFolders[0];
-    const configFilePath = getExtensionConfigFile(folder.uri);
+    const configFilePath = getExtensionConfigFile(folder);
     /* Create default configuration file if not exists */
     if (!await utils.fileExists(configFilePath)) {
         const configDirectoryPath = utils.joinPath(configFilePath, '..');
@@ -842,7 +903,6 @@ export async function openConfigFileCommand() {
 };
 
 
-export async function refreshConfigCommand() {
-    await refreshConfiguration();
+export async function refreshConfigCommand(config: Configuration) {
+    await config.refreshConfig();
 };
-

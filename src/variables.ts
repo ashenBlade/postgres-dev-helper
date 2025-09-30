@@ -5,7 +5,7 @@ import * as constants from './constants';
 import * as dbg from './debugger';
 import { Log as logger } from './logger';
 import { PghhError, EvaluationError, unnullify } from './error';
-import { getVariablesConfiguration, isConfigFileDirty } from './configuration';
+import { Configuration } from './configuration';
 
 export interface AliasInfo {
     /* Declared type */
@@ -5353,6 +5353,15 @@ class FlagsMemberVariable extends RealVariable {
 }
 
 export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable>, vscode.Disposable {
+    /* 
+     * Object containing configuration for current workspace.
+     */
+    config: Configuration;
+    
+    constructor(config: Configuration) {
+        this.config = config;
+    }
+    
     /**
      * ExecContext used to pass to all members.
      * 
@@ -5411,7 +5420,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
     async initializeExecContextFromConfig(nodeVars: NodeVarRegistry,
                                           specialMembers: SpecialMemberRegistry,
                                           hashTables: HashTableTypes) {
-        const config = await getVariablesConfiguration();
+        const config = await this.config.getVariablesConfiguration();
         if (!config) {
             return;
         }
@@ -5525,7 +5534,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
          * debugging the same PG version
          */
         if (   pgversion && pgversion === this.cachedTypes?.[1]
-            && !isConfigFileDirty()) {
+            && !this.config.isDirty()) {
             nodeVars = this.cachedTypes[0].nodeVars;
             specialMembers = this.cachedTypes[0].specialMembers;
             hashTables = this.cachedTypes[0].hashTables;

@@ -3,40 +3,30 @@ import {languages} from 'vscode';
 import * as utils from './utils';
 import { Log as logger } from './logger';
 import { getWellKnownBuiltinContribs } from './constants';
-import { getFormatterConfiguration,
-         VsCodeSettings } from './configuration';
+import { Configuration, getWorkspaceFolder, VsCodeSettings } from './configuration';
 import { PghhError } from './error';
 import * as path from 'path';
 import * as os from 'os';
 
 class FormattingError extends PghhError {}
 
-function findSuitableWorkspace(document: vscode.TextDocument) {
-    if (!vscode.workspace.workspaceFolders?.length) {
-        throw new Error('Not workspaces opened');
-    }
-
-    for (const workspace of vscode.workspace.workspaceFolders) {
-        if (document.uri.path.startsWith(workspace.uri.path)) {
-            return workspace;
-        }
-    }
-
-    /* Fallback with first workspace */
-    return vscode.workspace.workspaceFolders[0];
-}
-
 function isBuiltinContrib(name: string) {
     return getWellKnownBuiltinContribs().has(name);
 }
 
 export class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEditProvider {
+    config: Configuration;
+    
+    constructor(config: Configuration) {
+        this.config = config;
+    }
+    
     private savedPgindentPath?: vscode.Uri;
     private savedPgbsdPath?: vscode.Uri;
-
-    private async getPgConfigPath(workspace: vscode.WorkspaceFolder) {
+    
+    private async getPgConfigPath(workspace: vscode.Uri) {
         const possiblePgConfigPath = utils.getWorkspacePgSrcFile(
-            workspace.uri, 'src', 'bin', 'pg_config', 'pg_config');
+            workspace, 'src', 'bin', 'pg_config', 'pg_config');
         if (await utils.fileExists(possiblePgConfigPath)) {
             return possiblePgConfigPath;
         }
@@ -48,7 +38,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
             validateInput: async (value: string) => {
                 const filePath = path.isAbsolute(value) 
                     ? vscode.Uri.file(value)
-                    : utils.joinPath(workspace.uri, value);
+                    : utils.joinPath(workspace, value);
                 if (!await utils.fileExists(filePath)) {
                     return 'File not found';
                 }
@@ -60,7 +50,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
 
         const pg_configPath = path.isAbsolute(userInput) 
             ? vscode.Uri.file(userInput) 
-            : utils.joinPath(workspace.uri, userInput);
+            : utils.joinPath(workspace, userInput);
         return pg_configPath;
     }
     
@@ -106,7 +96,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
         }
     }
     
-    private async clonePgBsdIndent(workspace: vscode.WorkspaceFolder,
+    private async clonePgBsdIndent(workspace: vscode.Uri,
                                    pgindent: vscode.Uri,
                                    pgBsdIndentDir: vscode.Uri) {
         /*
@@ -114,7 +104,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
          * in pg version 16< where pg_bsd_indent
          */
         const pgindentDir = utils.getWorkspacePgSrcFile(
-            workspace.uri, 'src', 'tools', 'pgindent');
+            workspace, 'src', 'tools', 'pgindent');
         logger.info('cloning pg_bsd_indent repository');
         /* XXX: maybe better to download archive, not full history? */
         await utils.execShell(
@@ -181,7 +171,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
         await utils.writeFile(argsFile, lines.join('\n'));
     }
 
-    private async findPgBsdIndentOrBuild(workspace: vscode.WorkspaceFolder,
+    private async findPgBsdIndentOrBuild(workspace: vscode.Uri,
                                          pgindent: vscode.Uri) {
         /* 
          * For pg_bsd_indent search 2 locations:
@@ -192,7 +182,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
          *      - not exist: download + build
          */
         let pgBsdIndentDir = utils.getWorkspacePgSrcFile(
-            workspace.uri, 'src', 'tools', 'pg_bsd_indent');
+            workspace, 'src', 'tools', 'pg_bsd_indent');
 
         /* src/tools/pg_bsd_indent */
         if (await utils.directoryExists(pgBsdIndentDir)) {
@@ -204,13 +194,13 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
             /* Try to build it */
             logger.info('building pg_bsd_indent in %s', pgBsdIndentDir.fsPath);
             await utils.execShell('make', ['-C', pgBsdIndentDir.fsPath],
-                                  {cwd: workspace.uri.fsPath});
+                                  {cwd: workspace.fsPath});
             return pgBsdIndent;
         }
 
         /* src/tools/pgindent/pg_bsd_indent */
         pgBsdIndentDir = utils.getWorkspacePgSrcFile(
-            workspace.uri, 'src', 'tools', 'pgindent', 'pg_bsd_indent');
+            workspace, 'src', 'tools', 'pgindent', 'pg_bsd_indent');
         const pgBsdIndent = utils.joinPath(pgBsdIndentDir, 'pg_bsd_indent');
         if (await utils.fileExists(pgBsdIndent)) {
             return pgBsdIndent;
@@ -232,8 +222,8 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
         return pgBsdIndent;
     }
     
-    private async getTypedefsFromConfiguration(workspace: vscode.WorkspaceFolder) {
-        const config = await getFormatterConfiguration();
+    private async getTypedefsFromConfiguration(workspace: vscode.Uri) {
+        const config = await this.config.getFormatterConfiguration();
         if (!config?.typedefs?.length) {
             return [];
         }
@@ -249,7 +239,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
             if (path.isAbsolute(t)) {
                 typedefFile = vscode.Uri.file(t);
             } else {
-                typedefFile = utils.getWorkspacePgSrcFile(workspace.uri, t);
+                typedefFile = utils.getWorkspacePgSrcFile(workspace, t);
             }
 
             if (!await utils.fileExists(typedefFile)) {
@@ -310,7 +300,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
     }
 
     private async getCustomTypedefs(document: vscode.Uri,
-                                    workspace: vscode.WorkspaceFolder) {
+                                    workspace: vscode.Uri) {
         /* Get user provided typedefs */
         const configTypedefs = await this.getTypedefsFromConfiguration(workspace);
         
@@ -320,7 +310,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
         return configTypedefs.map(f => `--typedefs=${f}`);
     }
 
-    private async getPgBsdIndent(workspace: vscode.WorkspaceFolder, pgindent: vscode.Uri) {
+    private async getPgBsdIndent(workspace: vscode.Uri, pgindent: vscode.Uri) {
         if (this.savedPgbsdPath) {
             if (await utils.fileExists(this.savedPgbsdPath)) {
                 return this.savedPgbsdPath;
@@ -333,19 +323,19 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
         if (userPgbsdindent) {
             return path.isAbsolute(userPgbsdindent) 
                 ? vscode.Uri.file(userPgbsdindent)
-                : utils.joinPath(workspace.uri, userPgbsdindent);
+                : utils.joinPath(workspace, userPgbsdindent);
         }
 
         return await this.findPgBsdIndentOrBuild(workspace, pgindent);
     }
     
-    private async getPgindent(workspace: vscode.WorkspaceFolder) {
+    private async getPgindent(workspace: vscode.Uri) {
         if (this.savedPgindentPath) {
             return this.savedPgindentPath;
         }
         
         const pgindentPath = utils.getWorkspacePgSrcFile(
-            workspace.uri, 'src', 'tools', 'pgindent', 'pgindent');
+            workspace, 'src', 'tools', 'pgindent', 'pgindent');
         if (!await utils.fileExists(pgindentPath)) {
             vscode.window.showErrorMessage(`could not find pgindent at ${pgindentPath.fsPath}`);
             throw new FormattingError('could not find pgindent');
@@ -359,7 +349,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
                                       document: vscode.Uri,
                                       pg_bsd_indent: vscode.Uri,
                                       pgindent: vscode.Uri,
-                                      workspace: vscode.WorkspaceFolder) {
+                                      workspace: vscode.Uri) {
         const typedefs = await this.getCustomTypedefs(originalDocument, workspace);
 
         /* Work in pgindent dir, so it can find default typedefs.list */
@@ -430,7 +420,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
                                         document: vscode.Uri,
                                         pgBsdIndent: vscode.Uri,
                                         pgindent: vscode.Uri,
-                                        workspace: vscode.WorkspaceFolder) {
+                                        workspace: vscode.Uri) {
         try {
             return await this.runPgindentInternal(
                 originalDocument, document, pgBsdIndent, pgindent, workspace);
@@ -448,7 +438,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
     }
 
     private async runPgindent(document: vscode.TextDocument, 
-                              workspace: vscode.WorkspaceFolder) {
+                              workspace: vscode.Uri) {
         const pgindent = await this.getPgindent(workspace);
         const pg_bsd_indent = await this.getPgBsdIndent(workspace, pgindent);
         const content = this.getDocumentContent(document);
@@ -471,10 +461,14 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
     async provideDocumentFormattingEdits(document: vscode.TextDocument, 
                                          _options: vscode.FormattingOptions,
                                          _token: vscode.CancellationToken) {
+        const workspace = getWorkspaceFolder();
+        if (!workspace) {
+            throw new Error('No workspaces opened');
+        }
+
         logger.debug('formatting document: %s', document.uri.fsPath);
         let indented;
         try {
-            const workspace = findSuitableWorkspace(document);
             indented = await this.runPgindent(document, workspace);
         } catch (err) {
             logger.error('could not to run pgindent', err);
@@ -492,8 +486,8 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
         ];
     }
 
-    async indentFileWithTemp(document: vscode.TextDocument) {
-        const workspace = findSuitableWorkspace(document);
+    async indentFileWithTemp(workspace: vscode.Uri,
+                             document: vscode.TextDocument) {
         const indented = await this.runPgindent(document, workspace);
         const tempFile = utils.joinPath(
             vscode.Uri.file(os.tmpdir()), path.basename(document.uri.fsPath));
@@ -506,11 +500,17 @@ export async function showFormatterDiffCommand(formatter: PgindentDocumentFormat
     if (!vscode.window.activeTextEditor) {
         return;
     }
-    
+
     const document = vscode.window.activeTextEditor.document;
+    const workspace = getWorkspaceFolder();
+    if (!workspace) {
+        vscode.window.showWarningMessage('Open workspace before running formatting');
+        return;
+    }
+
     let parsed;
     try {
-        parsed = await formatter.indentFileWithTemp(document);
+        parsed = await formatter.indentFileWithTemp(workspace, document);
     } catch (err) {
         logger.error('failed to format file %s', document.uri.fsPath, err);
         return;
@@ -528,8 +528,8 @@ export async function showFormatterDiffCommand(formatter: PgindentDocumentFormat
     }
 }
 
-export function setupFormatting(context: vscode.ExtensionContext) {
-    const formatter = new PgindentDocumentFormatterProvider();
+export function setupFormatting(context: vscode.ExtensionContext, config: Configuration) {
+    const formatter = new PgindentDocumentFormatterProvider(config);
     const d = languages.registerDocumentFormattingEditProvider({
         language: 'c',
     }, formatter);
