@@ -5624,12 +5624,13 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
 
             /* 
              * There may be race condition when our state of debugger 
-             * is 'ready', but real debugger is not. Such cases include
-             * debugger detach, continue after breakpoint etc. 
-             * (we can not send commands to debugger).
+             * is 'ready', but real debugger is not, so we can not send
+             * commands to debugger.
+             * Such cases include debugger detach, continue after
+             * breakpoint or the case when 'PG Variables' view reveals
+             * when user start debug session.
              * 
-             * In this cases we must return empty array - this will 
-             * clear our tree view.
+             * In such cases we return empty array, so view will be cleared.
              */
             if (err.message.indexOf('No debugger available') !== -1 ||
                 err.message.indexOf('process is running') !== -1) {
