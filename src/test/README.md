@@ -53,7 +53,8 @@ There are useful flags that allows to specify which value range to use:
 
 ```bash
 ./src/test/test.sh --pg-versions="18 17 16" \
-                   --vscode-versions="stable 1.90"
+                   --vscode-versions="stable 1.90" \
+                   --debuggers="lldb"
 ```
 
 Use `--help` flag to get more info about.
@@ -96,3 +97,13 @@ You can use it when working with our custom members (i.e. number from `Bitmapset
 In other cases rely on *stable* parts - variable/member name or type.
 
 Reason: each DAP provider uses it's own syntax, so we might get failed assertion, even though everything works correctly.
+
+## Notes
+
+### Split by debugger
+
+There might be an idea to run variables tests with both cppdbg and codelldb in same window, but just have some sort of setup before changing debugger.
+Commit `8d8423a4ac36d1fa1ece8b6833e82564e9c4c99a` did exactly that, but after strange error emerged: `ListError [Breakpoints] Invalid Index 2`.
+This error comes from VS Code internals and is not my error, but because of it tests does not pass.
+
+Why this error happened I still don't know, but such split does not cause much inconvenience.

@@ -15,19 +15,6 @@
 				"kind": "build",
 				"isDefault": true
 			}
-		},
-        {
-            "type": "npm",
-            "script": "test",
-            "group": {
-                "kind": "test",
-                "isDefault": true
-            },
-            "options": {
-                "env": {
-                    "PGHH_TEST_MODES": "vars,format,unit"
-                }
-            }
-        }
+		}
 	]
 }
