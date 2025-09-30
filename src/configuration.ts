@@ -623,6 +623,7 @@ export async function writeConfigFile(config: ConfigurationFile, file: vscode.Ur
     await utils.writeFile(file, data);
 }
 
+/* TODO: make as object, not global variable */
 /* Main configuration file */
 let config: ConfigurationFile | undefined;
 
@@ -809,11 +810,39 @@ export class Commands {
     static OpenConfigFile = `${ExtensionId}.openConfigurationFile`;
     static RefreshConfigFile = `${ExtensionId}.refreshConfigFile`;
     static FormatterDiffView = `${ExtensionId}.formatterShowDiff`;
-    static RefreshPostgresVariables = `${ExtensionId}.refreshPostgresVariablesView`;
+    static RefreshVariables = `${ExtensionId}.refreshPostgresVariablesView`;
     static BootstrapExtension = `${ExtensionId}.bootstrapExtension`;
     static AddToWatchView = `${ExtensionId}.addVariableToWatch`;
     static GetVariables = `${ExtensionId}.getVariables`;
     static GetTreeViewProvider = `${ExtensionId}.getTreeViewProvider`;
     static FindCustomTypedefsLists = `${ExtensionId}.formatterFindTypedefsList`;
 }
+
+export async function openConfigFileCommand() {
+    if (!vscode.workspace.workspaceFolders?.length) {
+        vscode.window.showInformationMessage('No workspaces found - open directory first');
+        return;
+    }
+
+    const folder = vscode.workspace.workspaceFolders[0];
+    const configFilePath = getExtensionConfigFile(folder.uri);
+    /* Create default configuration file if not exists */
+    if (!await utils.fileExists(configFilePath)) {
+        const configDirectoryPath = utils.joinPath(configFilePath, '..');
+        if (!await utils.directoryExists(configDirectoryPath)) {
+            logger.info('creating .vscode directory %s', configDirectoryPath);
+            await utils.createDirectory(configDirectoryPath);
+        }
+
+        logger.info('creating configuration file %s', configFilePath.fsPath);
+    }
+
+    const doc = await vscode.workspace.openTextDocument(configFilePath);
+    await vscode.window.showTextDocument(doc);
+};
+
+
+export async function refreshConfigCommand() {
+    await refreshConfiguration();
+};
 

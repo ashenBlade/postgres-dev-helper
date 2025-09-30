@@ -5,20 +5,20 @@ import * as utils from './utils';
 import { Features } from './utils';
 import * as vars from './variables';
 import * as dbg from './debugger';
-import * as dap from './dap';
 import { Commands, 
          ExtensionSettingsFileName,
          PgVariablesViewName,
          VsCodeSettings,
-         getExtensionConfigFile,
          markConfigFileDirty,
          mutateConfiguration,
-         refreshConfiguration,
+         openConfigFileCommand,
+         refreshConfigCommand,
          setupVsCodeSettings } from './configuration';
-import { Log as logger } from './logger';
 import { setupPgConfSupport } from './pgconf';
-import { setupFormatting } from './formatter';
-
+import { PgindentDocumentFormatterProvider,
+         setupFormatting } from './formatter';
+import * as formatter from './formatter';
+import { Log as logger } from './logger';
 
 function createDebuggerFacade(type: string, provider: vars.PgVariablesViewProvider): dbg.GenericDebuggerFacade | undefined {
     let debug;
@@ -43,131 +43,6 @@ function createDebuggerFacade(type: string, provider: vars.PgVariablesViewProvid
     }
 
     return debug;
-}
-
-export async function dumpVariableToLogCommand(args: unknown, debug: dbg.IDebuggerFacade) {
-    const session = vscode.debug.activeDebugSession;
-    if (!session) {
-        vscode.window.showWarningMessage('Can not dump variable - no active debug session!');
-        return;
-    }
-
-    if (!(typeof args === 'object' && args !== null && 'variable' in args)) {
-        return;
-    }
-
-    const variable = args.variable as dap.DebugVariable;
-
-    const frameId = await debug.getCurrentFrameId();
-    if (frameId === undefined) {
-        vscode.window.showWarningMessage(`Could not get current stack frame id in order to invoke 'pprint'`);
-        return;
-    }
-
-    if (!(debug.isValidPointerType(variable))) {
-        vscode.window.showWarningMessage(`Variable ${variable.value} is not valid pointer`);
-        return;
-    }
-
-    const expression = `pprint((const void *) ${debug.getPointer(variable)})`;
-    try {
-        await debug.evaluate(expression,
-                             frameId, 
-                             undefined  /* context */, 
-                             true       /* no return */);
-    } catch (err: unknown) {
-        logger.error('could not dump variable %s to log', variable.name, err);
-        vscode.window.showErrorMessage(`Could not dump variable ${variable.name}. `
-                                     + 'See errors in Output log');
-    }
-}
-
-export async function dumpVariableToDocumentCommand(variable: dap.DebugVariable,
-                                                    debug: dbg.IDebuggerFacade) {
-    const session = vscode.debug.activeDebugSession;
-    if (!session) {
-        return;
-    }
-
-    const frameId = await debug.getCurrentFrameId();
-    if (frameId === undefined) {
-        vscode.window.showWarningMessage(`Could not get current stack frame id to invoke functions`);
-        return;
-    }
-
-    if (!(debug.isValidPointerType(variable))) {
-        vscode.window.showWarningMessage(`Variable ${variable.value} is not valid pointer`);
-        return;
-    }
-
-    /* 
-     * In order to make node dump we use 2 functions:
-     * 
-     * 1. 'nodeToStringWithLocations' - dump arbitrary node object into string form
-     * 2. 'pretty_format_node_dump' - prettify dump returned from 'nodeToString'
-     * 
-     * This sequence is well known and also used in 'pprint' itself, so feel
-     * free to use it.
-     */
-    const nodeToStringExpr = `nodeToStringWithLocations((const void *) ${debug.getPointer(variable)})`;
-    let response;
-    try {
-        response = await debug.evaluate(nodeToStringExpr, frameId);
-    } catch (err: unknown) {
-        logger.error('could not dump variable %s to string', variable.name, err);
-        vscode.window.showErrorMessage(`Could not dump variable ${variable.name}. `
-                                     + 'See errors in Output log');
-        return;
-    }
-
-    /* Save to pfree later */
-    const savedNodeToStringPtr = response.memoryReference;
-
-    const prettyFormatExpr = `pretty_format_node_dump((const char *) ${response.memoryReference})`;
-    try {
-        response = await debug.evaluate(prettyFormatExpr, frameId);
-    } catch (err: unknown) {
-        logger.error('could not pretty print node dump', variable.name, err);
-        vscode.window.showErrorMessage(`Could pretty print variable ${variable.name}. `
-                                     + 'See errors in Output log');
-        return;
-    }
-
-    const debugVariable: dbg.IDebugVariable = {
-        type: response.type,
-        value: response.result,
-        memoryReference: response.memoryReference,
-    };
-    const ptr = debug.extractPtrFromString(debugVariable);
-    const node = await debug.extractLongString(debugVariable, frameId);
-
-    /*
-     * Perform pfree'ing ONLY after extracting string, otherwise there will
-     * be garbage '\\177' in string buffer.
-     */
-    try {
-        await debug.evaluate(`pfree((const void *) ${ptr})`, frameId,
-                             undefined, true);
-        await debug.evaluate(`pfree((const void *) ${savedNodeToStringPtr})`, frameId,
-                             undefined, true);           
-    } catch (err: unknown) {
-        /* This is not critical error actually, so just log and continue */
-        logger.error('could not dump variable %s to log', variable.name, err);
-        
-        /* continue */
-    }
-
-    if (node === null) {
-        vscode.window.showErrorMessage('Could not obtain node dump: NULL is returned from nodeToString');
-        return;
-    }
-
-    /* 
-     * Finally, show document with node dump.  It would be nice to also set
-     * appropriate title, but I don't known how to do it without saving file.
-     */
-    const document = await vscode.workspace.openTextDocument({content: node});
-    vscode.window.showTextDocument(document);
 }
 
 async function promptWorkspace() {
@@ -504,15 +379,15 @@ export function setupExtension(context: vscode.ExtensionContext) {
 
     /* Variables view */
     const pgvars = setupPgVariablesView(context);
-    
+
     /* Formatter */
-    setupFormatting();
+    const formatter = setupFormatting(context);
 
     /* Completion support for postgresql.conf */
     setupPgConfSupport(context);
 
     /* Miscellaneous (remaining) commands */
-    registerCommands(context, pgvars);
+    registerCommands(context, pgvars, formatter);
 }
 
 function setupPgVariablesView(context: vscode.ExtensionContext) {
@@ -685,192 +560,46 @@ function setupConfiguration(context: vscode.ExtensionContext) {
     setupVsCodeSettings(context);
 }
 
-function registerCommands(context: vscode.ExtensionContext, pgvars: vars.PgVariablesViewProvider) {
-    /* Register command to dump variable to log */
-    const pprintVarToLogCmd = async (args: unknown) => {
-        try {
-            if (!pgvars.context) {
-                return;
-            }
-
-            await dumpVariableToLogCommand(args, pgvars.context.debug);
-        } catch (err: unknown) {
-            logger.error('error while dumping node to log', err);
-        }
-    };
-
-    const dumpNodeToDocCmd = async (args: unknown) => {
-        try {
-            if (!pgvars.context) {
-                return;
-            }
-
-            /* Command can be run for 'Variable' or 'pg variables' views */
-            let variable: dap.DebugVariable;
-            if (args instanceof vars.Variable) {
-                const nodeVar = args;
-                if (!(nodeVar instanceof vars.NodeVariable)) {
-                    return;
-                }
-
-                variable = {
-                    name: nodeVar.name,
-                    type: nodeVar.type,
-                    value: nodeVar.value,
-                    evaluateName: nodeVar.name,
-                    variablesReference: nodeVar.variablesReference,
-                    memoryReference: nodeVar.memoryReference,
-                };
-            } else if (typeof args === 'object' && args && 'variable' in args) {
-                variable = args.variable as dap.DebugVariable;
-            } else {
-                logger.error('could not get DebugVariable from given "args" = %o', args);
-                return;
-            }
-
-            await dumpVariableToDocumentCommand(variable, pgvars.context.debug);
-        } catch (err: unknown) {
-            logger.error('error while dumping node to log', err);
-        }
-    };
-
-    /* Refresh config file command */
-    const refreshConfigCmd = async () => {
-        logger.info('refreshing config file due to command execution');
-        try {
-            await refreshConfiguration();
-        } catch (err: unknown) {
-            logger.error('could not refresh configuration', err);
-        }
-    };
-
-    const openConfigFileCmd = async () => {
-        if (!vscode.workspace.workspaceFolders?.length) {
-            vscode.window.showInformationMessage('No workspaces found - open directory first');
-            return;
-        }
-
-        for (const folder of vscode.workspace.workspaceFolders) {
-            const configFilePath = getExtensionConfigFile(folder.uri);
-            const propertiesFileExists = await utils.fileExists(configFilePath);
-            /* Create default configuration file if not exists */
-            if (!propertiesFileExists) {
-                if (await utils.fsEntryExists(configFilePath)) {
-                    vscode.window.showErrorMessage(`Can not create ${ExtensionSettingsFileName} - fs entry exists and not file`);
-                    return;
-                }
-
-                logger.debug('creating %s configuration file', configFilePath.fsPath);
-                const configDirectoryPath = utils.joinPath(configFilePath, '..');
-                if (!await utils.directoryExists(configDirectoryPath)) {
-                    try {
-                        await utils.createDirectory(configDirectoryPath);
-                    } catch (err) {
-                        logger.error('failed to create config directory', err);
-                        return;
-                    }
-                }
-
-                try {
-                    await utils.writeFile(configFilePath, JSON.stringify(
-                        /* Example config file */
-                        {
-                            arrays: [],
-                            aliases: [],
-                            customListTypes: [],
-                            htab: [],
-                            simplehash: [],
-                            enums: [],
-                            typedefs: [],
-                            nodetags: [],
-                        },
-                        undefined, '    '));
-                } catch (err: unknown) {
-                    logger.error('Could not write default configuration file', err);
-                    vscode.window.showErrorMessage('Error creating configuration file');
-                    return;
-                }
-            }
-
-            let doc;
+function registerCommands(context: vscode.ExtensionContext,
+                          pgvars: vars.PgVariablesViewProvider,
+                          fmt: PgindentDocumentFormatterProvider) {
+    const registerCommand = <T>(name: string, command: (...args: unknown[]) => T | Thenable<T>) => {
+        const disposable = vscode.commands.registerCommand(name, async (...args: unknown[]) => {
             try {
-                doc = await vscode.workspace.openTextDocument(configFilePath);
-            } catch (err: unknown) {
-                logger.error('failed to open configuration file', err);
-                return;
+                logger.debug('executing command %s', name);
+                return await command(...args);
+            } catch (err) {
+                logger.error('failed to execute command %s', name, err);
+                throw err;
             }
-
-            try {
-                await vscode.window.showTextDocument(doc);
-            } catch (err: unknown) {
-                logger.error('failed to show configuration file', err);
-                return;
-            }
-
-            /* Stop at first success folder to process */
-            break;
-        }
-    };
-
-    const bootstrapExtensionCmd = async () => {
-        try {
-            await bootstrapExtensionCommand();
-        } catch (err) {
-            logger.error('Failed to bootstrap extension', err);
-        }
-    };
-
-    const refreshVariablesCmd = () => {
-        logger.info('refreshing variables view due to command');
-        pgvars.refresh();
-    };
-
-    const addVariableToWatchCmd = async (args: unknown) => {
-        const expr = await vars.getWatchExpressionCommandHandler(args);
-        if (!expr) {
-            return;
-        }
-
-        await vscode.commands.executeCommand('debug.addToWatchExpressions', {
-            variable: {
-                evaluateName: expr,
-            },
         });
-    };
-    
-    const findCustomTypedefsListCmd = async (_: unknown) => {
-        const cmd = "find . -name '*typedefs.list' | grep -vE '^\\./(src|\\.vscode)'";
-        const terminal = vscode.window.createTerminal();
-        terminal.sendText(cmd, true /* shouldExecute */);
-        terminal.show();
-    };
-
-    /* Used for testing only */
-    const getVariablesCmd = async () => {
-        try {
-            return await pgvars.getChildren(undefined);
-        } catch (err) {
-            logger.error('failed to get variables', err);
-        }
-    };
-
-    const getNodeTreeProviderCmd = async () => {
-        return pgvars;
-    };
-
-    const registerCommand = (name: string, command: (...args: unknown[]) => void) => {
-        const disposable = vscode.commands.registerCommand(name, command);
         context.subscriptions.push(disposable);
     };
 
-    registerCommand(Commands.RefreshConfigFile, refreshConfigCmd);
-    registerCommand(Commands.OpenConfigFile, openConfigFileCmd);
-    registerCommand(Commands.DumpNodeToLog, pprintVarToLogCmd);
-    registerCommand(Commands.DumpNodeToDoc, dumpNodeToDocCmd);
-    registerCommand(Commands.RefreshPostgresVariables, refreshVariablesCmd);
-    registerCommand(Commands.BootstrapExtension, bootstrapExtensionCmd);
-    registerCommand(Commands.AddToWatchView, addVariableToWatchCmd);
-    registerCommand(Commands.GetVariables, getVariablesCmd);
-    registerCommand(Commands.GetTreeViewProvider, getNodeTreeProviderCmd);
-    registerCommand(Commands.FindCustomTypedefsLists, findCustomTypedefsListCmd);
+    /* Configuration commands */
+    registerCommand(Commands.RefreshConfigFile, refreshConfigCommand);
+    registerCommand(Commands.OpenConfigFile, openConfigFileCommand);
+
+    /* Formatter */
+    registerCommand(Commands.FormatterDiffView, 
+                    async () => await formatter.showFormatterDiffCommand(fmt));
+    registerCommand(Commands.FindCustomTypedefsLists,
+                    formatter.findCustomTypedefsListCommand);
+
+    /* Variables */
+    registerCommand(Commands.DumpNodeToLog, 
+                    async (...args: unknown[]) => await vars.dumpNodeVariableToLogCommand(pgvars, ...args));
+    registerCommand(Commands.DumpNodeToDoc, 
+                    async (...args: unknown[]) => await vars.dumpNodeVariableToDocumentCommand(pgvars, ...args));
+    registerCommand(Commands.RefreshVariables,
+                    () => vars.refreshVariablesCommand(pgvars));
+    registerCommand(Commands.AddToWatchView, vars.addVariableToWatchCommand);
+
+    /* Miscellaneous */
+    registerCommand(Commands.BootstrapExtension, bootstrapExtensionCommand);
+    
+    if (context.extensionMode === vscode.ExtensionMode.Test) {
+        registerCommand(Commands.GetVariables, async () => await pgvars.getChildren());
+        registerCommand(Commands.GetTreeViewProvider, async () => pgvars);
+    }
 }

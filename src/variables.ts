@@ -5352,17 +5352,6 @@ class FlagsMemberVariable extends RealVariable {
     }
 }
 
-/**
- * Get expression to fill in 'Watch' window in Debug view container.
- *
- * @param variable Instance of variable user clicked on
- */
-export async function getWatchExpressionCommandHandler(variable: unknown) {
-    return variable instanceof Variable
-        ? await variable.getWatchExpression()
-        : null;
-}
-
 export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable>, vscode.Disposable {
     /**
      * ExecContext used to pass to all members.
@@ -5706,4 +5695,193 @@ export async function parseNodeTagsFile(file: vscode.Uri) {
     }
     
     return new Set(nodeTags);
+}
+
+export async function dumpNodeVariableToLogCommand(pgvars: PgVariablesViewProvider,
+                                                   ...args: unknown[]) {
+    if (!pgvars.context) {
+        return;
+    }
+
+    const session = vscode.debug.activeDebugSession;
+    if (!session) {
+        vscode.window.showWarningMessage('Can not dump variable - no active debug session!');
+        return;
+    }
+    const debug = pgvars.context.debug;
+    if (!debug) {
+        logger.warn('context.debug is undefined, but debug session is active');
+        return;
+    }
+
+    if (!(typeof args === 'object' && args !== null && 'variable' in args)) {
+        return;
+    }
+
+    const variable = args.variable as dap.DebugVariable;
+
+    const frameId = await debug.getCurrentFrameId();
+    if (frameId === undefined) {
+        logger.error('could not get current frame id');
+        return;
+    }
+
+    if (!debug.isValidPointerType(variable)) {
+        logger.warn('variable %s is not a valid pointer', variable.name);
+        return;
+    }
+
+    const expression = `pprint((const void *) ${debug.getPointer(variable)})`;
+    logger.info('executing pprint');
+    await debug.evaluate(expression,
+                         frameId, 
+                         undefined  /* context */, 
+                         true       /* no return */);
+}
+
+function isDebugVariable(o: unknown): o is dap.DebugVariable {
+    return    (typeof o === 'object' && !!o)
+           && ('name' in o && typeof o.name === 'string' && o.name.length > 0)
+           && ('value' in o && typeof o.value === 'string' && o.value.length > 0)
+           && ('type' in o && typeof o.type === 'string' && o.type.length > 0);
+}
+
+export async function dumpNodeVariableToDocumentCommand(pgvars: PgVariablesViewProvider,
+                                                        ...args: unknown[]) {
+    if (!pgvars.context?.debug) {
+        return;
+    }
+    
+    if (!args?.length) {
+        return;
+    }
+
+    let variable: dap.DebugVariable;
+
+    /*
+     * Command can be run for 'Variable' or 'pg variables' views,
+     * so use a common denominator.
+     */
+    const arg = args[0];
+    if (arg instanceof Variable) {
+        const nodeVar = args;
+        if (!(nodeVar instanceof NodeVariable)) {
+            return;
+        }
+
+        variable = {
+            name: nodeVar.name,
+            type: nodeVar.type,
+            value: nodeVar.value,
+            evaluateName: nodeVar.name,
+            variablesReference: nodeVar.variablesReference,
+            memoryReference: nodeVar.memoryReference,
+        };
+    } else if (   !!args && typeof args === 'object'
+               && 'variable' in args && isDebugVariable(args.variable)) {
+        variable = args.variable;
+    } else {
+        logger.warn('could not get DebugVariable from given "args" = %o', args);
+        return;
+    }
+
+    const session = vscode.debug.activeDebugSession;
+    if (!session) {
+        return;
+    }
+
+    const debug = pgvars.context.debug;
+    const frameId = await debug.getCurrentFrameId();
+    if (frameId === undefined) {
+        vscode.window.showWarningMessage(`Could not get current stack frame id to invoke functions`);
+        return;
+    }
+
+    if (!debug.isValidPointerType(variable)) {
+        vscode.window.showWarningMessage(`Variable ${variable.value} is not valid pointer`);
+        return;
+    }
+
+    let response;
+
+    /* 
+     * In order to make node dump we use 2 functions:
+     * 
+     * 1. 'nodeToStringWithLocations' - dump arbitrary node object into string form
+     * 2. 'pretty_format_node_dump' - prettify dump returned from 'nodeToString'
+     * 
+     * This sequence is well known and also used in 'pprint' itself, so feel
+     * free to use it.
+     */
+    const nodeToStringExpr = `nodeToStringWithLocations((const void *) ${debug.getPointer(variable)})`;
+    response = await debug.evaluate(nodeToStringExpr, frameId);
+
+    /* Save to call pfree later */
+    const savedNodeToStringPtr = response.memoryReference;
+
+    const prettyFormatExpr = `pretty_format_node_dump((const char *) ${response.memoryReference})`;
+    response = await debug.evaluate(prettyFormatExpr, frameId);
+
+    const debugVariable: dbg.IDebugVariable = {
+        type: response.type,
+        value: response.result,
+        memoryReference: response.memoryReference,
+    };
+    const ptr = debug.extractPtrFromString(debugVariable);
+    const node = await debug.extractLongString(debugVariable, frameId);
+
+    /*
+     * Perform pfree'ing ONLY after extracting string, otherwise there will
+     * be garbage '\\177' in string buffer.
+     */
+    try {
+        await debug.evaluate(`pfree((const void *) ${ptr})`, frameId,
+                             undefined, true);
+        await debug.evaluate(`pfree((const void *) ${savedNodeToStringPtr})`, frameId,
+                             undefined, true);           
+    } catch (err: unknown) {
+        /* This is not critical error actually, so just log and continue */
+        logger.error('could not dump variable %s to log', variable.name, err);
+        
+        /* continue - this is not critical error for dump logic */
+    }
+
+    if (node === null) {
+        vscode.window.showErrorMessage('Could not obtain node dump: NULL is returned from nodeToString');
+        return;
+    }
+
+    /* 
+     * Finally, show document with node dump.  It would be nice to also set
+     * appropriate title, but I don't known how to do it without saving file.
+     */
+    const document = await vscode.workspace.openTextDocument({content: node});
+    vscode.window.showTextDocument(document);
+}
+
+export function refreshVariablesCommand(pgvars: PgVariablesViewProvider) {
+    pgvars.refresh();
+}
+
+export async function addVariableToWatchCommand(...args: unknown[]) {
+    if (!args.length) {
+        return;
+    }
+    
+    const variable = args[0];
+    if (!(variable instanceof Variable)) {
+        logger.warn('given argument is not Variable type: %o', variable);
+        return;
+    }
+
+    const expr = await variable.getWatchExpression();
+    if (!expr) {
+        return;
+    }
+
+    await vscode.commands.executeCommand('debug.addToWatchExpressions', {
+        variable: {
+            evaluateName: expr,
+        },
+    });
 }

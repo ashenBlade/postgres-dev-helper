@@ -3,8 +3,7 @@ import {languages} from 'vscode';
 import * as utils from './utils';
 import { Log as logger } from './logger';
 import { getWellKnownBuiltinContribs } from './constants';
-import { Commands,
-         getFormatterConfiguration,
+import { getFormatterConfiguration,
          VsCodeSettings } from './configuration';
 import { PghhError } from './error';
 import * as path from 'path';
@@ -31,7 +30,7 @@ function isBuiltinContrib(name: string) {
     return getWellKnownBuiltinContribs().has(name);
 }
 
-class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEditProvider {
+export class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEditProvider {
     private savedPgindentPath?: vscode.Uri;
     private savedPgbsdPath?: vscode.Uri;
 
@@ -503,42 +502,48 @@ class PgindentDocumentFormatterProvider implements vscode.DocumentFormattingEdit
     }
 }
 
-function registerDiffCommand(formatter: PgindentDocumentFormatterProvider) {
-    /* Preview formatter changes command */
-    vscode.commands.registerCommand(Commands.FormatterDiffView, async () => {
-        if (!vscode.window.activeTextEditor) {
-            return;
+export async function showFormatterDiffCommand(formatter: PgindentDocumentFormatterProvider) {
+    if (!vscode.window.activeTextEditor) {
+        return;
+    }
+    
+    const document = vscode.window.activeTextEditor.document;
+    let parsed;
+    try {
+        parsed = await formatter.indentFileWithTemp(document);
+    } catch (err) {
+        logger.error('failed to format file %s', document.uri.fsPath, err);
+        return;
+    }
+    
+    const filename = utils.getFileName(document.uri) ?? 'PostgreSQL formatting';
+    try {
+        await vscode.commands.executeCommand('vscode.diff', document.uri, parsed, filename);
+    } catch (err) {
+        logger.error(`failed to show diff for document %s`, document.uri.fsPath, err);
+    } finally {
+        if (await utils.fileExists(parsed)) {
+            await utils.deleteFile(parsed);
         }
-
-        const document = vscode.window.activeTextEditor.document;
-        let parsed;
-        try {
-            parsed = await formatter.indentFileWithTemp(document);
-        } catch (err) {
-            logger.error('failed to format file %s', document.uri.fsPath, err);
-            return;
-        }
-        
-        const filename = utils.getFileName(document.uri) ?? 'PostgreSQL formatting';
-        try {
-            await vscode.commands.executeCommand('vscode.diff', document.uri, parsed, filename);
-        } catch (err) {
-            logger.error(`failed to show diff for document %s`, document.uri.fsPath, err);
-        } finally {
-            if (await utils.fileExists(parsed)) {
-                await utils.deleteFile(parsed);
-            }
-        }
-    });
+    }
 }
 
-export function setupFormatting() {
+export function setupFormatting(context: vscode.ExtensionContext) {
     const formatter = new PgindentDocumentFormatterProvider();
-    for (const lang of ['c', 'h']) {
-        languages.registerDocumentFormattingEditProvider({
-            language: lang,
-        }, formatter);
-    }
+    const d = languages.registerDocumentFormattingEditProvider({
+        language: 'c',
+    }, formatter);
+    context.subscriptions.push(d);
+    return formatter;
+}
 
-    registerDiffCommand(formatter);
+export async function findCustomTypedefsListCommand() {
+    /*
+     * Exclude .vscode, because in older versions formatter used to cache
+     * merged typedefs files here - now it just passes all files to pgindent.
+     */
+    const cmd = "find . -name '*typedefs.list' | grep -vE '^\\./(src|\\.vscode)'";
+    const terminal = vscode.window.createTerminal();
+    terminal.sendText(cmd, true /* shouldExecute */);
+    terminal.show();
 }
