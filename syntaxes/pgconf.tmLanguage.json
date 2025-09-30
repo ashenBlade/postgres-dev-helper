@@ -47,14 +47,34 @@
                 {
                     "match": "\\\\.",
                     "name": "constant.character.escape.pgconf"
-                },
-                {
-                    "include": "#number-unit"
-                },
-                {
-                    "include": "#boolean"
                 }
             ]
+        },
+        "quoted-value": {
+            "match": "(')(\\w+)(')",
+            "captures": {
+                "1": {
+                    "name": "punctuation.definition.string.begin.pgconf"
+                },
+                "3": {
+                    "name": "punctuation.definition.string.end.pgconf"
+                },
+                "2": {
+                    "name": "string.quoted.single.pgconf",
+                    "patterns": [
+                        {
+                            "match": "\\\\.",
+                            "name": "constant.character.escape.pgconf"
+                        },
+                        {
+                            "include": "#number-unit"
+                        },
+                        {
+                            "include": "#boolean"
+                        }
+                    ]
+                }
+            }
         },
         "enum": {
             "match": "[a-zA-Z_][a-zA-Z0-9_\\.\\-]*",
@@ -64,16 +84,11 @@
                 }
             }
         },
-        "param-name": {
-            "match": "[a-zA-Z_][a-zA-Z0-9_\\-]*(\\.[a-zA-Z_][a-zA-Z0-9_\\-]*)*",
-            "captures": {
-                "0": {
-                    "name": "keyword.other.definition.pgconf"
-                }
-            }
-        },
         "param-value": {
             "patterns": [
+                {
+                    "include": "#quoted-value"
+                },
                 {
                     "include": "#string"
                 },
@@ -95,43 +110,41 @@
             "comment": "Full line comment",
             "name": "comment.line.number-sign.pgconf"
         },
+		{
+			"begin": "(^[ \\t]+)?(?=#)",
+			"beginCaptures": {
+				"1": {
+					"name": "punctuation.whitespace.comment.leading.pgconf"
+				}
+			},
+			"end": "(?!\\G)",
+			"patterns": [
+				{
+					"begin": "#",
+					"beginCaptures": {
+						"0": {
+							"name": "punctuation.definition.comment.pgconf"
+						}
+					},
+					"end": "\\n",
+					"name": "comment.line.number-sign.pgconf"
+				}
+			]
+		},
         {
-            "comment": "Line with parameter definition",
-            "match": "^\\s*(\\S+)\\s*(=)?\\s*(\\S+)\\s*(#.*)?$",
+            "comment": "Parameter definition",
+            "match": "^\\s*([a-zA-Z0-9_.-]+)\\s*(=)?",
             "captures": {
                 "1": {
-                    "patterns": [
-                        {
-                            "include": "#param-name"
-                        }
-                    ]
+                    "name": "keyword.other.definition.pgconf"
                 },
                 "2": {
                     "name": "punctuation.separator.key-value.pgconf"
-                },
-                "3": {
-                    "name": "meta.other.value.pgconf",
-                    "patterns": [
-                        {
-                            "include": "#param-value"
-                        }
-                    ]
-                },
-                "4": {
-                    "patterns": [
-                        {
-                            "begin": "#",
-                            "beginCaptures": {
-                                "0": {
-                                    "name": "punctuation.definition.comment.pgconf"
-                                }
-                            },
-                            "end": "\\n",
-                            "name": "comment.line.number-sign.pgconf"
-                        }
-                    ]
                 }
             }
+        },
+        {
+            "include": "#param-value"
         }
     ]
 }
