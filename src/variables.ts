@@ -5480,7 +5480,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         }
 
         if (config.nodetags?.length) {
-            logger.debug('adding %i custom NodeTags');
+            logger.debug('adding %i custom NodeTags', config.nodetags?.length);
             try {
                 for (const tag of config.nodetags) {
                     nodeVars.nodeTags.add(tag);
