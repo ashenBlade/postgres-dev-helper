@@ -8,6 +8,7 @@ dev/*
 
 tsconfig.json
 eslint.config.mjs
+.vscode-test.mjs
 
 !file.ts
 .github
