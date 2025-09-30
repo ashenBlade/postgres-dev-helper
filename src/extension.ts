@@ -11,7 +11,8 @@ import { Commands,
          openConfigFileCommand,
          refreshConfigCommand,
          setupConfiguration,
-         Features } from './configuration';
+         Features,
+         getWorkspacePgSrcFile } from './configuration';
 import { setupPgConfSupport } from './pgconf';
 import { PgindentDocumentFormatterProvider,
          setupFormatting } from './formatter';
@@ -84,7 +85,7 @@ async function promptExtensionName() {
 
     const workspace = await promptWorkspace();
     return {
-        path: utils.getWorkspacePgSrcFile(workspace.uri, 'contrib', extensionName),
+        path: getWorkspacePgSrcFile(workspace.uri, 'contrib', extensionName),
         name: extensionName,
     };
 }
@@ -430,9 +431,9 @@ async function findAllFilesWithNodeTags(folders: readonly vscode.WorkspaceFolder
          */
         let file;
         if (16_00_00 <= pgversion) {
-            file = utils.getWorkspacePgSrcFile(folder.uri, 'src', 'include', 'nodes', 'nodetags.h');
+            file = getWorkspacePgSrcFile(folder.uri, 'src', 'include', 'nodes', 'nodetags.h');
         } else {
-            file = utils.getWorkspacePgSrcFile(folder.uri, 'src', 'include', 'nodes', 'nodes.h');
+            file = getWorkspacePgSrcFile(folder.uri, 'src', 'include', 'nodes', 'nodes.h');
         }
 
         if (await utils.fileExists(file)) {
@@ -455,7 +456,7 @@ async function findAllFilesWithNodeTags(folders: readonly vscode.WorkspaceFolder
             }
         } else {
             for (const folder of folders) {
-                uri = utils.getWorkspacePgSrcFile(folder.uri, customFile);
+                uri = getWorkspacePgSrcFile(folder.uri, customFile);
                 if (await utils.fileExists(uri)) {
                     break;
                 }

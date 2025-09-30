@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as os from 'os';
 import * as cp from 'child_process';
+import * as crypto from 'crypto';
 
 import * as vscode from 'vscode';
 
@@ -9,10 +10,18 @@ import { Log as logger } from './logger';
 import { getWellKnownBuiltinContribs } from './constants';
 import { Configuration,
          getWorkspaceFolder,
-         VsCodeSettings } from './configuration';
+         VsCodeSettings,
+         getWorkspacePgSrcFile } from './configuration';
 import { PghhError } from './error';
 
 class FormattingError extends PghhError {}
+
+async function createTempFile(template: string, content: string) {
+    const filename = template.replace('{}', crypto.randomUUID().toString());
+    const tempFile = vscode.Uri.file(path.join(os.tmpdir(), filename));
+    await utils.writeFile(tempFile, content);
+    return tempFile;
+}
 
 class ShellExecError extends PghhError {
     constructor(public command: string, 
@@ -88,7 +97,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
     private savedPgbsdPath?: vscode.Uri;
     
     private async getPgConfigPath(workspace: vscode.Uri) {
-        const possiblePgConfigPath = utils.getWorkspacePgSrcFile(
+        const possiblePgConfigPath = getWorkspacePgSrcFile(
             workspace, 'src', 'bin', 'pg_config', 'pg_config');
         if (await utils.fileExists(possiblePgConfigPath)) {
             return possiblePgConfigPath;
@@ -166,7 +175,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
          * Actually clone sources. Note that here we are only if we are running
          * in pg version 16< where pg_bsd_indent
          */
-        const pgindentDir = utils.getWorkspacePgSrcFile(
+        const pgindentDir = getWorkspacePgSrcFile(
             workspace, 'src', 'tools', 'pgindent');
         logger.info('cloning pg_bsd_indent repository');
         /* XXX: maybe better to download archive, not full history? */
@@ -244,7 +253,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
          *  - src/tools/pgindent/pg_bsd_indent (PG <16)
          *      - not exist: download + build
          */
-        let pgBsdIndentDir = utils.getWorkspacePgSrcFile(
+        let pgBsdIndentDir = getWorkspacePgSrcFile(
             workspace, 'src', 'tools', 'pg_bsd_indent');
 
         /* src/tools/pg_bsd_indent */
@@ -262,7 +271,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
         }
 
         /* src/tools/pgindent/pg_bsd_indent */
-        pgBsdIndentDir = utils.getWorkspacePgSrcFile(
+        pgBsdIndentDir = getWorkspacePgSrcFile(
             workspace, 'src', 'tools', 'pgindent', 'pg_bsd_indent');
         const pgBsdIndent = utils.joinPath(pgBsdIndentDir, 'pg_bsd_indent');
         if (await utils.fileExists(pgBsdIndent)) {
@@ -302,7 +311,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
             if (path.isAbsolute(t)) {
                 typedefFile = vscode.Uri.file(t);
             } else {
-                typedefFile = utils.getWorkspacePgSrcFile(workspace, t);
+                typedefFile = getWorkspacePgSrcFile(workspace, t);
             }
 
             if (!await utils.fileExists(typedefFile)) {
@@ -397,7 +406,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
             return this.savedPgindentPath;
         }
         
-        const pgindentPath = utils.getWorkspacePgSrcFile(
+        const pgindentPath = getWorkspacePgSrcFile(
             workspace, 'src', 'tools', 'pgindent', 'pgindent');
         if (!await utils.fileExists(pgindentPath)) {
             vscode.window.showErrorMessage(`could not find pgindent at ${pgindentPath.fsPath}`);
@@ -505,7 +514,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
         const pgindent = await this.getPgindent(workspace);
         const pg_bsd_indent = await this.getPgBsdIndent(workspace, pgindent);
         const content = this.getDocumentContent(document);
-        const tempDocument = await utils.createTempFile('pghh-{}.c', content);
+        const tempDocument = await createTempFile('pghh-{}.c', content);
         try {
             return await this.runPgindentRebuildBsd(
                 document.uri, tempDocument, pg_bsd_indent, pgindent, workspace);

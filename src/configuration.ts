@@ -985,3 +985,11 @@ export class Features {
     }
 }
 
+export function getWorkspacePgSrcFile(workspace: vscode.Uri, ...paths: string[]) {
+    const customDir = VsCodeSettings.getSrcPath();
+    if (customDir) {
+        return utils.joinPath(workspace, customDir, ...paths);
+    }
+
+    return utils.joinPath(workspace, ...paths);
+}

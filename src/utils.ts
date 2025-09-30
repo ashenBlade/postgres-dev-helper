@@ -1,29 +1,19 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import * as https from 'https';
-import * as os from 'os';
-import * as crypto from 'crypto';
-import { VsCodeSettings } from './configuration';
 
 export function joinPath(base: vscode.Uri, ...paths: string[]) {
     return vscode.Uri.joinPath(base, ...paths);
-}
-
-function statFile(uri: vscode.Uri): Thenable<vscode.FileStat> {
-    return vscode.workspace.fs.stat(uri);
 }
 
 /**
  * Check that file exists on given fs path
  * 
  * @param path Path to test for file
- * @returns true if file exists, false if not
- * @throws Error if {@link path} points to existing fs entry, but not file
- * i.e. directory
+ * @returns true if file exists, false if does not exist or it's not a file
  */
 export async function fileExists(path: vscode.Uri): Promise<boolean> {
     try {
-        const result = await statFile(path);
+        const result = await vscode.workspace.fs.stat(path);
         return !!(result.type & vscode.FileType.File);
     } catch {
         return false;
@@ -31,28 +21,20 @@ export async function fileExists(path: vscode.Uri): Promise<boolean> {
 }
 
 /**
- * Check that at specified path exists some entry.
- * No matter what - file or directory. Just something
+ * Check that directory exists on given fs path
+ *
+ * @returns true if directory exists, false if does not exist or it's not a directory
  */
-export async function fsEntryExists(path: vscode.Uri): Promise<boolean> {
-    try {
-        await statFile(path);
-        return true;
-    } catch {
-        return false;
-    }
-}
-
 export async function directoryExists(path: vscode.Uri) {
     try {
-        const result = await statFile(path);
+        const result = await vscode.workspace.fs.stat(path);
         return !!(result.type & vscode.FileType.Directory);
     } catch {
         return false;
     }
 }
 
-export async function createDirectory(path: vscode.Uri): Promise<void> {
+export function createDirectory(path: vscode.Uri) {
     return vscode.workspace.fs.createDirectory(path);
 }
 
@@ -61,19 +43,8 @@ export async function directoryEmpty(path: vscode.Uri) {
     return files.length === 0;
 }
 
-export async function copyFile(file: vscode.Uri, targetFile: vscode.Uri) {
-    await vscode.workspace.fs.copy(file, targetFile);
-}
-
-export async function createTempFile(template: string, content: string) {
-    const filename = template.replace('{}', crypto.randomUUID().toString());
-    const tempFile = vscode.Uri.joinPath(vscode.Uri.file(os.tmpdir()), filename);
-    await vscode.workspace.fs.writeFile(tempFile, new TextEncoder().encode(content));
-    return tempFile;
-}
-
-export async function deleteFile(file: vscode.Uri) {
-    await vscode.workspace.fs.delete(file, { useTrash: false });
+export function deleteFile(file: vscode.Uri) {
+    return vscode.workspace.fs.delete(file, { useTrash: false, recursive: false });
 }
 
 export async function readFile(path: vscode.Uri) {
@@ -85,64 +56,6 @@ export function writeFile(path: vscode.Uri, data: string): Thenable<void> {
     return vscode.workspace.fs.writeFile(path, new TextEncoder().encode(data));
 }
 
-export function getFileName(path: vscode.Uri) {
-    const parts = path.fsPath.split('/');
-    return parts[parts.length - 1];
-}
-
-/**
- * Download file and return it's content.
- * 
- * @param url Url of file to download
- * @returns Contents of file
- */
-export async function downloadFile(url: string) {
-    return new Promise<string>((resolve, reject) => {
-        const request = https.get(url, (res) => {
-            if (res.statusCode !== 200) {
-                reject(new Error(`could not download file from ${url}: ` +
-                                 `unsuccessful status code ${res.statusCode}`));
-                res.resume();
-                return;
-            }
-
-            const chunks: string[] = [];
-
-            /* For now expect only utf8 content */
-            res.setEncoding('utf8');
-            res.on('data', (chunk) => {
-                chunks.push(chunk);
-            });
-
-            res.on('end', () => {
-                resolve(chunks.join(''));
-            });
-
-            res.on('error', (err) => {
-                reject(err);
-            });
-            
-        });
-
-        request.on('error', (err) => {
-            reject(err);
-        });
-    });
-}
-export function getWorkspacePgSrcFile(workspace: vscode.Uri, ...paths: string[]) {
-    const customDir = VsCodeSettings.getSrcPath();
-    if (customDir) {
-        return joinPath(workspace, customDir, ...paths);
-    }
-
-    return joinPath(workspace, ...paths);
-}
-
-export function getPgSrcFile(...paths: string[]) {
-    const customDir = VsCodeSettings.getSrcPath();
-    if (customDir) {
-        return path.join(customDir, ...paths);
-    }
-
-    return path.join(...paths);
+export function getFileName(file: vscode.Uri) {
+    return path.basename(file.fsPath);
 }
