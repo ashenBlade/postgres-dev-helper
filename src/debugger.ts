@@ -30,6 +30,156 @@ const builtInTypes = new Set([
     /* src/include/nodes/nodes.h */
     'Cost', 'Selectivity', 'Cardinality', 'ParseLoc', 'NodeTag',
 ]);
+const identifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+/**
+ * Check that given string represents valid C identifier.
+ * Identifier can represent struct fields, type names, variable names etc...
+ * 
+ * @param value String to test
+ * @returns true if string represents valid C identifier
+ */
+export function isValidIdentifier(value: string) {
+    return identifierRegex.test(value);
+}
+
+export function getStructNameFromType(type: string) {
+    /* [const] [struct] NAME [*]+ */
+    /*
+     * Start locating from end, because we can use '*' as the boundary of
+     * typename end.
+     *
+     * During some manual testing observed common behavior of debuggers:
+     * after type name can be only pointer - that is no qualifiers will follow.
+     * 
+     * i.e. declared in src -> DAP 'type':
+     * 
+     *  PlannerInfo const *   -> const PlannerInfo *
+     *  int volatile * const  -> volatile int * const
+     *  int const * const     -> const int * const;
+     *  const Relids          -> const Relids
+     * 
+     * XXX: this is broken for FLA (they have [] at the end), but they
+     *      don't get here yet, so don't worry.
+     */
+    const lastPtrIndex = type.indexOf('*');
+    let endOfIdentifier;
+    if (lastPtrIndex === -1) {
+        /* Type without any pointer */
+        endOfIdentifier = type.length;
+    } else {
+        endOfIdentifier = lastPtrIndex - 1;
+        while (endOfIdentifier >= 0 && type.charAt(endOfIdentifier) === ' ') {
+            endOfIdentifier--;
+            continue;
+        }
+
+        /* 
+         * Another observation is that all debuggers add spaces around pointers,
+         * so one might think we can omit such check. But do not forget that
+         * we are working with *effective* types - after we have substituted
+         * aliased typename and user can omit spaces in between.
+         */
+        if (endOfIdentifier < 0) {
+            endOfIdentifier = lastPtrIndex;
+        }
+    }
+    
+    /* Search for start of typename - it must be first space before typename */
+    let startOfIndentifier = type.lastIndexOf(' ', endOfIdentifier);
+    if (startOfIndentifier === -1) {
+        /* Type without any qualifiers */
+        startOfIndentifier = 0;
+    } else {
+        startOfIndentifier++;
+    }
+
+    return type.substring(startOfIndentifier, endOfIdentifier + 1);
+}
+
+/**
+ * Substitute struct name from type to provided struct name.
+ * This takes qualifiers into account (const, volatile, *, etc...)
+ * 
+ * @param type Whole type name of original variable (including qualifiers)
+ * @param target The name of the type (or base type) to be substituted
+ * @returns Result type name
+ */
+export function substituteStructName(type: string, target: string) {
+    const typename = getStructNameFromType(type);
+    return type.replace(typename, target);}
+
+/*
+ * Check that 'type' contains exact count of pointers in it
+ */
+export function havePointersCount(type: string, count: number) {
+    const firstIndex = type.indexOf('*');
+
+    /* For now only 0 and 1 will be used, so add specialized codepath */
+    if (count === 0) {
+        return firstIndex === -1;
+    }
+    if (count === 1) {
+        return firstIndex !== -1 && firstIndex === type.lastIndexOf('*');
+    }
+
+    let result = 1;
+    let index = firstIndex;
+    while ((index = type.indexOf('*', index + 1)) !== -1) {
+        ++result;
+    }
+
+    return result === count;
+}
+
+/**
+ * Check that type represent either value struct or pointer type, i.e.
+ * it is not array type. Roughly speaking, type contains at most 1 pointer.
+ * 
+ * @param type Type specifier
+ * @returns Type represents plain value struct or pointer type
+ */
+export function isValueStructOrPointerType(type: string) {
+    const firstPointerPos = type.indexOf('*');
+    if (firstPointerPos === -1) {
+        /* Value struct */
+        return true;
+    }
+    
+    const secondPointerPos = type.indexOf('*', firstPointerPos + 1);
+    if (secondPointerPos === -1) {
+        /* Pointer type, not array */
+        return true;
+    }
+    
+    return false;
+}
+
+/**
+ * Check that output from evaluation is correct enum value.
+ * That is it is not error message, pointer or something else.
+ * So, 'result' looks like real enum value.
+ * 
+ * @returns 'true' if looks like enum value, 'false' otherwise
+ */
+export function isEnumResult(result: string) {
+    return isValidIdentifier(result);
+}
+
+export function isFlexibleArrayMember(type: string) {
+    return type.endsWith('[]');
+}
+
+/**
+ * Shortcut function to test that pointer is NULL.
+ * Used for situations, where only pointer value is present, without variable.....
+ * 
+ * @param pointer Pointer value in HEX form
+ * @returns true if pointer value is NULL
+ */
+export function pointerIsNull(pointer: string) {
+    return pointer === '0x0' || /0x0+/.test(pointer);
+}
 
 export enum DebuggerType {
     CppDbg,
@@ -948,17 +1098,6 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
         /* CodeLLDB requires to qualify enum values just like in C++ */
         return `${name}::${value}`;
     }
-}
-
-/**
- * Shortcut function to test that pointer is NULL.
- * Used for situations, where only pointer value is present, without variable.....
- * 
- * @param pointer Pointer value in HEX form
- * @returns true if pointer value is NULL
- */
-export function pointerIsNull(pointer: string) {
-    return pointer === '0x0' || /0x0+/.test(pointer);
 }
 
 export function setupDebugger(context: vscode.ExtensionContext, 

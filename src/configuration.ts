@@ -3,6 +3,7 @@ import * as path from 'path';
 
 import * as vars from './variables';
 import * as utils from './utils';
+import * as dbg from './debugger';
 import { Log as logger } from './logger';
 import { PghhError } from './error';
 
@@ -94,7 +95,7 @@ function parseConfiguration(contents: unknown): ConfigurationFile | undefined {
             typeName = typeName.trim();
 
             /* NodeTag used also as type name, so it must be valid identifier */
-            if (!utils.isValidIdentifier(typeName)) {
+            if (!dbg.isValidIdentifier(typeName)) {
                 vscode.window.showErrorMessage(`typeName must be valid identifier. given: ${typeName}`);
                 return;
             }
@@ -115,7 +116,7 @@ function parseConfiguration(contents: unknown): ConfigurationFile | undefined {
             }
     
             memberName = memberName.trim();
-            if (!utils.isValidIdentifier(memberName)) {
+            if (!dbg.isValidIdentifier(memberName)) {
                 vscode.window.showErrorMessage(`memberName field ${memberName} is not valid identifier`);
                 return;
             }
@@ -510,7 +511,7 @@ function parseConfiguration(contents: unknown): ConfigurationFile | undefined {
             }
 
             o = o.trim();
-            if (!utils.isValidIdentifier(o)) {
+            if (!dbg.isValidIdentifier(o)) {
                 continue;
             }
 

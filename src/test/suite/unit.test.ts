@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 
-import * as utils from '../../utils';
+import * as dbg from '../../debugger';
 
 suite('Unit', async function () {
     test('getStructNameFromType', function () {
@@ -30,7 +30,7 @@ suite('Unit', async function () {
         ];
 
         for (const [type, expected] of data) {
-            const actual = utils.getStructNameFromType(type);
+            const actual = dbg.getStructNameFromType(type);
             assert.equal(actual, expected, type);
         }
     });
@@ -46,7 +46,7 @@ suite('Unit', async function () {
             ['MemoryContext *', 'MemoryContextData *', 'MemoryContextData * *'],
         ];
         for (const [type, substitution, expected] of data) {
-            const actual = utils.substituteStructName(type, substitution);
+            const actual = dbg.substituteStructName(type, substitution);
             assert.equal(actual, expected, `${type}: ${substitution}`);
         }
     });
@@ -70,7 +70,7 @@ suite('Unit', async function () {
             ['List **', 3, false],
         ];
         for (const [type, count, expected] of data) {
-            const actual = utils.havePointersCount(type, count);
+            const actual = dbg.havePointersCount(type, count);
             assert.equal(actual, expected, `${type}: ${count}`);
         }
     });

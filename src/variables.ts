@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as utils from "./utils";
 import * as dap from "./dap";
 import * as constants from './constants';
 import * as dbg from './debugger';
@@ -56,8 +55,8 @@ export class NodeVarRegistry {
          * at least 1 pointer, but 1+ pointers is an array,
          * which can not be Node variables.
          */
-        return   utils.havePointersCount(effectiveType, 1) 
-              && this.nodeTags.has(utils.getStructNameFromType(effectiveType));
+        return   dbg.havePointersCount(effectiveType, 1) 
+              && this.nodeTags.has(dbg.getStructNameFromType(effectiveType));
     }
 
     /**
@@ -192,7 +191,7 @@ export class SpecialMemberRegistry {
     }
 
     getArraySpecialMember(parentType: string, memberName: string) {
-        const parentTypeName = utils.getStructNameFromType(parentType);
+        const parentTypeName = dbg.getStructNameFromType(parentType);
         const membersMap = this.arraySpecialMembers.get(parentTypeName);
         if (membersMap === undefined) {
             return;
@@ -309,7 +308,7 @@ export class HashTableTypes {
     }
 
     findSimpleHashTableType(type: string) {
-        const struct = utils.getStructNameFromType(type);
+        const struct = dbg.getStructNameFromType(type);
         const prefix = SimplehashMember.getPrefix(struct);
         if (!prefix) {
             return undefined;
@@ -789,13 +788,13 @@ export abstract class Variable {
      * (without pointer).
      */
     private static getRealType(type: string, context: ExecContext) {
-        const structName = utils.getStructNameFromType(type);
+        const structName = dbg.getStructNameFromType(type);
         const alias = context.nodeVarRegistry.aliases.get(structName);
         if (!alias) {
             return type;
         }
 
-        const resultType = utils.substituteStructName(type, alias);
+        const resultType = dbg.substituteStructName(type, alias);
         return resultType;
     }
 
@@ -814,9 +813,9 @@ export abstract class Variable {
         /* Value struct are not so interesting for us */
         if (context.debug.isValueStruct(debugVariable, effectiveType)) {
             if (parent) {
-                if (utils.isValueStructOrPointerType(parent.type)) {
+                if (dbg.isValueStructOrPointerType(parent.type)) {
                     const flagsMember = context.specialMemberRegistry.getFlagsMember(
-                        utils.getStructNameFromType(parent.type),
+                        dbg.getStructNameFromType(parent.type),
                         debugVariable.name);
                     if (flagsMember) {
                         return new FlagsMemberVariable(flagsMember, args);
@@ -867,7 +866,7 @@ export abstract class Variable {
                  * Flexible array members for now recognized as non-valid
                  * pointers/scalars, but we actually can handle them.
                  */
-                if (utils.isFlexibleArrayMember(debugVariable.type)) {
+                if (dbg.isFlexibleArrayMember(debugVariable.type)) {
                     const parentType = Variable.getRealType(parent.type, context);
                     const specialMember = context.specialMemberRegistry
                         .getArraySpecialMember(parentType, debugVariable.name);
@@ -917,8 +916,8 @@ export abstract class Variable {
         }
 
         /* 'HTAB *' */
-        if (utils.havePointersCount(effectiveType, 1) &&
-            utils.getStructNameFromType(effectiveType) === 'HTAB') {
+        if (dbg.havePointersCount(effectiveType, 1) &&
+            dbg.getStructNameFromType(effectiveType) === 'HTAB') {
             return new HTABSpecialMember(args);
         }
 
@@ -1431,7 +1430,7 @@ export class RealVariable extends Variable {
     async getMemberValueEnum(memberName: string) {
         const member = await this.getMember(memberName);
         const value = member.value;
-        if (!utils.isEnumResult(value)) {
+        if (!dbg.isEnumResult(value)) {
             throw new UnexpectedOutputError(`member ${memberName} output is not enum`);
         }
         return value;
@@ -1577,7 +1576,7 @@ export class NodeVariable extends RealVariable {
     }
 
     protected computeEffectiveType() {
-        const tagFromType = utils.getStructNameFromType(this.type);
+        const tagFromType = dbg.getStructNameFromType(this.type);
         if (tagFromType === this.realNodeTag) {
             return this.type;
         }
@@ -1588,10 +1587,10 @@ export class NodeVariable extends RealVariable {
         let type = this.type;
         const alias = this.context.nodeVarRegistry.aliases.get(tagFromType);
         if (alias) {
-            type = utils.substituteStructName(type, alias);
+            type = dbg.substituteStructName(type, alias);
         }
 
-        return utils.substituteStructName(type, this.realNodeTag);
+        return dbg.substituteStructName(type, this.realNodeTag);
     }
 
     typeComputed = false;
@@ -1608,7 +1607,7 @@ export class NodeVariable extends RealVariable {
      * Whether real NodeTag match with declared type
      */
     protected tagsMatch() {
-        return utils.getStructNameFromType(this.declaredType) === this.realNodeTag;
+        return dbg.getStructNameFromType(this.declaredType) === this.realNodeTag;
     }
 
     protected isExpandable(): boolean {
@@ -1660,7 +1659,7 @@ export class NodeVariable extends RealVariable {
          * We should substitute current type with target, because
          * there may be qualifiers such `struct' or `const'
          */
-        const resultType = utils.substituteStructName(this.getType(), tag);
+        const resultType = dbg.substituteStructName(this.getType(), tag);
         return await this.castToType(resultType);
     }
 
@@ -1715,7 +1714,7 @@ export class NodeVariable extends RealVariable {
     }
 
     static getTagFromType(type: string) {
-        return utils.getStructNameFromType(type);
+        return dbg.getStructNameFromType(type);
     }
 
     static async createNode(variable: dap.DebugVariable, frameId: number,
@@ -3799,7 +3798,7 @@ export class ListNodeVariable extends NodeVariable {
                 }
             }
         } else {
-            const parentType = utils.getStructNameFromType(this.parent.type);
+            const parentType = dbg.getStructNameFromType(this.parent.type);
             const info = map.get(parentType);
             if (info) {
                 return info.type;
@@ -3825,9 +3824,9 @@ export class ListNodeVariable extends NodeVariable {
     }
 
     override computeEffectiveType(): string {
-        const declaredTag = utils.getStructNameFromType(this.type);
+        const declaredTag = dbg.getStructNameFromType(this.type);
         if (declaredTag !== 'List') {
-            return utils.substituteStructName(this.type, 'List');
+            return dbg.substituteStructName(this.type, 'List');
         }
         return this.type;
     }
@@ -3848,7 +3847,7 @@ export class ListNodeVariable extends NodeVariable {
 
     protected tagsMatch(): boolean {
         /* Check only for 'List' - there are no 'IntList', etc... */
-        return utils.getStructNameFromType(this.type) === 'List';
+        return dbg.getStructNameFromType(this.type) === 'List';
     }
 
     async doGetChildren() {
@@ -4254,8 +4253,8 @@ class BitmapSetSpecialMember extends NodeVariable {
         } else {
             type = this.parent.type;
         }
-        if (!(   utils.getStructNameFromType(type) === ref.type
-              && utils.havePointersCount(type, 1))) {
+        if (!(   dbg.getStructNameFromType(type) === ref.type
+              && dbg.havePointersCount(type, 1))) {
             return;
         }
 
@@ -4493,13 +4492,13 @@ class BitmapSetSpecialMember extends NodeVariable {
     };
 
     static isBitmapsetType(type: string) {
-        const typename = utils.getStructNameFromType(type);
+        const typename = dbg.getStructNameFromType(type);
         if (typename === 'Bitmapset') {
             /* Bitmapset* */
-            return utils.havePointersCount(type, 1);
+            return dbg.havePointersCount(type, 1);
         } else if (typename === 'Relids') {
             /* Relids */
-            return utils.havePointersCount(type, 0);
+            return dbg.havePointersCount(type, 0);
         }
         return false;
     }
@@ -4544,7 +4543,7 @@ class ValueVariable extends NodeVariable {
     }
 
     protected async checkTagMatch() {
-        const structName = utils.getStructNameFromType(this.type);
+        const structName = dbg.getStructNameFromType(this.type);
 
         if (structName === this.realNodeTag || structName === 'Value') {
             /*
@@ -4718,7 +4717,7 @@ class HTABSpecialMember extends RealVariable {
                 return;
             }
         } else {
-            parent = utils.getStructNameFromType(this.parent.type);
+            parent = dbg.getStructNameFromType(this.parent.type);
         }
 
         const info = map.get(parent);
