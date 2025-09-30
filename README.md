@@ -71,17 +71,20 @@ Example json:
     "customListTypes": [
         {
             "type": "char *",
-            "member": ["UserData", "knownNames"]
+            "parent": "UserData",
+            "member": "knownNames",
         },
         {
             "type": "struct FileChunks *",
-            "variable": ["ProcessFileChunks", "chunks"]
+            "parent": "ProcessFileChunks",
+            "member": "chunks"
         }
     ],
     "htab": [
         {
             "type": "HashTableEntry *",
-            "member": ["ParentStruct", "hashtable"]
+            "parent":  "ParentStruct",
+            "member": "hashtable"
         }
     ],
     "simplehash": [
