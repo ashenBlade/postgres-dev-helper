@@ -1,14 +1,77 @@
+import * as path from 'path';
+import * as os from 'os';
+import * as cp from 'child_process';
+
 import * as vscode from 'vscode';
-import {languages} from 'vscode';
+
 import * as utils from './utils';
 import { Log as logger } from './logger';
 import { getWellKnownBuiltinContribs } from './constants';
-import { Configuration, getWorkspaceFolder, VsCodeSettings } from './configuration';
+import { Configuration,
+         getWorkspaceFolder,
+         VsCodeSettings } from './configuration';
 import { PghhError } from './error';
-import * as path from 'path';
-import * as os from 'os';
 
 class FormattingError extends PghhError {}
+
+class ShellExecError extends PghhError {
+    constructor(public command: string, 
+                public stderr: string,
+                public stdout: string,
+                public code: number) {
+        super(`command "${command}" failed to execute: ${stderr}`);
+    }
+}
+
+interface ShellExecResult {
+    code: number,
+    stdout: string,
+    stderr: string,
+};
+
+async function execShell(cmd: string, args?: string[], 
+                         cwd?: string): Promise<ShellExecResult> {
+    return await new Promise<ShellExecResult>((resolve, reject) => {
+        const child = cp.spawn(cmd, args, {cwd, shell: true});
+        const stderr: string[] = [];
+        const stdout: string[] = [];
+
+        child.on('error', (err) => {
+            reject(err);
+        });
+
+        child.stderr?.on('data', (chunk) => {
+            stderr.push(chunk);
+        });
+        child.stdout?.on('data', (chunk) => {
+            stdout.push(chunk);
+        });
+
+        child.on('close', (code) => {
+            if (code !== 0) {
+                const command = `${cmd} ${args?.join(' ')}`;
+                reject(new ShellExecError(command, stderr.join(''), stdout.join(''), code ?? 1));
+            } else {
+                resolve({
+                    code: code ?? 0,
+                    stdout: stdout.join(''),
+                    stderr: stderr.join(''),
+                });
+            }
+        });
+        child.on('error', (err) => {
+            reject(err);
+        });
+
+        child.stdin.end();
+
+        setTimeout(() => {
+            if (child.exitCode !== null) {
+                child.kill('SIGKILL');
+            }
+        }, 300 * 1000 /* 5 minutes */);
+    });
+}
 
 function isBuiltinContrib(name: string) {
     return getWellKnownBuiltinContribs().has(name);
@@ -107,9 +170,9 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
             workspace, 'src', 'tools', 'pgindent');
         logger.info('cloning pg_bsd_indent repository');
         /* XXX: maybe better to download archive, not full history? */
-        await utils.execShell(
+        await execShell(
             'git', ['clone', 'https://git.postgresql.org/git/pg_bsd_indent.git'],
-            {cwd: pgindentDir.fsPath});
+            pgindentDir.fsPath);
 
         /* 
          * Each pgindent requires specific version of pg_bsd_indent and
@@ -193,8 +256,8 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
 
             /* Try to build it */
             logger.info('building pg_bsd_indent in %s', pgBsdIndentDir.fsPath);
-            await utils.execShell('make', ['-C', pgBsdIndentDir.fsPath],
-                                  {cwd: workspace.fsPath});
+            await execShell('make', ['-C', pgBsdIndentDir.fsPath],
+                            workspace.fsPath);
             return pgBsdIndent;
         }
 
@@ -216,9 +279,9 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
 
         logger.info('building pg_bsd_indent');
         /* Repo's version requires passing PG_CONFIG (just build, no 'install') */
-        await utils.execShell(
+        await execShell(
             'make', ['all', `PG_CONFIG="${pgConfigPath.fsPath}"`],
-            {cwd: pgBsdIndentDir.fsPath});
+            pgBsdIndentDir.fsPath);
         return pgBsdIndent;
     }
     
@@ -355,16 +418,16 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
         /* Work in pgindent dir, so it can find default typedefs.list */
         const cwd = path.resolve(pgindent.fsPath, '..');
         try {
-            await utils.execShell(
+            await execShell(
                 pgindent.fsPath, [
                     ...typedefs,
                     `--indent=${pg_bsd_indent.fsPath}`,
                     document.fsPath,
                 ],
-                {cwd},
+                cwd,
             );
         } catch (err) {
-            if (!(err instanceof utils.ShellExecError)) {
+            if (!(err instanceof ShellExecError)) {
                 throw err;
             }
 
@@ -530,7 +593,7 @@ export async function showFormatterDiffCommand(formatter: PgindentDocumentFormat
 
 export function setupFormatting(context: vscode.ExtensionContext, config: Configuration) {
     const formatter = new PgindentDocumentFormatterProvider(config);
-    const d = languages.registerDocumentFormattingEditProvider({
+    const d = vscode.languages.registerDocumentFormattingEditProvider({
         language: 'c',
     }, formatter);
     context.subscriptions.push(d);

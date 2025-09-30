@@ -1,11 +1,10 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
+import * as cp from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
 import { getTestEnv, TestEnv } from './env';
-
-import * as utils from '../../utils';
 
 function getFormattedFile(env: TestEnv) {
     const path = env.getExtensionPath('src', 'test', 'patches', 'formatted.c');
@@ -26,9 +25,9 @@ suite('Formatting', async function () {
     let env: TestEnv;
     let expected: string;
     suiteSetup(async () => {
-        const swallow = async (fn: () => Promise<void>) => {
+        const swallow = async (fn: () => void) => {
             try {
-                await fn();
+                fn();
             } catch {
                 /* skip */
             }
@@ -42,14 +41,11 @@ suite('Formatting', async function () {
         });
 
         /* Clean already built pg_bsd_indent */
-        await swallow(async () => {
+        swallow(() => {
             const pgBsdIndentDir = env.getWorkspaceFile('src', 'tools', 'pg_bsd_indent');
             const pgBsdIndent = path.join(pgBsdIndentDir, 'pg_bsd_indent');
             if (fs.existsSync(pgBsdIndent)) {
-                await utils.execShell(
-                    'make', ['clean'],
-                    {cwd: pgBsdIndentDir},
-                );
+                cp.spawnSync('make', ['clean'], {cwd: pgBsdIndent});
             }
         });
         

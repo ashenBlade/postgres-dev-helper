@@ -1,9 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import * as cp from 'child_process';
 import * as https from 'https';
 import * as os from 'os';
-import { PghhError } from './error';
 import * as crypto from 'crypto';
 import { VsCodeSettings } from './configuration';
 
@@ -72,80 +70,6 @@ export async function createTempFile(template: string, content: string) {
     const tempFile = vscode.Uri.joinPath(vscode.Uri.file(os.tmpdir()), filename);
     await vscode.workspace.fs.writeFile(tempFile, new TextEncoder().encode(content));
     return tempFile;
-}
-
-export class ShellExecError extends PghhError {
-    constructor(public command: string, 
-                public stderr: string,
-                public stdout: string,
-                public code: number) {
-        super(`command "${command}" failed to execute: ${stderr}`);
-    }
-}
-
-interface ShellExecResult {
-    code: number,
-    stdout: string,
-    stderr: string,
-};
-
-export async function execShell(cmd: string, args?: string[], 
-                                options?: { cwd?: string, 
-                                            throwOnError?: boolean,
-                                            stdin?: string } ): Promise<ShellExecResult> {
-    return await new Promise<ShellExecResult>((resolve, reject) => {
-        const {cwd, throwOnError, stdin} = options || {};
-        const child = cp.spawn(cmd, args, {cwd, shell: true});
-        const stderr: string[] = [];
-        const stdout: string[] = [];
-
-        child.on('error', (err) => {
-            reject(err);
-        });
-
-        child.stderr?.on('data', (chunk) => {
-            stderr.push(chunk);
-        });
-        child.stdout?.on('data', (chunk) => {
-            stdout.push(chunk);
-        });
-
-        child.on('close', (code) => {
-            if (code !== 0 && (throwOnError ?? true)) {
-                const command = `${cmd} ${args?.join(' ')}`;
-                reject(new ShellExecError(command, stderr.join(''), stdout.join(''), code ?? 1));
-            } else {
-                resolve({
-                    code: code ?? 0,
-                    stdout: stdout.join(''),
-                    stderr: stderr.join(''),
-                });
-            }
-        });
-        child.on('error', (err) => {
-            reject(err);
-        });
-
-        if (stdin) {
-            child.stdin.write(stdin, (err) => {
-                if (err) {
-                    reject(err);
-                }
-            });
-            child.stdin.on('error', (err) => {
-                if (err) {
-                    reject(err);
-                }
-            });
-        }
-        child.stdin.end();
-
-        setTimeout(() => {
-            if (child.exitCode !== null) {
-                child.kill('SIGKILL');
-            }
-        }, 60 * 1000);
-    });
 }
 
 export async function deleteFile(file: vscode.Uri) {
