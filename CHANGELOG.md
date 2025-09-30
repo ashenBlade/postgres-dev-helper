@@ -5,6 +5,26 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0]
+
+### Added
+
+Syntax support for `postgresql.conf` with highlighting of units (possibly quoted) and default GUC autocompletion (with builtin contribs).
+
+Add `nodetags` parameter configuration for custom NodeTag values (if some are missing).
+When debugging starts will be started a worker which will parse `nodetags.h` file.
+If it finds new unknown NodeTags you will be asked to automatically add these to configuration file.
+
+### Fixed
+
+Fix invalid check of safe state when getting elements of `HTAB`
+
+### Changed
+
+Generalize `"htab"` and `"array"` configuration entries in order to not specify whether extension should check it's a member or a variable, because this information is clear from context.
+
+General performance optimization: lazy evaluation of functions, optimizations of parsing functions, improved caching strategy, etc...
+
 ## [1.14.0]
 
 ### Added

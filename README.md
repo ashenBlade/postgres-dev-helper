@@ -4,8 +4,10 @@
 
 This is a Visual Studio Code extension to assist PostgreSQL source code developers:
 
-- Exploring Postgres variables (`Node *`, container types, etc...)
-- Format code with `pgindent`
+- Exploring Postgres variables (`Node *`, `HTAB *`, `List *`, `Bitmapset *`, etc...)
+- Code formatting using `pgindent`
+- Syntax and completion support for `postgresql.conf`
+- Extension bootstrapping
 
 ## Features
 
@@ -145,9 +147,18 @@ Extension can help with creation of basic PostgreSQL extension files: Makefile, 
 
 Just run command `Bootstrap extension` and enter initial values (extension name, description, required files). Extension will be created inside `contrib` directory.
 
+### `postgresql.conf` syntax support
+
+PostgreSQL configuration files `postgresql.conf` and `postgresql.auto.conf` have syntax support.
+Also, for there is autocompletion for configuration parameters also with default contrib's GUCs.
+
+![Syntax example](./resources/pgconf_syntax.png)
+
+This syntax must be enabled for `postgresql[.auto].conf` files, but you can specify it using 'Change Language Mode' -> 'PostgreSQL configuration'
+
 ## Extension Settings
 
-There are 4 settings:
+There are 3 settings:
 
 - `postgresql-hacker-helper.logLevel` - Log level
 
@@ -209,6 +220,20 @@ Known issues:
   can be modified during extension work.
 
 ## Release Notes
+
+### 1.15.0
+
+Syntax support for `postgresql.conf` with highlighting of units (possibly quoted) and default GUC autocompletion (with builtin contribs).
+
+Add `nodetags` parameter configuration for custom NodeTag values (if some are missing).
+When debugging starts will be started a worker which will parse `nodetags.h` file.
+If it finds new unknown NodeTags you will be asked to automatically add these to configuration file.
+
+Generalize `"htab"` and `"array"` configuration entries in order to not specify whether extension should check it's a member or a variable, because this information is clear from context.
+
+General performance optimization: lazy evaluation of functions, optimizations of parsing functions, improved caching strategy, etc...
+
+Fix invalid check of safe state when getting elements of `HTAB`
 
 ### 1.14.0
 
