@@ -1,7 +1,6 @@
 import { format } from 'util';
 import * as vscode from 'vscode';
-import * as utils from './utils';
-import { ExtensionPrettyName, VsCodeSettings } from './configuration';
+import { ExtensionPrettyName, VsCodeSettings, Features } from './configuration';
 
 interface ILogger {
     debug: (message: string, args: unknown[]) => void;
@@ -141,7 +140,7 @@ export function initLogger(context: vscode.ExtensionContext) {
 
     let outputChannel;
     let logger;    
-    if (utils.Features.hasLogOutputChannel()) {
+    if (Features.hasLogOutputChannel()) {
         outputChannel = vscode.window.createOutputChannel(extName, {log: true});
         logger = new VsCodeLogger(outputChannel);
     } else {

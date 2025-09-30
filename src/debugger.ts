@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as dap from "./dap";
-import { Features } from './utils';
+import { Features } from './configuration';
 import { PgVariablesViewProvider } from './variables';
 import {EvaluationError} from './error';
 

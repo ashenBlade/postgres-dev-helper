@@ -2,7 +2,6 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 import * as utils from './utils';
-import { Features } from './utils';
 import * as vars from './variables';
 import * as dbg from './debugger';
 import { Commands, 
@@ -11,7 +10,8 @@ import { Commands,
          VsCodeSettings,
          openConfigFileCommand,
          refreshConfigCommand,
-         setupConfiguration } from './configuration';
+         setupConfiguration,
+         Features } from './configuration';
 import { setupPgConfSupport } from './pgconf';
 import { PgindentDocumentFormatterProvider,
          setupFormatting } from './formatter';
