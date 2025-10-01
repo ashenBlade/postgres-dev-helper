@@ -1,60 +1,59 @@
 # Configuration file
 
-Extension has config file with custom settings - `pgsql_hacker_helper.json`.
-It stored inside `.vscode` folder.
+Extension has config file with custom settings - `.vscode/pgsql_hacker_helper.json`.
 
-## Json schema
+> For convenience, file [`properties.schema.json`](../properties.schema.json) contains JSON schema for configuration file.
 
-There is file [`properties.schema.json`](../properties.schema.json) -
-json schema file for config file.
-It contains all layout versions.
+You can create file manually or using command `PgSQL: Open or create configuration file`. Json schema will assist you while editing.
 
-Also, this file ships with extension and will be available when you
-edit config file.
+Extension tracks changes in the file and rereads it, when necessary. Also, you can run `PgSQL: Refresh configuration file` command.
 
-## Create/edit file
+> NOTE: after debug session have started changes in configuration file will not be reflected.
 
-You can create file manually or using command `PgSQL: Open or create configuration file`.
-Json schema will assist you while editing.
+## Arrays
 
-After editing, you should run `PgSQL: Refresh configuration file` command to
-pick up changes in file and update extension state.
+```json
+{
+    "arrays": [
+        {
+            // struct name without any qualifiers (const, volatile, etc...)
+            "typeName": "string",
+            // name of member in that struct, storing array
+            "memberName": "string",
+            // expression to evaluate to get length
+            "lengthExpression": "string"
+        }
+    ]
+}
+```
 
-## Features
+In PostgreSQL arrays can be stored in `List *` variables or as simple C-arrays: struct member storing pointer and another member storing it's length.
 
-### Special members
-
-Special member - is a member of some type, that needed to be processed
-in a special way, not just get value and output.
-
-All special members stored in `specialMembers` field.
-
-Currently, there is only 1 special member type - array.
-
-#### Array special member
-
-Array special member (ASM) is a member, that represents array and hold pointer to it,
-but it's length stored in another member. Like plain C array.
-
-Example:
+For given struct...
 
 ```cpp
 struct Sample
 {
-    /* Array special member */
+    /* Array */
     int *array;
-    /* Stores length of array */
+    /* Length of array */
     int  size;
 }
 ```
 
-ASMs stored in `array` field.
-Each object of this array has 3 fields:
+...we have next configuration entry:
 
-- `typeName` - name of type, which contains ASM.
-    This must be name of type without any qualifiers, like 'const' or 'volatile'.
-- `memberName` - name of member of this type (also can be a flexible array member).
-- `lengthExpression` - expression to be evaluated to get array length.
+```json
+{
+     "arrays": [
+         {
+            "typeName": "Sample",
+            "memberName": "array",
+            "lengthExpression": "size"
+         }
+     ]
+}
+```
 
 Length expression can be in 2 forms:
 
@@ -62,65 +61,46 @@ Length expression can be in 2 forms:
 
    In such case `lengthExpression` is just *concatenated* to parent object as
    `parent->lengthExpression`. As it is concatenated, then you can add some
-   other expressions to it, i.e. `some_member + 1`.
-2. Generic expression
+   other expressions to it.
 
-    `lengthExpression` represents any expression which must be evaluated to
+   Example above: `size` will be evaluated as `((Sample *)0xFFFF)->size`
+
+2. Generic expression (starts with `!`)
+
+    `lengthExpression` represents arbitrary expression which must be evaluated to
     some number (integer). This expression starts with `!` to distinguish between
     this form and member name form.
 
-Note: in both cases you can refer to parent object using `{}`, i.e. `!{}->member1 + {}->member2`
-or the same in member form `member1 + {}->member2`.
+    Example above: `!{}->size` will be evaluated as `((ParentType)0xFFFF)->size`
 
-Examples:
+NOTES:
+
+1. You can refer to parent object using `{}`, i.e. `!{}->member1 + {}->member2` or the same in member form `member1 + {}->member2`.
+2. Expression can contain any other entries, i.e. for `PlannerInfo->simple_rel_array` expression is `simple_rel_array_size + 1`.
+
+## Aliases (`typedef`)
 
 ```json
 {
-    "arrays": {
+    "aliases": [
         {
-            "typeName": "PlannerInfo",
-            "memberName": "simple_rel_array",
-            "lengthExpression": "simple_rel_array_size"
-        },
-        {
-            "typeName": "GatherMergeState",
-            "memberName": "gm_slots",
-            "lengthExpression": "nreaders + 1"
-        },
-        {
-            "typeName": "RelOptInfo",
-            "memberName": "attr_needed",
-            "lengthExpression": "!{}->max_attr - {}->min_attr + 1"
+            // Name of alias
+            "alias": "string",
+            // Actual type
+            "type": "string"
         }
-    }
+    ]
 }
 ```
 
-There are about lots registered special members - no need to create config
-file for them. If you have found special member that has no support - you
-can add it to config file (also [create issue](https://github.com/ashenBlade/postgres-dev-helper/issues)
-to add this to built-ins).
-
-### Aliases
-
-There are many `typedef`s in code and some of them may be for Node types.
-But when resolving type extension can not find NodeTag for it and treat variable
-as simple, not Node derived.
+There are many `typedef`s in code and some of them may be for Node types. But, when resolving type, extension can not know that it is actually a typedef, so treat variable as simple, not Node derived.
 For such cases `"aliases"` field exists.
 
-It is array which defines aliases for different Node types - when
-we can not find suitable NodeTag for type we search alias and substitute type.
+It is array which defines aliases for different Node types - when we can not find suitable NodeTag for type we search alias and substitute type.
 
-For now, there is 1 alias - `Relids`, which is alias for `Bitmapset *` -
-`typedef Bitmapset *Relids`.
+Example: `typedef Bitmapset *Relids` - there is no `T_Relids` in the code, but `T_Bitmapset` exist.
 
-Aliases stored in top level `"aliases"` field.
-Every object of array - is a pair of:
-
-- `"alias"` - name of alias, i.e. `Relids`
-- `"type"` - actual type, i.e. `Bitmapset *`
-
-Example:
+For it you can use this entry:
 
 ```json
 {
@@ -133,40 +113,300 @@ Example:
 }
 ```
 
-### Custom `typedefs.list` files
+## Custom `List *` pointer types
 
-`typedefs.list` file is required for correct `pg_bsd_indent` work. It contains list of types that treated by formatter differently. During extension development you may want to create your own `typedefs.list` for your extension to later pass it to `./pgindent --list-of-typedefs=my.custom.typedefs.list`.
+```json
+{
+    "customListTypes": [
+        {
+            // Struct or function name containing this 'List *' variable
+            "parent": "string",
+            // Name of member/variable inside "parent"
+            "member": "string",
+            // Actual pointer type
+            "type": "string"
+        }
+    ]
+}
+```
 
-You can specify your custom `typedefs.list` files in configuration using `typedefs` setting.
+Usually, `List *` contains Node types, but actually it can contain any pointer. Extension treats all `List` as they contain `Node` variables, but some lists contain non-Node types.
 
-> If `pg_bsd_indent` is not available extension will try to build it.
-> It will perform all necessary work: building, patching, downloading (if necessary).
-> To build old versions `pg_config` is required - it will be searched in `./src`, but if it missing will ask you to enter path to it manually.
+You can specify your own custom types using `customListTypes` member.
 
-`typedefs` setting can be either plain string or array of strings - each string is a path which can be in 2 forms:
+For this code...
+
+```c
+typedef struct SampleData
+{
+    int value;
+} SampleData;
+
+typedef struct Sample
+{
+    // Contains SampleData
+    List *data;
+} Sample;
+
+void do_work()
+{
+    List *list;
+    SampleData *data;
+    
+    data = palloc(sizeof(SampleData));
+    data->value = 1;
+    list = list_make1(data);
+    
+    /* ... */
+}
+
+```
+
+...you can define this configuration:
+
+```json
+{
+    "customListTypes": [
+        {
+            "type": "SampleData *",
+            // Member of struct
+            "parent": "Sample",
+            "member": "data"
+        },
+        {
+            "type": "SampleData *",
+            // Variable inside function
+            "parent": "create_sample",
+            "member": "list"
+        }
+    ]
+}
+```
+
+> As you can mention, configuration is generalized, because it's clear from context how to handle `parent`
+
+## HashTable entries
+
+### `HTAB`
+
+```json
+{
+    "htab": [
+        {
+            // Struct or function name containing this HTAB
+            "parent": "string",
+            // Member/variable name inside parent
+            "member": "string",
+            // Stored type
+            "type": "string"
+        }
+    ]
+}
+```
+
+`HTAB *` Hash Table entries can be showed using `hash_seq_search`, but it returns `void *` - no information about it's type. Extension has built-in types for some `HTAB`s.
+
+For the following code...
+
+```c
+typedef struct SampleData
+{
+    int value;
+} SampleData;
+
+typedef struct Sample
+{
+    HTAB *data;
+} Sample;
+
+void do_work()
+{
+    HTAB *htab = create_htab();
+    Sample *sample = palloc(sizeof(Sample));
+    sample->data = htab;
+    
+    /* ... */
+}
+```
+
+...you can define next configuration:
+
+```json
+{
+    "htab": [
+        {
+            "parent": "Sample",
+            "member": "data",
+            "type": "SampleData *"
+        },
+        {
+            "parent": "do_work",
+            "member": "htab",
+            "type": "SampleData *"
+        }
+    ]
+}
+```
+
+> You can notice that configuration entry schema is the same as for custom `List *` type.
+
+### `_hash` - simplehash
+
+```json
+{
+    "simplehash": [
+        {
+            // Prefix as you defined using SH_PREFIX
+            "prefix": "string",
+            // Stored type
+            "type": "string"
+        }
+    ]
+}
+```
+
+Also, there is support for `lib/simplehash.h` hash tables ("simplehash" further). They are code generated using macros, so for each specific hash table there are functions and structures defined.
+
+For the following code...
+
+```c
+typedef struct SimpleHashEntry
+{
+    int value;
+} SimpleHashEntry;
+
+#define SH_PREFIX           custom_prefix
+#define SH_ELEMENT_TYPE     SimpleHashEntry
+#include "lib/simplehash.h"
+```
+
+...define next configuration:
+
+```json
+{
+    "simplehash": [
+        {
+            "prefix": "custom_prefix",
+            "type": "SimpleHashEntry *"
+        }
+    ]
+}
+```
+
+Identifiers of structures and functions are derived from `prefix` and generated the same way, i.e. `PREFIX_iterator` - structure-state for iterator.
+
+> NOTE: compiler can apply unused symbol stripping, so after compilation there can be no structures/functions for iteration.
+> In such situation, you should add some code that uses `PREFIX_iterator`, `PREFIX_start_iterate` and `PREFIX_iterate` (i.e. wrap such code with debug macros).
+
+## Integer enum fields
+
+```json
+{
+    "enums": [
+        {
+            // Name of struct
+            "type": "string",
+            // Member of struct containing enum
+            "member": "string",
+            // Enum values stored in field: pair of macro name and declared value
+            "flags": [
+                ["Mask (macro)", "Mask (integer)"],
+            ],
+            // Fields stored in field, values for which is got using bitmask
+            "fields": [
+                ["Field name", "Mask (macro)", "Mask (integer)"]
+            ]
+        }
+    ]
+}
+```
+
+Some types may work with enums as plain `uint32` (not `enum`) and members of enum are defined using preprocessor's `#define`. For such types you can specify your own enum bitmask members.
+
+For the following code...
+
+```c
+typedef struct ParentType
+{
+    int enum_member;
+} ParentType;
+
+/* Enum values */
+#define EM_NOTHING  0x10
+#define EM_SINGLE   0x20
+#define EM_MULTIPLE 0x40
+
+/* Mask to get length */
+#define EM_LENGTH_MASK 0xF
+
+void some_function(ParentType *parent)
+{
+    if (parent->enum_member & EM_MULTIPLE)
+    {
+        int length = parent->enum_member & EM_LENGTH_MASK;
+    }
+}
+```
+
+...you can use configuration:
+
+```json
+{
+    "enums": [
+        {
+            "type": "ParentType",
+            "member": "enum_member",
+            "flags": [
+                ["EM_NOTHING",  "0x10"],
+                ["EM_SINGLE",   "0x20"],
+                ["EM_MULTIPLE", "0x40"],
+            ],
+            "fields": [
+                ["length", "EM_LENGTH_MASK", "0xF"]
+            ]
+        }
+    ]
+}
+```
+
+> NOTE: macro definitions are added to debug symbols only when using `-g3` level during compilation, otherwise debugger can not use macro names.
+> If debugger can not use macros it will switch to numeric values - that because numeric values are required.
+
+## NodeTags
+
+```json
+{
+    // Array of custom NodeTag values
+    "nodetags": [
+        "string"
+    ]
+}
+```
+
+NodeTag values are required to find Node types. Extension ships with set of builtin tags, but they can be outdated or you are created new Node type. If so, just add them to this list.
+
+> If you specify type with `T_` prefix - it will be trimmed.
+
+Also, when debug session starts, extension will parse `nodetags.h` file to find new NodeTags. If it will find some, then extension will automatically add them to this list.
+
+## Custom `typedefs.list`
+
+```json
+{
+    "typedefs": [
+        "/path/to/typedefs.list"
+    ]
+}
+```
+
+For formatting `src/tools/pgindent` is used. It requires `typedefs.list` file for correct work - one lies inside directory itself, but when you are developing extension you may have your own copy for extension's types.
+
+`typedefs` setting contains list of `typedefs.list` files - each string is a path which can be in 2 forms:
 
 - Absolute - specified file is used
 - Relative - file with base folder as [postgresql-hacker-helper.srcPath](../README.md#extension-settings) is used
 
 Example:
-
-Read typedefs file `custom.typedefs.list` in current src path.
-
-```json
-{
-    "typedefs": "custom.typedefs.list"
-}
-```
-
-Read global typedefs file stored in temporary directory.
-
-```json
-{
-    "typedefs": "/tmp/custom.typedefs.list"
-}
-```
-
-You have created 2 extensions `pgext1` and `pgext2` which have custom `typedefs.list`:
 
 ```json
 {
@@ -177,181 +417,6 @@ You have created 2 extensions `pgext1` and `pgext2` which have custom `typedefs.
 }
 ```
 
-> There is handy command `Find custom typedefs.list in repository` that will execute shell command to find all `*typedefs.list` files in repository.
+For convenience, if you will try to format file in contrib's directory, extension will try to detect `typedefs.list` in it without specifying it explicitly in configuration file.
 
-### Custom `List` types
-
-Usually, `List *` contains nodes (inherits from `Node`), but actually it can contain any pointer.
-Extension treats all `List` as they contain `Node` variables, but you can say that this variable or struct member contains custom type (pointer to it).
-
-This information stored in `customListTypes` member. This is array of objects:
-
-```json
-{
-    "customListTypes": [
-        {
-            "type": "MyCustomType *",
-            "parent": "ParentStruct",
-            "member": "parent_member"
-        },
-        {
-            "type": "MyCustomType *",
-            "parent": "ParentFunction",
-            "member": "variable_name"
-        }
-    ]
-}
-```
-
-Each object contain:
-
-- `type` - fully-qualified type name (that is `struct` or `pointer` should be included) to which pointer will be casted.
-- `parent` - name of struct or function (parent entity) containing this member or variable.
-- `member` - name of member or variable that contains `List *` value.
-
-As you can mention this configuration is generalized, because it's clear from context how to handle `parent`. Example above is for following code:
-
-```c
-typedef struct ParentStruct
-{
-    List *parent_member;
-} ParentStruct;
-
-void
-ParentFunction()
-{
-    List *variable_name;
-}
-```
-
-With this 2 strategies extension detects `List`s with custom types.
-
-### Explore entries in Hash Tables
-
-`HTAB *` Hash Table entries can be traversed using `hash_seq_search`, but it returns `void *` - no information about it's type.
-Extension has built-in types for several `HTAB`s. If you want to create your own hash table and see entries, then you can add information about that hash table entries types.
-
-This information stored in `htab` member. This is an array of objects similar to `customListTypes`:
-
-```json
-{
-    "htab": [
-        {
-            "type": "SampleType *",
-            "parent": "ParentStruct",
-            "member": "parent_member"
-        },
-        {
-            "type": "SampleType *",
-            "parent": "ParentFunction",
-            "member": "variable_name"
-        }
-    ]
-}
-```
-
-Each object contain:
-
-- `type` - fully qualified type name of entry in `HTAB`
-- `parent` - name of struct or function (parent entity) containing this member or variable.
-- `member` - name of member or variable that contains `List *` value.
-
-> You can notice that schema is the same as for custom `List *` type.
-
-Example aboves is for following code:
-
-```c
-typedef struct ParentStruct
-{
-    HTAB *parent_member;
-}
-
-void ParentFunction()
-{
-    HTAB *variable_name;
-}
-```
-
-Also, there is support for `simplehash.c` hash tables ("simplehash" further). They are code generated using macros, so for each specific hash table there are functions and structures defined.
-Several builtin simplehashes exists and using configuration file you can add your own.
-To define your custom simplehash you need to specify 2 things: prefix and entry type:
-
-```json
-{
-    "simplehash": [
-        {
-            "prefix": "sometableprefix",
-            "type": "HashTableEntry *"
-        }
-    ]
-}
-```
-
-So, `simplehash` is an array of objects with members defining simplehash:
-
-- `prefix` - prefix for simplehash, that was specified by `SH_PREFIX` macro, when simplehash was defined in source code
-- `type` - fully qualified type of entry stored in this simplehash
-
-Identifiers of structures and functions are derived from `prefix` and generated the same way, i.e. `PREFIX_iterator` - structure-state for iterator.
-
-> NOTE: compiler can apply unused symbol stripping, so after compilation there can be no structures/functions for iteration.
-> In such situation, you should add some code that uses `PREFIX_iterator`, `PREFIX_start_iterate` and `PREFIX_iterate` (i.e. wrap such code with debug macros).
-
-### Bitmask enum fields
-
-Some types may work with enums as plain `uint32`, not `enum`, and members of enum are defined using preprocessor's `#define`.
-For these cases you can specify your own enum bitmask members.
-
-```json
-{
-    "enums": [
-        {
-            "type": "ParentType",
-            "member": "enum_member",
-            "flags": [
-                ["EM_FIRST", "0x01"],
-                ["EM_SECOND", "0x02"],
-                ["EM_THIRD", "0x04"],
-            ],
-            "fields": [
-                ["inner field", "EM_FIELD_MASK", "0xF"]
-            ]
-        }
-    ]
-}
-```
-
-Fields:
-
-- `type` - name of the type to which "member" belongs
-- `member` - name of the member with enum type (`type->member`)
-- `flags` - array of enum value definitions: MACRO VALUE + NUMERIC VALUE
-- `fields` - array of inner fields: human readable name of field + MACRO MASK for member + numeric value of mask
-
-Example above is for following code:
-
-```c
-#define EM_FIRST   0x01
-#define EM_SECOND  0x02
-#define EM_THIRD   0x04
-
-#define EM_FIELD_MASK 0xF
-
-typedef struct ParentType
-{
-    int enum_member;
-}
-
-void function()
-{
-    ParentType *value;
-    if (value->enum_member & EM_FIRST) {
-        /* ... */
-    }
-    
-    int innerField = value->enum_member & EM_FIELD_MASK;
-    if (innerField == 4) {
-        /* ... */
-    }
-}
-```
+> There is handy command `PgSQL: Find custom typedefs.list in repository` that will execute shell command to find all `*typedefs.list` files in repository.
