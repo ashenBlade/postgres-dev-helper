@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><link rel="canonical" href="https://ashenBlade.github.io/postgres-dev-helper/configuration/" />
+      <link rel="shortcut icon" href="../img/favicon.ico" />
+    <title>Configuration - PostgreSQL Hacker Helper</title>
+    <link rel="stylesheet" href="../css/theme.css" />
+    <link rel="stylesheet" href="../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Configuration";
+        var mkdocs_page_input_path = "configuration.md";
+        var mkdocs_page_url = "/postgres-dev-helper/configuration/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href=".." class="icon icon-home"> PostgreSQL Hacker Helper
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="..">Home</a>
+                </li>
+              </ul>
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Configuration</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#vs-code-settings">VS Code settings</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#configuration-file">Configuration file</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#arrays">Arrays</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#aliases-typedef">Aliases (typedef)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#custom-list-pointer-types">Custom List * pointer types</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#hashtable-entries">HashTable entries</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#htab">HTAB</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#_hash-simplehash">_hash - simplehash</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#integer-enum-fields">Integer enum fields</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#nodetags">NodeTags</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#custom-typedefslist">Custom typedefs.list</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="..">PostgreSQL Hacker Helper</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Configuration</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="configuration">Configuration</h1>
+<p>Extension has multiple settings to customize different aspects.</p>
+<h2 id="vs-code-settings">VS Code settings</h2>
+<p>There are 3 settings:</p>
+<ul>
+<li><code>postgresql-hacker-helper.logLevel</code> - minimum log level (for old VS Code up to 1.74.0).</li>
+</ul>
+<p>Minimum level of log messages. By default - <code>INFO</code>.
+  If using VS Code 1.74.0 ang greater use <code>Output</code> channel logger settings.</p>
+<ul>
+<li><code>postgresql-hacker-helper.srcPath</code> - Path to source code directory</li>
+</ul>
+<p><em>Relative</em> path to custom PostgreSQL source code directory. Use it, if source
+  code files are not in your workspace root (i.e. in <code>${workspaceFolder}/postgresql</code>).
+  Used for searching files (node tag files, <code>pg_bsd_indent</code> and so on).
+  If not specified search starts from workspace root.</p>
+<ul>
+<li><code>postgresql-hacker-helper.pg_bsd_indentPath</code> - Path to <code>pg_bsd_indent</code></li>
+</ul>
+<p>Path to <code>pg_bsd_indent</code> tool. Required for formatting support. Use it if you have <code>pg_bsd_indent</code> installed globally or want to use specific version.</p>
+<ul>
+<li>If not specified, it will be searched in <code>*srcPath*/src/tools</code> directory.</li>
+<li>If specified, and failed to run extension will try to build it.</li>
+</ul>
+<h2 id="configuration-file">Configuration file</h2>
+<p>Extension has config file with custom settings - <code>.vscode/pgsql_hacker_helper.json</code>.</p>
+<p>You can create file manually or using command <code>PgSQL: Open or create configuration file</code>. Json schema will assist you while editing.</p>
+<p>Extension tracks changes in the file and rereads it, when necessary. Also, you can run <code>PgSQL: Refresh configuration file</code> command.</p>
+<blockquote>
+<p>NOTE: after debug session have started changes in configuration file will not be reflected.</p>
+</blockquote>
+<h3 id="arrays">Arrays</h3>
+<pre><code class="language-json">{
+    &quot;arrays&quot;: [
+        {
+            // struct name without any qualifiers (const, volatile, etc...)
+            &quot;typeName&quot;: &quot;string&quot;,
+            // name of member in that struct, storing array
+            &quot;memberName&quot;: &quot;string&quot;,
+            // expression to evaluate to get length
+            &quot;lengthExpression&quot;: &quot;string&quot;
+        }
+    ]
+}
+</code></pre>
+<p>In PostgreSQL arrays can be stored in <code>List *</code> variables or as simple C-arrays: struct member storing pointer and another member storing it's length.</p>
+<p>For given struct...</p>
+<pre><code class="language-cpp">struct Sample
+{
+    /* Array */
+    int *array;
+    /* Length of array */
+    int  size;
+}
+</code></pre>
+<p>...we have next configuration entry:</p>
+<pre><code class="language-json">{
+     &quot;arrays&quot;: [
+         {
+            &quot;typeName&quot;: &quot;Sample&quot;,
+            &quot;memberName&quot;: &quot;array&quot;,
+            &quot;lengthExpression&quot;: &quot;size&quot;
+         }
+     ]
+}
+</code></pre>
+<p>Length expression can be in 2 forms:</p>
+<ol>
+<li>Member name concatenated to parent object.</li>
+</ol>
+<p>In such case <code>lengthExpression</code> is just <em>concatenated</em> to parent object as
+   <code>parent-&gt;lengthExpression</code>. As it is concatenated, then you can add some
+   other expressions to it.</p>
+<p>Example above: <code>size</code> will be evaluated as <code>((Sample *)0xFFFF)-&gt;size</code></p>
+<ol>
+<li>
+<p>Generic expression (starts with <code>!</code>)</p>
+<p><code>lengthExpression</code> represents arbitrary expression which must be evaluated to
+some number (integer). This expression starts with <code>!</code> to distinguish between
+this form and member name form.</p>
+<p>Example above: <code>!{}-&gt;size</code> will be evaluated as <code>((ParentType)0xFFFF)-&gt;size</code></p>
+</li>
+</ol>
+<p>NOTES:</p>
+<ol>
+<li>You can refer to parent object using <code>{}</code>, i.e. <code>!{}-&gt;member1 + {}-&gt;member2</code> or the same in member form <code>member1 + {}-&gt;member2</code>.</li>
+<li>Expression can contain any other entries, i.e. for <code>PlannerInfo-&gt;simple_rel_array</code> expression is <code>simple_rel_array_size + 1</code>.</li>
+</ol>
+<h3 id="aliases-typedef">Aliases (<code>typedef</code>)</h3>
+<pre><code class="language-json">{
+    &quot;aliases&quot;: [
+        {
+            // Name of alias
+            &quot;alias&quot;: &quot;string&quot;,
+            // Actual type
+            &quot;type&quot;: &quot;string&quot;
+        }
+    ]
+}
+</code></pre>
+<p>There are many <code>typedef</code>s in code and some of them may be for Node types. But, when resolving type, extension can not know that it is actually a typedef, so treat variable as simple, not Node derived.
+For such cases <code>"aliases"</code> field exists.</p>
+<p>It is array which defines aliases for different Node types - when we can not find suitable NodeTag for type we search alias and substitute type.</p>
+<p>Example: <code>typedef Bitmapset *Relids</code> - there is no <code>T_Relids</code> in the code, but <code>T_Bitmapset</code> exist.</p>
+<p>For it you can use this entry:</p>
+<pre><code class="language-json">{
+    &quot;aliases&quot;: [
+        {
+            &quot;alias&quot;: &quot;Relids&quot;,
+            &quot;type&quot;: &quot;Bitmapset *&quot;
+        }
+    ]
+}
+</code></pre>
+<h3 id="custom-list-pointer-types">Custom <code>List *</code> pointer types</h3>
+<pre><code class="language-json">{
+    &quot;customListTypes&quot;: [
+        {
+            // Struct or function name containing this 'List *' variable
+            &quot;parent&quot;: &quot;string&quot;,
+            // Name of member/variable inside &quot;parent&quot;
+            &quot;member&quot;: &quot;string&quot;,
+            // Actual pointer type
+            &quot;type&quot;: &quot;string&quot;
+        }
+    ]
+}
+</code></pre>
+<p>Usually, <code>List *</code> contains Node types, but actually it can contain any pointer. Extension treats all <code>List</code> as they contain <code>Node</code> variables, but some lists contain non-Node types.</p>
+<p>You can specify your own custom types using <code>customListTypes</code> member.</p>
+<p>For this code...</p>
+<pre><code class="language-c">typedef struct SampleData
+{
+    int value;
+} SampleData;
+
+typedef struct Sample
+{
+    // Contains SampleData
+    List *data;
+} Sample;
+
+void do_work()
+{
+    List *list;
+    SampleData *data;
+
+    data = palloc(sizeof(SampleData));
+    data-&gt;value = 1;
+    list = list_make1(data);
+
+    /* ... */
+}
+
+</code></pre>
+<p>...you can define this configuration:</p>
+<pre><code class="language-json">{
+    &quot;customListTypes&quot;: [
+        {
+            &quot;type&quot;: &quot;SampleData *&quot;,
+            // Member of struct
+            &quot;parent&quot;: &quot;Sample&quot;,
+            &quot;member&quot;: &quot;data&quot;
+        },
+        {
+            &quot;type&quot;: &quot;SampleData *&quot;,
+            // Variable inside function
+            &quot;parent&quot;: &quot;create_sample&quot;,
+            &quot;member&quot;: &quot;list&quot;
+        }
+    ]
+}
+</code></pre>
+<blockquote>
+<p>As you can mention, configuration is generalized, because it's clear from context how to handle <code>parent</code></p>
+</blockquote>
+<h3 id="hashtable-entries">HashTable entries</h3>
+<h4 id="htab"><code>HTAB</code></h4>
+<pre><code class="language-json">{
+    &quot;htab&quot;: [
+        {
+            // Struct or function name containing this HTAB
+            &quot;parent&quot;: &quot;string&quot;,
+            // Member/variable name inside parent
+            &quot;member&quot;: &quot;string&quot;,
+            // Stored type
+            &quot;type&quot;: &quot;string&quot;
+        }
+    ]
+}
+</code></pre>
+<p><code>HTAB *</code> Hash Table entries can be showed using <code>hash_seq_search</code>, but it returns <code>void *</code> - no information about it's type. Extension has built-in types for some <code>HTAB</code>s.</p>
+<p>For the following code...</p>
+<pre><code class="language-c">typedef struct SampleData
+{
+    int value;
+} SampleData;
+
+typedef struct Sample
+{
+    HTAB *data;
+} Sample;
+
+void do_work()
+{
+    HTAB *htab = create_htab();
+    Sample *sample = palloc(sizeof(Sample));
+    sample-&gt;data = htab;
+
+    /* ... */
+}
+</code></pre>
+<p>...you can define next configuration:</p>
+<pre><code class="language-json">{
+    &quot;htab&quot;: [
+        {
+            &quot;parent&quot;: &quot;Sample&quot;,
+            &quot;member&quot;: &quot;data&quot;,
+            &quot;type&quot;: &quot;SampleData *&quot;
+        },
+        {
+            &quot;parent&quot;: &quot;do_work&quot;,
+            &quot;member&quot;: &quot;htab&quot;,
+            &quot;type&quot;: &quot;SampleData *&quot;
+        }
+    ]
+}
+</code></pre>
+<blockquote>
+<p>You can notice that configuration entry schema is the same as for custom <code>List *</code> type.</p>
+</blockquote>
+<h4 id="_hash-simplehash"><code>_hash</code> - simplehash</h4>
+<pre><code class="language-json">{
+    &quot;simplehash&quot;: [
+        {
+            // Prefix as you defined using SH_PREFIX
+            &quot;prefix&quot;: &quot;string&quot;,
+            // Stored type
+            &quot;type&quot;: &quot;string&quot;
+        }
+    ]
+}
+</code></pre>
+<p>Also, there is support for <code>lib/simplehash.h</code> hash tables ("simplehash" further). They are code generated using macros, so for each specific hash table there are functions and structures defined.</p>
+<p>For the following code...</p>
+<pre><code class="language-c">typedef struct SimpleHashEntry
+{
+    int value;
+} SimpleHashEntry;
+
+#define SH_PREFIX           custom_prefix
+#define SH_ELEMENT_TYPE     SimpleHashEntry
+#include &quot;lib/simplehash.h&quot;
+</code></pre>
+<p>...define next configuration:</p>
+<pre><code class="language-json">{
+    &quot;simplehash&quot;: [
+        {
+            &quot;prefix&quot;: &quot;custom_prefix&quot;,
+            &quot;type&quot;: &quot;SimpleHashEntry *&quot;
+        }
+    ]
+}
+</code></pre>
+<p>Identifiers of structures and functions are derived from <code>prefix</code> and generated the same way, i.e. <code>PREFIX_iterator</code> - structure-state for iterator.</p>
+<blockquote>
+<p>NOTE: compiler can apply unused symbol stripping, so after compilation there can be no structures/functions for iteration.
+In such situation, you should add some code that uses <code>PREFIX_iterator</code>, <code>PREFIX_start_iterate</code> and <code>PREFIX_iterate</code> (i.e. wrap such code with debug macros).</p>
+</blockquote>
+<h3 id="integer-enum-fields">Integer enum fields</h3>
+<pre><code class="language-json">{
+    &quot;enums&quot;: [
+        {
+            // Name of struct
+            &quot;type&quot;: &quot;string&quot;,
+            // Member of struct containing enum
+            &quot;member&quot;: &quot;string&quot;,
+            // Enum values stored in field: pair of macro name and declared value
+            &quot;flags&quot;: [
+                [&quot;Mask (macro)&quot;, &quot;Mask (integer)&quot;],
+            ],
+            // Fields stored in field, values for which is got using bitmask
+            &quot;fields&quot;: [
+                [&quot;Field name&quot;, &quot;Mask (macro)&quot;, &quot;Mask (integer)&quot;]
+            ]
+        }
+    ]
+}
+</code></pre>
+<p>Some types may work with enums as plain <code>uint32</code> (not <code>enum</code>) and members of enum are defined using preprocessor's <code>#define</code>. For such types you can specify your own enum bitmask members.</p>
+<p>For the following code...</p>
+<pre><code class="language-c">typedef struct ParentType
+{
+    int enum_member;
+} ParentType;
+
+/* Enum values */
+#define EM_NOTHING  0x10
+#define EM_SINGLE   0x20
+#define EM_MULTIPLE 0x40
+
+/* Mask to get length */
+#define EM_LENGTH_MASK 0xF
+
+void some_function(ParentType *parent)
+{
+    if (parent-&gt;enum_member &amp; EM_MULTIPLE)
+    {
+        int length = parent-&gt;enum_member &amp; EM_LENGTH_MASK;
+    }
+}
+</code></pre>
+<p>...you can use configuration:</p>
+<pre><code class="language-json">{
+    &quot;enums&quot;: [
+        {
+            &quot;type&quot;: &quot;ParentType&quot;,
+            &quot;member&quot;: &quot;enum_member&quot;,
+            &quot;flags&quot;: [
+                [&quot;EM_NOTHING&quot;,  &quot;0x10&quot;],
+                [&quot;EM_SINGLE&quot;,   &quot;0x20&quot;],
+                [&quot;EM_MULTIPLE&quot;, &quot;0x40&quot;],
+            ],
+            &quot;fields&quot;: [
+                [&quot;length&quot;, &quot;EM_LENGTH_MASK&quot;, &quot;0xF&quot;]
+            ]
+        }
+    ]
+}
+</code></pre>
+<blockquote>
+<p>NOTE: macro definitions are added to debug symbols only when using <code>-g3</code> level during compilation, otherwise debugger can not use macro names.
+If debugger can not use macros it will switch to numeric values - that because numeric values are required.</p>
+</blockquote>
+<h3 id="nodetags">NodeTags</h3>
+<pre><code class="language-json">{
+    // Array of custom NodeTag values
+    &quot;nodetags&quot;: [
+        &quot;string&quot;
+    ]
+}
+</code></pre>
+<p>NodeTag values are required to find Node types. Extension ships with set of builtin tags, but they can be outdated or you are created new Node type. If so, just add them to this list.</p>
+<blockquote>
+<p>If you specify type with <code>T_</code> prefix - it will be trimmed.</p>
+</blockquote>
+<p>Also, when debug session starts, extension will parse <code>nodetags.h</code> file to find new NodeTags. If it will find some, then extension will automatically add them to this list.</p>
+<h3 id="custom-typedefslist">Custom <code>typedefs.list</code></h3>
+<pre><code class="language-json">{
+    &quot;typedefs&quot;: [
+        &quot;/path/to/typedefs.list&quot;
+    ]
+}
+</code></pre>
+<p>For formatting <code>src/tools/pgindent</code> is used. It requires <code>typedefs.list</code> file for correct work - one lies inside directory itself, but when you are developing extension you may have your own copy for extension's types.</p>
+<p><code>typedefs</code> setting contains list of <code>typedefs.list</code> files - each string is a path which can be in 2 forms:</p>
+<ul>
+<li>Absolute - specified file is used</li>
+<li>Relative - file with base folder as <a href="#vs-code-settings">postgresql-hacker-helper.srcPath</a> is used</li>
+</ul>
+<p>Example:</p>
+<pre><code class="language-json">{
+    &quot;typedefs&quot;: [
+        &quot;contrib/pgext1/first.typedefs.list&quot;,
+        &quot;contrib/pgext2/second.typedefs.list&quot;
+    ]
+}
+</code></pre>
+<p>For convenience, if you will try to format file in contrib's directory, extension will try to detect <code>typedefs.list</code> in it without specifying it explicitly in configuration file. I.e. if you are formatting file <code>contrib/my_ext/my_ext.c</code>, then extension will probe <code>contrib/my_ext/typedefs.list</code>.</p>
+<blockquote>
+<p>There is handy command <code>PgSQL: Find custom typedefs.list in repository</code> that will execute shell command to find all <code>*typedefs.list</code> files in repository.</p>
+</blockquote>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href=".." class="btn btn-neutral float-left" title="Home"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href=".." style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+  </span>
+</div>
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>
