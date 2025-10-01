@@ -12,7 +12,7 @@
         "Other"
     ],
     "extensionKind": ["workspace"],
-    "icon": "resources/logo.png",
+    "icon": "img/logo.png",
     "activationEvents": [
         "workspaceContains:.vscode/pgsql_hacker_helper.json",
         "workspaceContains:**/src/include/nodes/nodes.h",
@@ -173,7 +173,7 @@
                     "type": "tree",
                     "visibility": "visible",
                     "when": "inDebugMode && postgresql-hacker-helper:activated",
-                    "icon": "./resources/logo.png"
+                    "icon": "./img/logo.png"
                 }
             ]
         },
@@ -215,13 +215,13 @@
         "jsonValidation": [
             {
                 "fileMatch": "pgsql_hacker_helper.json",
-                "url": "./properties.schema.json"
+                "url": "./resources/properties.schema.json"
             }
         ],
         "snippets": [
             {
                 "language": "c",
-                "path": "./snippets.json"
+                "path": "./resources/snippets.json"
             }
         ],
         "languages": [
@@ -237,14 +237,14 @@
                     "postgresql.conf.sample",
                     "postgresql.auto.conf"
                 ],
-                "configuration": "./syntaxes/pgconf.language-configuration.json"
+                "configuration": "./resources/pgconf.language-configuration.json"
             }
         ],
         "grammars": [
             {
                 "language": "pgconf",
                 "scopeName": "source.pgconf",
-                "path": "./syntaxes/pgconf.tmLanguage.json"
+                "path": "./resources/pgconf.tmLanguage.json"
             }
         ]
     },

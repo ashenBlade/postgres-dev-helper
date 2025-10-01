@@ -1,6 +1,6 @@
 # PostgreSQL Hacker Helper
 
-![Logo](resources/logo.png)
+![Logo](./img/logo.png)
 
 This is a Visual Studio Code extension to assist PostgreSQL source code developers:
 
@@ -24,7 +24,7 @@ Extension provides assistance with postgres variables:
 
 Extension creates separate view in debug section - `PG Variables`. It contains postgres variables - extended with knowledge of source code.
 
-![Overview of extension](resources/overview.gif)
+![Overview of extension](./img/overview.gif)
 
 - `Node *` variables casted to types according to `NodeTag`
 - Container types show their elements:
@@ -116,7 +116,7 @@ For more info check [configuration file documentation](./docs/config_file.md).
 
 Extension uses `pgindent` for formatting C code. It integrates with VS Code extension and available with `Format Document` or `Ctrl + Shift + I` shortcut (or another key binding if overridden). Or you can just specify formatter manually using `Format Document With...` - select `PostgreSQL Hacker Helper` in pick up box.
 
-![Formatter work](resources/formatter-work.gif)
+![Formatter work](./img/formatter-work.gif)
 
 Feature supported for PostgreSQL starting from 10 version.
 
@@ -136,7 +136,7 @@ In PostgreSQL there is `pprint(Node *)` which dumps passed Node variable to
 stdout with pretty printing it. Using 'Dump Node to log' option in variable
 context menu you also will be able to do so.
 
-![call pprint](resources/dump.gif)
+![call pprint](img/dump.gif)
 
 Also, you can dump `Node *` into newly created document and work with it as text file.
 There is `Dump Node to document` option in variable context menu.
@@ -152,7 +152,7 @@ Just run command `Bootstrap extension` and enter initial values (extension name,
 PostgreSQL configuration files `postgresql.conf` and `postgresql.auto.conf` have syntax support.
 Also, for there is autocompletion for configuration parameters also with default contrib's GUCs.
 
-![Syntax example](./resources/pgconf_syntax.png)
+![Syntax example](./img/pgconf_syntax.png)
 
 This syntax must be enabled for `postgresql[.auto].conf` files, but you can specify it using 'Change Language Mode' -> 'PostgreSQL configuration'
 

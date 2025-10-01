@@ -1,9 +1,9 @@
 src/**
 out/test/**
 out/**.map
-resources/**
+img/**
 scripts/**
-!resources/logo.png
+!img/logo.png
 dev/*
 
 tsconfig.json
@@ -21,3 +21,6 @@ workflows/**
 pgsrc/**
 
 TODO
+
+.venv
+site
