@@ -1,0 +1,7 @@
+site_name: PostgreSQL Hacker Helper
+site_url: https://ashenBlade.github.io/postgres-dev-helper
+theme: readthedocs
+
+nav:
+- Home: index.md
+- Configuration: configuration.md

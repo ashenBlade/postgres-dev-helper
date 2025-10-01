@@ -1,8 +1,33 @@
-# Configuration file
+# Configuration
+
+Extension has multiple settings to customize different aspects.
+
+## VS Code settings
+
+There are 3 settings:
+
+- `postgresql-hacker-helper.logLevel` - minimum log level (for old VS Code up to 1.74.0).
+
+  Minimum level of log messages. By default - `INFO`.
+  If using VS Code 1.74.0 ang greater use `Output` channel logger settings.
+
+- `postgresql-hacker-helper.srcPath` - Path to source code directory
+  
+  *Relative* path to custom PostgreSQL source code directory. Use it, if source
+  code files are not in your workspace root (i.e. in `${workspaceFolder}/postgresql`).
+  Used for searching files (node tag files, `pg_bsd_indent` and so on).
+  If not specified search starts from workspace root.
+
+- `postgresql-hacker-helper.pg_bsd_indentPath` - Path to `pg_bsd_indent`
+  
+  Path to `pg_bsd_indent` tool. Required for formatting support. Use it if you have `pg_bsd_indent` installed globally or want to use specific version.
+
+  - If not specified, it will be searched in `*srcPath*/src/tools` directory.
+  - If specified, and failed to run extension will try to build it.
+
+## Configuration file
 
 Extension has config file with custom settings - `.vscode/pgsql_hacker_helper.json`.
-
-> For convenience, file [`properties.schema.json`](../properties.schema.json) contains JSON schema for configuration file.
 
 You can create file manually or using command `PgSQL: Open or create configuration file`. Json schema will assist you while editing.
 
@@ -10,7 +35,7 @@ Extension tracks changes in the file and rereads it, when necessary. Also, you c
 
 > NOTE: after debug session have started changes in configuration file will not be reflected.
 
-## Arrays
+### Arrays
 
 ```json
 {
@@ -78,7 +103,7 @@ NOTES:
 1. You can refer to parent object using `{}`, i.e. `!{}->member1 + {}->member2` or the same in member form `member1 + {}->member2`.
 2. Expression can contain any other entries, i.e. for `PlannerInfo->simple_rel_array` expression is `simple_rel_array_size + 1`.
 
-## Aliases (`typedef`)
+### Aliases (`typedef`)
 
 ```json
 {
@@ -113,7 +138,7 @@ For it you can use this entry:
 }
 ```
 
-## Custom `List *` pointer types
+### Custom `List *` pointer types
 
 ```json
 {
@@ -185,9 +210,9 @@ void do_work()
 
 > As you can mention, configuration is generalized, because it's clear from context how to handle `parent`
 
-## HashTable entries
+### HashTable entries
 
-### `HTAB`
+#### `HTAB`
 
 ```json
 {
@@ -250,7 +275,7 @@ void do_work()
 
 > You can notice that configuration entry schema is the same as for custom `List *` type.
 
-### `_hash` - simplehash
+#### `_hash` - simplehash
 
 ```json
 {
@@ -298,7 +323,7 @@ Identifiers of structures and functions are derived from `prefix` and generated 
 > NOTE: compiler can apply unused symbol stripping, so after compilation there can be no structures/functions for iteration.
 > In such situation, you should add some code that uses `PREFIX_iterator`, `PREFIX_start_iterate` and `PREFIX_iterate` (i.e. wrap such code with debug macros).
 
-## Integer enum fields
+### Integer enum fields
 
 ```json
 {
@@ -372,7 +397,7 @@ void some_function(ParentType *parent)
 > NOTE: macro definitions are added to debug symbols only when using `-g3` level during compilation, otherwise debugger can not use macro names.
 > If debugger can not use macros it will switch to numeric values - that because numeric values are required.
 
-## NodeTags
+### NodeTags
 
 ```json
 {
@@ -389,7 +414,7 @@ NodeTag values are required to find Node types. Extension ships with set of buil
 
 Also, when debug session starts, extension will parse `nodetags.h` file to find new NodeTags. If it will find some, then extension will automatically add them to this list.
 
-## Custom `typedefs.list`
+### Custom `typedefs.list`
 
 ```json
 {
@@ -404,7 +429,7 @@ For formatting `src/tools/pgindent` is used. It requires `typedefs.list` file fo
 `typedefs` setting contains list of `typedefs.list` files - each string is a path which can be in 2 forms:
 
 - Absolute - specified file is used
-- Relative - file with base folder as [postgresql-hacker-helper.srcPath](../README.md#extension-settings) is used
+- Relative - file with base folder as [postgresql-hacker-helper.srcPath](#vs-code-settings) is used
 
 Example:
 
@@ -417,6 +442,6 @@ Example:
 }
 ```
 
-For convenience, if you will try to format file in contrib's directory, extension will try to detect `typedefs.list` in it without specifying it explicitly in configuration file.
+For convenience, if you will try to format file in contrib's directory, extension will try to detect `typedefs.list` in it without specifying it explicitly in configuration file. I.e. if you are formatting file `contrib/my_ext/my_ext.c`, then extension will probe `contrib/my_ext/typedefs.list`.
 
 > There is handy command `PgSQL: Find custom typedefs.list in repository` that will execute shell command to find all `*typedefs.list` files in repository.
