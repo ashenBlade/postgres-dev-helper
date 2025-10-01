@@ -14,7 +14,7 @@
     "extensionKind": ["workspace"],
     "icon": "img/logo.png",
     "activationEvents": [
-        "workspaceContains:.vscode/pgsql_hacker_helper.json",
+        "workspaceContains:/.vscode/pgsql_hacker_helper.json",
         "workspaceContains:**/src/include/nodes/nodes.h",
         "workspaceContains:**/src/include/nodes/nodetags.h"
     ],
