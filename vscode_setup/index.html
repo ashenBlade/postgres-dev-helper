@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><link rel="canonical" href="https://ashenBlade.github.io/postgres-dev-helper/vscode_setup/" />
+      <link rel="shortcut icon" href="../img/favicon.ico" />
+    <title>VS Code setup - PostgreSQL Hacker Helper</title>
+    <link rel="stylesheet" href="../css/theme.css" />
+    <link rel="stylesheet" href="../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "VS Code setup";
+        var mkdocs_page_input_path = "vscode_setup.md";
+        var mkdocs_page_url = "/postgres-dev-helper/vscode_setup/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href=".." class="icon icon-home"> PostgreSQL Hacker Helper
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../configuration/">Configuration</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../postgresql_setup/">PostgreSQL setup</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../dev_scripts/">Development scripts</a>
+                </li>
+              </ul>
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">VS Code setup</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#extensions">Extensions</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#postgresql-hacker-helper">PostgreSQL Hacker Helper</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#debugger-extension">Debugger extension</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#perl">Perl</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#markdown">Markdown</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#sql-queries">SQL queries</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#database-connections">Database connections</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#launchjson">launch.json</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#backend">Backend</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#frontend">Frontend</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#coredump">CoreDump</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#tasksjson">tasks.json</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#build">Build</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#running-psql">Running PSQL</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#start-terminal-in-database-environment">Start terminal in database environment</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#other-scripts">Other scripts</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Tutorials</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../create_extension/">Create extension</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="..">PostgreSQL Hacker Helper</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">VS Code setup</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/ashenBlade/postgres-dev-helper/edit/master/docs/vscode_setup.md" class="icon icon-github"> Edit on GitHub</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="visual-studio-code-setup">Visual Studio Code setup</h1>
+<p>Here is shown VS Code setup for PostgreSQL debugging.</p>
+<h2 id="extensions">Extensions</h2>
+<h3 id="postgresql-hacker-helper">PostgreSQL Hacker Helper</h3>
+<p>This is the main extension we are talking about. It significantly simplifies development and debugging of source code.</p>
+<p><a href="https://marketplace.visualstudio.com/items?itemName=ash-blade.postgresql-hacker-helper">Link to the extension</a>.</p>
+<p>This is the only extension I recommend installing, because there are no alternatives to it.
+For the further extensions you are free to choose that suit you - no restrictions, just suggestions.</p>
+<h3 id="debugger-extension">Debugger extension</h3>
+<p>First things first, you have to install debugger extension, which will provide debugging functionality.</p>
+<p>There are 2 supported (by PostgreSQL Hacker Helper) debugger extensions:</p>
+<ul>
+<li><a href="https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools">C/C++</a></li>
+<li><a href="https://marketplace.visualstudio.com/items?itemName=vadimcn.vscode-lldb">CodeLLDB</a></li>
+</ul>
+<p>Which one to choose is up to you, but I use a rule of thumb: if have built source code using <code>gcc</code>, then C/C++ with <code>dbg</code> debugger, otherwise (<code>clang</code>) use <code>CodeLLDB</code> with <code>lldb</code> debugger.</p>
+<p>Also, you would like to have autocompletions. You can use <a href="https://marketplace.visualstudio.com/items?itemName=VisualStudioExptTeam.vscodeintellicode-completions">IntelliCode Completions</a>.</p>
+<h3 id="perl">Perl</h3>
+<p>PostgreSQL has different test types. One of them is TAP-tests which are written in Perl, so you might want to add extension with Perl support.</p>
+<p>Example, <a href="https://marketplace.visualstudio.com/items?itemName=richterger.perl">Perl</a> extension.</p>
+<h3 id="markdown">Markdown</h3>
+<p>This is utility extension that will help create markdown files.
+They are popular because many documentation or README are written using Markdown syntax.</p>
+<p>Example: <a href="https://marketplace.visualstudio.com/items?itemName=yzhang.markdown-all-in-one">Markdown All in One</a>.</p>
+<h3 id="sql-queries">SQL queries</h3>
+<p>SQL is the main language, so SQL-syntax support is must-have.</p>
+<p>You can use builtin SQL syntax support, or install <a href="https://marketplace.visualstudio.com/items?itemName=felixfbecker.postgresql-syntax">Better PostgreSQL syntax</a> extension which provides several PostgreSQL specific syntax features, like type cast.</p>
+<h3 id="database-connections">Database connections</h3>
+<p>When developing you may need to connect to database and execute queries.
+For this you can choose any tool: <code>psql</code>, <code>pgAdmin</code> or vs code extension.</p>
+<p>There is no recommendation, because I do not use VS Code extension: only <code>psql</code> or <code>pgAdmin</code>, because VS Code extension targets primarily on Database usage while I am as database <em>source code</em> developer can request specific features that general extension does not provide. In example, I can create patch, that breaks binary protocol compatibility or adds extensions to it, which is obviously not supported by extension. Thus it is more preferable to have your own automation scripts.</p>
+<p>Moreover, you may have multiple different versions of PostgreSQL installed on your system simultaneously and again, it is unlikely that the general solution (extension) takes into account such features.</p>
+<h2 id="launchjson"><code>launch.json</code></h2>
+<blockquote>
+<p><a href="https://github.com/ashenBlade/postgres-dev-helper/tree/master/misc/vscode/launch.json">Link to file on GitHub</a></p>
+</blockquote>
+<p>File <code>.vscode/launch.json</code> describes debug session configuration: name, debugger, path to binary/pid to attach, launch args, etc...
+When we are talking about PostgreSQL you should remember that it has multi-process architecture, not multi-threaded, this defines how we start debugging.
+Next, typical configurations for different uses cases will be presented.</p>
+<h3 id="backend">Backend</h3>
+<p>Mostly you will be debugging a backend. It forks from postmaster, setup it's own state and then start main query processing loop.
+As it forks, then we can not just launch backend as usual binary - we have to attach to specific pid.</p>
+<pre><code class="language-json">{
+    &quot;version&quot;: &quot;0.2.0&quot;,
+    &quot;configurations&quot;: [
+        {
+            &quot;name&quot;: &quot;Backend (cppdbg)&quot;,
+            &quot;type&quot;: &quot;cppdbg&quot;,
+            &quot;request&quot;: &quot;attach&quot;,
+            &quot;program&quot;: &quot;${workspaceFolder}/src/backend/postgres&quot;,
+            &quot;processId&quot;: &quot;${command:pickProcess}&quot;,
+            &quot;MIMode&quot;: &quot;gdb&quot;,
+            &quot;setupCommands&quot;: [
+                {
+                    &quot;description&quot;: &quot;Enable pretty-printing for gdb&quot;,
+                    &quot;text&quot;: &quot;-enable-pretty-printing&quot;,
+                    &quot;ignoreFailures&quot;: true
+                }
+            ],
+            &quot;internalConsoleOptions&quot;: &quot;neverOpen&quot;, 
+        },
+        {
+            &quot;name&quot;: &quot;Backend (lldb)&quot;,
+            &quot;type&quot;: &quot;lldb&quot;,
+            &quot;request&quot;: &quot;attach&quot;,
+            &quot;program&quot;: &quot;${workspaceFolder}/src/backend/postgres&quot;,
+            &quot;pid&quot;: &quot;${command:pickProcess}&quot;,
+            &quot;internalConsoleOptions&quot;: &quot;neverOpen&quot;
+        }
+    ]
+}
+</code></pre>
+<p>These are template configurations created by default, but with some customization:</p>
+<ol>
+<li>To get PID of process special value is used: <code>${command:pickProcess}</code> - it will open quick pick window where you can choose backend to attach.
+   It shows all running processes, but actually all you have to do is to type "postgres" and choose penultimate element - usually it is the only running backend.
+   <img alt="Shown quick-pick window with target backend" src="../img/vscode_setup/quickpick_pid.png" /></li>
+<li><code>"program"</code> points to <code>src/backend/postgres</code> - default location of <code>postgres</code> binary. It contains all server debug symbols and it's location do not change, so you do not have to specify installation path each time.</li>
+<li><code>internalConsoleOptions</code> is set to <code>neverOpen</code> because when debugging starts C/C++ extension opens <code>Debug Console</code> and shows logs, but usually it is not necessary and just only knocks down the focus.</li>
+</ol>
+<h3 id="frontend">Frontend</h3>
+<p>Frontend - are all utilities that run outside the server, i.e. <code>pg_dump</code>, <code>pg_ctl</code>, etc...</p>
+<p>They are separate binaries, so you can launch them directly, but usually they interact with the database, so they need database installation info.</p>
+<p>We can pass it directly using flags, but a better idea would be to use environment variables, because different binaries can use different flags.</p>
+<p>After installation all frontend utilities will be located in <code>PGINSTDIR</code> - directory specified during database setup, so all you have to do is just pick required binary in it.</p>
+<p>For example configuration for <code>pg_ctl</code> would be:</p>
+<pre><code class="language-json">{
+    &quot;version&quot;: &quot;0.2.0&quot;,
+    &quot;configurations&quot;: [
+        {
+            &quot;name&quot;: &quot;pg_ctl&quot;,
+            &quot;type&quot;: &quot;cppdbg&quot;,
+            &quot;request&quot;: &quot;launch&quot;,
+            &quot;program&quot;: &quot;${workspaceFolder}/build/bin/pg_ctl&quot;,
+            &quot;cwd&quot;: &quot;${workspaceFolder}&quot;,
+            &quot;args&quot;: [
+                &quot;status&quot;
+            ],
+            &quot;environment&quot;: [
+                {
+                    &quot;name&quot;: &quot;PGDATA&quot;,
+                    &quot;value&quot;: &quot;${workspaceFolder}/data&quot;
+                }
+            ]
+        }
+    ]
+}
+</code></pre>
+<p>Here we are debugging <code>pg_ctl status</code> command (see <code>"args"</code>) and pass <code>PGDATA</code> environment variable directly.</p>
+<p>The value of it can be any, but in the example I suppose that for development purposes your installation in <code>data</code> directory in the repository itself.</p>
+<p>A better idea than passing environment variables would be to pass environmental variable <em>file</em>.
+It have 2 benefits against manual specifying:</p>
+<ol>
+<li>This file can be automatically generated during database creation</li>
+<li>If you have configuration for multiple binaries, then you do not have to enter the same parameters - just pass this env file.</li>
+</ol>
+<p>On <a href="../dev_scripts/#buildsh">Development scripts</a> page are shown useful development scripts, one of them (<code>build.sh</code>) will create special <code>.env</code> file, which contains all generated environment variables, so you can just specify this file:</p>
+<pre><code class="language-json">{
+    &quot;version&quot;: &quot;0.2.0&quot;,
+    &quot;configurations&quot;: [
+        {
+            &quot;name&quot;: &quot;pg_ctl&quot;,
+            &quot;type&quot;: &quot;cppdbg&quot;,
+            &quot;request&quot;: &quot;launch&quot;,
+            &quot;program&quot;: &quot;${workspaceFolder}/build/bin/pg_ctl&quot;,
+            &quot;cwd&quot;: &quot;${workspaceFolder}&quot;,
+            &quot;args&quot;: [
+                &quot;status&quot;
+            ],
+            &quot;envFile&quot;: &quot;${workspaceFolder}/scripts/.env&quot;
+        }
+    ]
+}
+</code></pre>
+<h3 id="coredump">CoreDump</h3>
+<p>Sometimes SEGFAULT happens or <code>Assert</code> test fails. In such cases a coredump will be created (you can enable them using <code>ulimit -c unlimited</code> shell command from root).</p>
+<p>C/C++ extension has special configuration for debugging CoreDump:</p>
+<pre><code class="language-json">{
+    &quot;version&quot;: &quot;0.2.0&quot;,
+    &quot;configurations&quot;: [
+        {
+            &quot;name&quot;: &quot;pg_ctl&quot;,
+            &quot;type&quot;: &quot;cppdbg&quot;,
+            &quot;request&quot;: &quot;launch&quot;,
+            &quot;program&quot;: &quot;${workspaceFolder}/src/backend/postgres&quot;,
+            &quot;cwd&quot;: &quot;${workspaceFolder}&quot;,
+            &quot;coreDumpPath&quot;: &quot;${input:coreDumpPath}&quot;
+        }
+    ],
+    &quot;inputs&quot;: [
+        {
+            &quot;id&quot;: &quot;coreDumpPath&quot;,
+            &quot;type&quot;: &quot;promptString&quot;,
+            &quot;description&quot;: &quot;Enter path to CoreDump&quot;
+        }
+    ]
+}
+</code></pre>
+<p>To start debugging core dump you have to enter path to core dump file in prompt.</p>
+<blockquote>
+<p>PostgreSQL Hacker Helper also works with core dumps.</p>
+</blockquote>
+<h2 id="tasksjson"><code>tasks.json</code></h2>
+<blockquote>
+<p><a href="https://github.com/ashenBlade/postgres-dev-helper/tree/master/misc/vscode/tasks.json">Link to file on GitHub</a></p>
+</blockquote>
+<p>Another useful functionality of VS Code are Tasks. In short, Task - is a named command, which can be any shell script.</p>
+<p>The schema of task entry is very simple:</p>
+<pre><code class="language-json">{
+    &quot;label&quot;: &quot;Name of task&quot;,
+    &quot;detail&quot;: &quot;Description of a task&quot;,
+    &quot;command&quot;: &quot;path/to/command&quot;,
+    &quot;args&quot;: [
+        &quot;additional&quot;,
+        &quot;args&quot;,
+        &quot;to&quot;,
+        &quot;command&quot;
+    ],
+}
+</code></pre>
+<p>On <a href="../dev_scripts/">Development scripts</a> page we have defined some useful scripts and now it's time to integrate them into IDE.</p>
+<p>This file can be very large, so here we define the most common and necessary.</p>
+<h3 id="build">Build</h3>
+<p>To build we can use <code>build.sh</code> script. It accepts <code>--build</code> flag, that starts building.
+But it also accepts number of threads to use and we will use it.</p>
+<pre><code class="language-json">{
+    &quot;version&quot;: &quot;2.0.0&quot;,
+    &quot;tasks&quot;: [
+        {
+            &quot;label&quot;: &quot;Build&quot;,
+            &quot;command&quot;: &quot;${workspaceFolder}/scripts/build.sh&quot;,
+            &quot;args&quot;: [
+                &quot;--build&quot;,
+                &quot;-j&quot;,
+                &quot;${input:threads}&quot;
+            ],
+            &quot;detail&quot;: &quot;Run build and install DB with all contribs&quot;,
+            &quot;group&quot;: {
+                &quot;kind&quot;: &quot;build&quot;,
+                &quot;isDefault&quot;: true
+            }
+        }
+    ],
+    &quot;inputs&quot;: [
+        {
+            &quot;id&quot;: &quot;threads&quot;,
+            &quot;type&quot;: &quot;pickString&quot;,
+            &quot;options&quot;: [ &quot;1&quot;, &quot;2&quot;, &quot;3&quot;, &quot;4&quot;, &quot;5&quot;, &quot;6&quot;, &quot;7&quot;, &quot;8&quot; ],
+            &quot;default&quot;: &quot;8&quot;,
+            &quot;description&quot;: &quot;Number of threads to use&quot;        
+        }
+    ]
+}
+</code></pre>
+<p>As you can see this task runs our <code>build.sh</code> script and passes number of threads to it.
+And number of threads is prompted interactively using quick-pick - you can see example on screenshot below.</p>
+<p><img alt="Quick pick with number of threads" src="../img/vscode_setup/build_task_threads_number.png" /></p>
+<p>More than that, we also added a <code>"group"</code> member. What did it give us? Now we can run build just by using shortcut <code>Ctrl + Shift + B</code>. And that's it - build is running!</p>
+<h3 id="running-psql">Running PSQL</h3>
+<p>Next step after compilation is a database creation and connecting to it. For this task we have <code>run.sh</code> script which manages database instance.</p>
+<p>It may seem annoying to constantly run the same task sequence: <code>Init database</code> -&gt; <code>Run database</code> -&gt; <code>Run PSQL</code>. So we will combine all 3 commands into single task.</p>
+<pre><code class="language-json">{
+    &quot;label&quot;: &quot;Run psql&quot;,
+    &quot;detail&quot;: &quot;Run psql&quot;,
+    &quot;command&quot;: &quot;${workspaceFolder}/scripts/run.sh&quot;,
+    &quot;args&quot;: [
+        &quot;--init-db&quot;,
+        &quot;--run-db&quot;,
+        &quot;--psql&quot;
+    ],
+    &quot;isBackground&quot;: true,
+}
+</code></pre>
+<p>Now just after database compilation has completed you just types <code>psql</code> in <code>Run task</code> prompt and clicks required task. That's it - you are running PSQL and can send queries!</p>
+<h3 id="start-terminal-in-database-environment">Start terminal in database environment</h3>
+<p>Complex tasks are not that simple, so sometimes you have to do everything manually. For such kind of work you must start a new terminal session using <code>env.sh</code> script defined earlier. It will setup environment variables in such way, so you will be working with compiled binaries and database instance.</p>
+<pre><code class="language-json">{
+    &quot;label&quot;: &quot;Run terminal&quot;,
+    &quot;detail&quot;: &quot;Run terminal with imported environment variables specific to environment&quot;,
+    &quot;presentation&quot;: {
+        &quot;echo&quot;: true,
+        &quot;reveal&quot;: &quot;always&quot;,
+        &quot;focus&quot;: true,
+        &quot;panel&quot;: &quot;shared&quot;,
+        &quot;showReuseMessage&quot;: false,
+        &quot;clear&quot;: false
+    },
+    &quot;command&quot;: &quot;/usr/bin/sh&quot;,
+    &quot;args&quot;: [
+        &quot;-c&quot;,
+        &quot;. ${workspaceFolder}/scripts/env.sh; $SHELL&quot;
+    ],
+    &quot;isBackground&quot;: true
+},
+</code></pre>
+<p>After launching this task a new shell with all PG env variables will be created.</p>
+<h3 id="other-scripts">Other scripts</h3>
+<p>In <code>tasks.json</code> file you can find more predefined tasks for VS Code. They include:</p>
+<ul>
+<li>Running tests (using <code>Ctrl + Shift + T</code> shortcut)</li>
+<li>Managing database instance</li>
+<li>Cleaning files</li>
+</ul>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../dev_scripts/" class="btn btn-neutral float-left" title="Development scripts"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../create_extension/" class="btn btn-neutral float-right" title="Create extension">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/ashenBlade/postgres-dev-helper" class="fa fa-github" style="color: #fcfcfc"> GitHub</a>
+        </span>
+    
+    
+      <span><a href="../dev_scripts/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../create_extension/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

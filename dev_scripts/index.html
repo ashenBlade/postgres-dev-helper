@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><link rel="canonical" href="https://ashenBlade.github.io/postgres-dev-helper/dev_scripts/" />
+      <link rel="shortcut icon" href="../img/favicon.ico" />
+    <title>Development scripts - PostgreSQL Hacker Helper</title>
+    <link rel="stylesheet" href="../css/theme.css" />
+    <link rel="stylesheet" href="../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Development scripts";
+        var mkdocs_page_input_path = "dev_scripts.md";
+        var mkdocs_page_url = "/postgres-dev-helper/dev_scripts/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href=".." class="icon icon-home"> PostgreSQL Hacker Helper
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../configuration/">Configuration</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../postgresql_setup/">PostgreSQL setup</a>
+                </li>
+              </ul>
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Development scripts</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#buildsh">build.sh</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#runsh">run.sh</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#cleansh">clean.sh</a>
+    </li>
+    </ul>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../vscode_setup/">VS Code setup</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Tutorials</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../create_extension/">Create extension</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="..">PostgreSQL Hacker Helper</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Development scripts</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/ashenBlade/postgres-dev-helper/edit/master/docs/dev_scripts.md" class="icon icon-github"> Edit on GitHub</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="development-scripts">Development scripts</h1>
+<p>Most development operations can be effectively optimized using shell scripts. This page describes various scripts that can help in database development and debugging.</p>
+<p>During development/debugging you will be working with specific database version and installation, because you do not want to mess everything up with different versions.</p>
+<p>We will use the following architecture:</p>
+<ul>
+<li><code>./</code> - project root with all source files<ul>
+<li><code>./build</code> - binary installation directory: <code>bin</code>, <code>share</code>, <code>lib</code>, <code>include</code></li>
+<li><code>./data</code> - directory with database installation (<code>PGDATA</code>)</li>
+<li><code>./scripts</code> - special development scripts (this section describes them)<ul>
+<li><code>build.sh</code> - running <code>configure</code> script and building database</li>
+<li><code>run.sh</code> - managing database installation: create, start, stop, etc...</li>
+<li><code>clean.sh</code> - cleaning files: database, build artifacts, etc...</li>
+<li><code>env.sh</code> - generated file with exported environmental variables</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p>Each file contains it's own <code>--help</code> flag which show available options and usage examples.</p>
+<blockquote>
+<p>Scripts can be found in <a href="https://github.com/ashenBlade/postgres-dev-helper/tree/master/misc/scripts">GitHub repository</a>.</p>
+</blockquote>
+<h2 id="buildsh"><code>build.sh</code></h2>
+<p>In previous section we discussed how the database is compiled, so this script will do that - run <code>configure</code> and build database.</p>
+<p>But that's not all. Usually you will work with single server, no multi-server cluster. So it would be more convenient to just run <code>pg_ctl start</code> or <code>initdb</code> that will work with the specified installation or just type <code>psql</code> to quickly connect to server.</p>
+<p>So, after <code>configure</code> script has executed we will create env file, that will store PostgreSQL special environmental variables.</p>
+<p>Taking into an account default values for database/user/password/etc... we can generate env file in the following way:</p>
+<pre><code class="language-sh">PGINSTDIR=&quot;$(pwd)/build&quot;
+./configure --prefix=&quot;$PGINSTDIR&quot; # ...
+
+# shell env file
+SHENVFILE=&quot;$(pwd)/scripts/env.sh&quot;
+cat &lt;&lt;EOF &gt;&quot;$SHENVFILE&quot;
+export PGINSTDIR=&quot;$PGINSTDIR&quot;
+export PGDATA=&quot;$(pwd)/data&quot;
+export PGHOST=&quot;localhost&quot;
+export PGPORT=&quot;5432&quot;
+export PGUSER=&quot;postgres&quot;
+export PGDATABASE=&quot;postgres&quot;
+export PATH=&quot;$PGINSTDIR/bin:\$PATH&quot;
+LD_LIBRARY_PATH=&quot;\${LD_LIBRARY_PATH:-''}&quot;
+export LD_LIBRARY_PATH=&quot;\$PGINSTDIR/lib:\$LD_LIBRARY_PATH&quot;
+EOF
+</code></pre>
+<p>Using this file you can just source it and then use all binaries inside database installation path that will work with specific database installation.</p>
+<pre><code class="language-bash">source ./scripts/env.sh
+
+# These commands use binaries under &quot;./build/bin&quot;
+# and work with database in &quot;./data&quot;
+initdb
+pg_ctl start
+</code></pre>
+<h2 id="runsh"><code>run.sh</code></h2>
+<p>There are 4 main operations with database:</p>
+<ul>
+<li>create</li>
+<li>start</li>
+<li>connect using psql</li>
+<li>stop</li>
+</ul>
+<p>Script <code>run.sh</code> will support all these operations and will be just a wrapper around: <code>initdb</code>, <code>pg_ctl</code> and <code>psql</code>.</p>
+<h2 id="cleansh"><code>clean.sh</code></h2>
+<p>As the name implies, this script is responsible for cleaning.</p>
+<p>It cleans:</p>
+<ul>
+<li>build artifacts</li>
+<li>installation files</li>
+<li>created database</li>
+</ul>
+<p>There is no magic in this file.</p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../postgresql_setup/" class="btn btn-neutral float-left" title="PostgreSQL setup"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../vscode_setup/" class="btn btn-neutral float-right" title="VS Code setup">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/ashenBlade/postgres-dev-helper" class="fa fa-github" style="color: #fcfcfc"> GitHub</a>
+        </span>
+    
+    
+      <span><a href="../postgresql_setup/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../vscode_setup/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

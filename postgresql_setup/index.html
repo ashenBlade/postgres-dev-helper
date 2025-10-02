@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><link rel="canonical" href="https://ashenBlade.github.io/postgres-dev-helper/postgresql_setup/" />
+      <link rel="shortcut icon" href="../img/favicon.ico" />
+    <title>PostgreSQL setup - PostgreSQL Hacker Helper</title>
+    <link rel="stylesheet" href="../css/theme.css" />
+    <link rel="stylesheet" href="../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "PostgreSQL setup";
+        var mkdocs_page_input_path = "postgresql_setup.md";
+        var mkdocs_page_url = "/postgres-dev-helper/postgresql_setup/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href=".." class="icon icon-home"> PostgreSQL Hacker Helper
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../configuration/">Configuration</a>
+                </li>
+              </ul>
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">PostgreSQL setup</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#building-from-source-code">Building from source code</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#configure">configure</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#make">make</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../dev_scripts/">Development scripts</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../vscode_setup/">VS Code setup</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Tutorials</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../create_extension/">Create extension</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="..">PostgreSQL Hacker Helper</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">PostgreSQL setup</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/ashenBlade/postgres-dev-helper/edit/master/docs/postgresql_setup.md" class="icon icon-github"> Edit on GitHub</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="postgresql-setup">PostgreSQL setup</h1>
+<h2 id="building-from-source-code">Building from source code</h2>
+<p>PostgreSQL build is 2 staged: run <code>configure</code> script and then <code>make</code>.</p>
+<h3 id="configure"><code>configure</code></h3>
+<p>PostgreSQL uses autoconf to setup special <code>pg_config.h</code> header file. It contains lots of macros describing target environment, compiler capabilities, etc...</p>
+<p>To create this file you first run <code>./configure</code> script and pass various flags.
+The set of flags differs between versions, but for development we can outline required:</p>
+<pre><code class="language-bash">$ ./configure --prefix=$(pwd)/build \
+              --enable-debug \
+              --enable-cassert \
+              --enable-tap-tests \
+              --enable-depend \
+              CFLAGS=&quot;-O0 -g3&quot;
+</code></pre>
+<p>What we used:</p>
+<ul>
+<li><code>--prefix=$(pwd)/build</code> - tells to install all binaries inside current working directory, thus you can safely work with multiple versions of PostgreSQL without disrupting the work of others</li>
+<li><code>--enable-debug</code> - add debug symbols to result binary. This is required for debugging and variable exploring.</li>
+<li><code>--enable-cassert</code> - enable <code>Assert</code> macros that check state consistency. Otherwise it is easy to violate internal state.</li>
+<li><code>--enable-tap-tests</code> - enable using of TAP-tests using Perl. For this you may need to install Perl on your system.</li>
+<li><code>--enable-depend</code> - enable tracking of changed files in your system, so you will rebuild only required files, without rebuilding full project.</li>
+<li><code>CFLAGS="-O0 -g3"</code> - tell the compiler to:<ul>
+<li><code>-O0</code> - use lowest optimization level (so we can see all variables)</li>
+<li><code>-g3</code> - include as much debug symbols as we can</li>
+</ul>
+</li>
+</ul>
+<blockquote>
+<p>Prefer using <code>-g3</code> level if you are using PostgreSQL Hacker Helper extension, because it allows to use macro definitions and other features that can significantly improve debug experience.</p>
+</blockquote>
+<h3 id="make"><code>make</code></h3>
+<p>The next step is actual building the sources. This is done much easier - just run <code>make</code>.</p>
+<p>To speed up compilation you can provide number of parallel threads by <code>-j [THREADS]</code> flag (or omit to use all available - <code>make -j</code>).</p>
+<p>When the building is done run <code>make install</code>, so all binaries will be installed in <code>build</code> directory (directory that we specified as <code>configure</code> step).</p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../configuration/" class="btn btn-neutral float-left" title="Configuration"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../dev_scripts/" class="btn btn-neutral float-right" title="Development scripts">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/ashenBlade/postgres-dev-helper" class="fa fa-github" style="color: #fcfcfc"> GitHub</a>
+        </span>
+    
+    
+      <span><a href="../configuration/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../dev_scripts/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

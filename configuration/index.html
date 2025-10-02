@@ -75,6 +75,18 @@
     </ul>
                 </li>
               </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../postgresql_setup/">PostgreSQL setup</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../dev_scripts/">Development scripts</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../vscode_setup/">VS Code setup</a>
+                </li>
+              </ul>
               <p class="caption"><span class="caption-text">Tutorials</span></p>
               <ul>
                   <li class="toctree-l1"><a class="reference internal" href="../create_extension/">Create extension</a>
@@ -96,6 +108,7 @@
     <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
       <li class="breadcrumb-item active">Configuration</li>
     <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/ashenBlade/postgres-dev-helper/edit/master/docs/configuration.md" class="icon icon-github"> Edit on GitHub</a>
     </li>
   </ul>
   <hr/>
@@ -106,7 +119,7 @@
                 <h1 id="configuration">Configuration</h1>
 <p>Extension has multiple settings to customize different aspects.</p>
 <h2 id="vs-code-settings">VS Code settings</h2>
-<p>There are 3 settings:</p>
+<p>There are 4 settings:</p>
 <ul>
 <li><code>postgresql-hacker-helper.logLevel</code> - minimum log level (for old VS Code up to 1.74.0).</li>
 </ul>
@@ -125,8 +138,16 @@
 <p>Path to <code>pg_bsd_indent</code> tool. Required for formatting support. Use it if you have <code>pg_bsd_indent</code> installed globally or want to use specific version.</p>
 <ul>
 <li>If not specified, it will be searched in <code>*srcPath*/src/tools</code> directory.</li>
-<li>If specified, and failed to run extension will try to build it.</li>
+<li>
+<p>If specified, and failed to run extension will try to build it.</p>
+</li>
+<li>
+<p><code>postgresql-hacker-helper.maxContainerLength</code> - max length of elements shown in container types: <code>List</code>, arrays, <code>Bitmapset</code>, hash tables, etc...</p>
+</li>
 </ul>
+<p>How many elements must be shown in elements of container type.
+  This setting must prevent using garbage stored in fields.</p>
+<p>Default: <code>128</code></p>
 <h2 id="configuration-file">Configuration file</h2>
 <p>Extension has config file with custom settings - <code>.vscode/pgsql_hacker_helper.json</code>.</p>
 <p>You can create file manually or using command <code>PgSQL: Open or create configuration file</code>. Json schema will assist you while editing.</p>
@@ -480,7 +501,7 @@ If debugger can not use macros it will switch to numeric values - that because n
           </div><footer>
     <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
         <a href=".." class="btn btn-neutral float-left" title="Home"><span class="icon icon-circle-arrow-left"></span> Previous</a>
-        <a href="../create_extension/" class="btn btn-neutral float-right" title="Create extension">Next <span class="icon icon-circle-arrow-right"></span></a>
+        <a href="../postgresql_setup/" class="btn btn-neutral float-right" title="PostgreSQL setup">Next <span class="icon icon-circle-arrow-right"></span></a>
     </div>
 
   <hr/>
@@ -502,11 +523,15 @@ If debugger can not use macros it will switch to numeric values - that because n
   <div class="rst-versions" role="note" aria-label="Versions">
   <span class="rst-current-version" data-toggle="rst-current-version">
     
+        <span>
+          <a href="https://github.com/ashenBlade/postgres-dev-helper" class="fa fa-github" style="color: #fcfcfc"> GitHub</a>
+        </span>
+    
     
       <span><a href=".." style="color: #fcfcfc">&laquo; Previous</a></span>
     
     
-      <span><a href="../create_extension/" style="color: #fcfcfc">Next &raquo;</a></span>
+      <span><a href="../postgresql_setup/" style="color: #fcfcfc">Next &raquo;</a></span>
     
   </span>
 </div>

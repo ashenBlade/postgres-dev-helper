@@ -12,4 +12,16 @@
          <loc>https://ashenBlade.github.io/postgres-dev-helper/create_extension/</loc>
          <lastmod>2025-10-02</lastmod>
     </url>
+    <url>
+         <loc>https://ashenBlade.github.io/postgres-dev-helper/dev_scripts/</loc>
+         <lastmod>2025-10-02</lastmod>
+    </url>
+    <url>
+         <loc>https://ashenBlade.github.io/postgres-dev-helper/postgresql_setup/</loc>
+         <lastmod>2025-10-02</lastmod>
+    </url>
+    <url>
+         <loc>https://ashenBlade.github.io/postgres-dev-helper/vscode_setup/</loc>
+         <lastmod>2025-10-02</lastmod>
+    </url>
 </urlset>
