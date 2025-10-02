@@ -5,5 +5,6 @@ theme: readthedocs
 nav:
 - Home: index.md
 - Configuration: configuration.md
+- VS Code setup: vscode_setup.md
 - Tutorials:
   - Create extension: create_extension.md
