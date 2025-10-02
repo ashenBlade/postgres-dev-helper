@@ -382,8 +382,14 @@ export class StepContext {
         this.currentFunctionName = undefined;
         this.isSafeToObserveBitmapset = undefined;
         this.isSafeToObserveHTAB = undefined;
-    }
+    }   
 }
+
+interface ExecContextData {
+    hashTables: HashTableTypes;
+    nodeVars: NodeVarRegistry;
+    specialMembers: SpecialMemberRegistry;
+};
 
 /**
  * Context of current execution.
@@ -512,12 +518,12 @@ export class ExecContext {
      */
     canUseMacros = true;
 
-    constructor(debug: dbg.IDebuggerFacade, nodeVars: NodeVarRegistry,
-                specialMembers: SpecialMemberRegistry, hashTables: HashTableTypes) {
+    constructor(debug: dbg.IDebuggerFacade, data: ExecContextData, pgversion: number | undefined) {
         this.debug = debug;
-        this.nodeVarRegistry = nodeVars;
-        this.specialMemberRegistry = specialMembers;
-        this.hashTableTypes = hashTables;
+        this.nodeVarRegistry = data.nodeVars;
+        this.specialMemberRegistry = data.specialMembers;
+        this.hashTableTypes = data.hashTables;
+        this.pgversion = pgversion;
     }
 
     async getCurrentFunctionName() {
@@ -647,20 +653,14 @@ export abstract class Variable {
      */
     parent?: Variable;
 
-    /*
-     * Cached variables.
-     * If undefined - `getChildren` was not called;
-     * If length == 0 - no children (scalar variable)
-     */
-    children: Variable[] | undefined;
-
     /**
-     * Execution context for current session.
+     * Execution context for current debug session.
      */
     context: ExecContext;
 
     /**
-     * Number of frame, this variable belongs
+     * Number of frame, this variable belongs to.
+     * All debugger operations with this variable must use this id.
      */
     frameId: number;
 
@@ -684,6 +684,16 @@ export abstract class Variable {
         this.frameId = frameId;
     }
 
+    
+    /*
+     * Cached variables.
+     * If undefined - `getChildren` was not called;
+     * If length == 0 - no children (scalar variable)
+     */
+    childrenCache: Variable[] | undefined;
+    
+    abstract doGetChildren(): Promise<Variable[] | undefined>;
+
     /**
      * Get children of this variable
      *
@@ -691,20 +701,20 @@ export abstract class Variable {
      */
     async getChildren(): Promise<Variable[] | undefined> {
         try {
-            if (this.children !== undefined) {
+            if (this.childrenCache !== undefined) {
                 /*
                  * return `undefined` if no children - scalar variable
                  */
-                return this.children.length
-                    ? this.children
+                return this.childrenCache.length
+                    ? this.childrenCache
                     : undefined;
             }
 
             const children = await this.doGetChildren();
             if (children) {
-                this.children = children;
+                this.childrenCache = children;
             } else {
-                this.children = [];
+                this.childrenCache = [];
             }
 
             return children;
@@ -718,7 +728,6 @@ export abstract class Variable {
         }
     }
 
-    abstract doGetChildren(): Promise<Variable[] | undefined>;
     protected isExpandable() {
         /* Pointer to struct */
         if (this.debug.isValidPointerType(this)) {
@@ -745,11 +754,18 @@ export abstract class Variable {
             return true;
         }
 
+        /* Default safe value, i.e. FLA (length unknown) */
         return false;
     }
 
     protected async getDescription() {
         return this.value;
+    }
+    
+    protected getLabel() {
+        return !this.declaredType?.length
+            ? this.name
+            : `${this.name}: ${this.declaredType}`;
     }
 
     /**
@@ -758,9 +774,7 @@ export abstract class Variable {
     async getTreeItem(): Promise<vscode.TreeItem> {
         try {
             return {
-                label: this.declaredType === '' 
-                    ? this.name
-                    : `${this.name}: ${this.declaredType}`,
+                label: this.getLabel(),
                 description: await this.getDescription(),
                 collapsibleState: this.isExpandable()
                     ? vscode.TreeItemCollapsibleState.Collapsed
@@ -796,6 +810,12 @@ export abstract class Variable {
 
         const resultType = dbg.substituteStructName(type, alias);
         return resultType;
+    }
+
+    protected async getArrayMembers(expression: string, length: number) {
+        const variables = await this.debug.getArrayVariables(expression,
+                                                             length, this.frameId);
+        return await Variable.mapVariables(variables, this.frameId, this.context, this);
     }
 
     static async create(debugVariable: dap.DebugVariable, frameId: number,
@@ -861,18 +881,16 @@ export abstract class Variable {
                 return new ListNodeVariable('List', args);
             }
 
-            if (parent) {
+            if (parent && dbg.isFlexibleArrayMember(debugVariable.type)) {
                 /* 
                  * Flexible array members for now recognized as non-valid
                  * pointers/scalars, but we actually can handle them.
                  */
-                if (dbg.isFlexibleArrayMember(debugVariable.type)) {
-                    const parentType = Variable.getRealType(parent.type, context);
-                    const specialMember = context.specialMemberRegistry
-                        .getArraySpecialMember(parentType, debugVariable.name);
-                    if (specialMember) {
-                        return new ArraySpecialMember(specialMember, args);
-                    }
+                const parentType = Variable.getRealType(parent.type, context);
+                const specialMember = context.specialMemberRegistry
+                    .getArraySpecialMember(parentType, debugVariable.name);
+                if (specialMember) {
+                    return new ArraySpecialMember(specialMember, args);
                 }
             }
 
@@ -907,12 +925,10 @@ export abstract class Variable {
         }
 
         /* NodeTag variables: Node, List, Bitmapset etc.. */
-        if (context.nodeVarRegistry.isNodeVar(effectiveType)) {
-            const nodeVar = await NodeVariable.createNode(debugVariable, frameId,
-                                                          context, args);
-            if (nodeVar) {
-                return nodeVar;
-            }
+        const nodeVar = await NodeVariable.tryCreateNode(debugVariable, frameId,
+                                                         context, args);
+        if (nodeVar) {
+            return nodeVar;
         }
 
         /* 'HTAB *' */
@@ -944,7 +960,7 @@ export abstract class Variable {
     static async mapVariables(debugVariables: dap.DebugVariable[],
                               frameId: number,
                               context: ExecContext,
-                              parent?: RealVariable): Promise<Variable[]> {
+                              parent?: Variable): Promise<Variable[]> {
         return await (Promise.all(debugVariables.map(v =>
             Variable.create(v, frameId, context, parent)),
         ));
@@ -1225,11 +1241,6 @@ export class RealVariable extends Variable {
      */
     variablesReference: number;
 
-    /**
-     * Cached *real* members of this variable
-     */
-    members?: Variable[];
-
     constructor(args: RealVariableArgs) {
         super(args.name, args.value, args.type, args.declaredType, 
               args.context, args.frameId, args.parent);
@@ -1264,12 +1275,17 @@ export class RealVariable extends Variable {
      * {@link variablesReference variablesReference } field
      */
     async doGetChildren(): Promise<Variable[] | undefined> {
-        if (this.members !== undefined) {
-            return this.members;
-        }
+        return await this.getRealMembers();
+    }
 
-        this.members = await this.getRealMembers();
-        return this.members;
+    /**
+     * Cached *real* members of this variable
+     */
+    realMembersCache?: Variable[];
+
+    protected async doGetRealMembers() {
+        return await Variable.getVariables(this.variablesReference, this.frameId,
+                                           this.context, this);
     }
 
     /**
@@ -1282,12 +1298,12 @@ export class RealVariable extends Variable {
      *       of these functions (work in both sides)
      */
     async getRealMembers(): Promise<Variable[] | undefined> {
-        if (this.members !== undefined) {
-            return this.members;
+        if (this.realMembersCache !== undefined) {
+            return this.realMembersCache;
         }
 
-        this.members = await this.doGetRealMembers();
-        return this.members;
+        this.realMembersCache = await this.doGetRealMembers();
+        return this.realMembersCache;
     }
     
     async getDescription() {
@@ -1323,17 +1339,6 @@ export class RealVariable extends Variable {
         return await super.getDescription();
     }
 
-    protected async doGetRealMembers() {
-        return await Variable.getVariables(this.variablesReference, this.frameId,
-                                           this.context, this);
-    }
-
-    protected async getArrayMembers(expression: string, length: number) {
-        const variables = await this.debug.getArrayVariables(expression,
-                                                             length, this.frameId);
-        return await Variable.mapVariables(variables, this.frameId, this.context, this);
-    }
-
     /**
      * Get *real* member of this var `this->member`.
      * Prefer this method as more optimized.
@@ -1362,7 +1367,7 @@ export class RealVariable extends Variable {
         return m;
     }
 
-    getType() {
+    protected getType() {
         return this.type;
     }
 
@@ -1604,40 +1609,35 @@ export class NodeVariable extends RealVariable {
     }
 
     /**
-     * Whether real NodeTag match with declared type
+     * Whether real NodeTag match with declared type.
+     * 
+     * NOTE: this function is overloaded in inherited subclasses
      */
     protected tagsMatch() {
+        /*
+         * This works in general, but there are some types that does not
+         * follow the convention, i.e. Value stores T_String, T_Float, etc...
+         * 
+         * For them we have to create separate classes with custom logic, but
+         * thankfully there are not so many of them.
+         */
         return dbg.getStructNameFromType(this.declaredType) === this.realNodeTag;
     }
 
     protected isExpandable(): boolean {
+        /* We do not need to perform all base class tests - pointer check is enough */
         return this.isValidPointer();
     }
-
-    async getTreeItem() {
-        try {
-            return {
-                label: this.tagsMatch()
-                    ? `${this.name}: ${this.declaredType}`
-                    : `${this.name}: ${this.declaredType} [${this.realNodeTag}]`,
-                description: await this.getDescription(),
-                collapsibleState: this.isExpandable()
-                    ? vscode.TreeItemCollapsibleState.Collapsed
-                    : vscode.TreeItemCollapsibleState.None,
-            };
-        } catch (e) {
-            logger.debug('failed to get TreeItem for %s', this.name, e);
-            if (isExpectedError(e)) {
-                return {};
-            } else {
-                throw e;
-            }
-        }
+    
+    protected getLabel() {
+        return this.tagsMatch()
+            ? `${this.name}: ${this.declaredType}`
+            : `${this.name}: ${this.declaredType} [${this.realNodeTag}]`;
     }
 
-    protected async checkTagMatch() {
+    protected async checkNodeTagMatchType() {
         if (!this.tagsMatch()) {
-            await this.castToTag(this.realNodeTag);
+            await this.castToNodeTag(this.realNodeTag);
         }
     }
 
@@ -1654,7 +1654,7 @@ export class NodeVariable extends RealVariable {
         return response;
     }
 
-    protected async castToTag(tag: string) {
+    protected async castToNodeTag(tag: string) {
         /*
          * We should substitute current type with target, because
          * there may be qualifiers such `struct' or `const'
@@ -1664,7 +1664,7 @@ export class NodeVariable extends RealVariable {
     }
 
     async doGetChildren() {
-        await this.checkTagMatch();
+        await this.checkNodeTagMatchType();
 
         let members = await super.doGetChildren();
 
@@ -1689,7 +1689,7 @@ export class NodeVariable extends RealVariable {
     }
 
     protected async doGetRealMembers() {
-        await this.checkTagMatch();
+        await this.checkNodeTagMatchType();
 
         let members = await super.doGetRealMembers();
 
@@ -1716,43 +1716,38 @@ export class NodeVariable extends RealVariable {
     static getTagFromType(type: string) {
         return dbg.getStructNameFromType(type);
     }
-
-    static async createNode(variable: dap.DebugVariable, frameId: number,
-                            context: ExecContext, args: RealVariableArgs) {
-        const getRealNodeTag = async () => {
-            const expr = `((Node *)(${context.debug.getPointer(variable)}))->type`;
-            let response;
-
-            try {
-                response = await context.debug.evaluate(expr, frameId);
-            } catch (err) {
-                logger.error('could not get NodeTag for %s', expr, err);
-                return;
-            }
-
-            if (!response.result.startsWith('T_')) {
-                return;
-            }
-            
-            /* Do not use replace('T_', ''), because this 'T_' can be inside identifier */
-            const realTag = response.result.substring(2);
-            if (!context.nodeVarRegistry.isNodeTag(realTag)) {
-                return;
-            }
-            return realTag;
-        };
+    
+    static async tryCreateNode(variable: dap.DebugVariable, frameId: number,
+                               context: ExecContext, args: RealVariableArgs) {
+        if (!context.nodeVarRegistry.isNodeVar(args.type)) {
+            return;
+        }
 
         /*
-         * Even if we know, that this variable is of Node type,
-         * this does not mean, that it does not contain garbage
-         * or it is actually a base (abstract) type.
-         * So, we have to check it manually.
+         * Even if we know, that this variable is of Node type, this does
+         * not mean, that it does not contain garbage or it is actually
+         * a base (abstract) type, so, we have to check it manually.
          * 
          * XXX: it would be better to add some Node inheritance knowledge
          *      to reduce debugger invocations
          */
-        const realTag = await getRealNodeTag();
-        if (!realTag) {
+        const expr = `((Node *)(${context.debug.getPointer(variable)}))->type`;
+        let response;
+
+        try {
+            response = await context.debug.evaluate(expr, frameId);
+        } catch (err) {
+            logger.error('could not get NodeTag for %s', expr, err);
+            return;
+        }
+
+        if (!response.result.startsWith('T_')) {
+            return;
+        }
+        
+        /* Do not use replace('T_', ''), because this 'T_' can be inside identifier */
+        const realTag = response.result.substring(2);
+        if (!context.nodeVarRegistry.isNodeTag(realTag)) {
             return;
         }
 
@@ -1798,7 +1793,7 @@ export class NodeVariable extends RealVariable {
     }
     
     async formatWatchExpression() {
-        /* Make sure 'type' is correctly */
+        /* Make sure 'type' is correctly initialized */
         await this.getChildren();
 
         return super.formatWatchExpression();
@@ -3538,7 +3533,7 @@ class TargetEntryVariable extends ExprNodeVariable {
     }
 }
 
-class ListElementsMember extends RealVariable {
+class ListElementsMember extends Variable {
     /*
      * Members of this list
      */
@@ -3563,19 +3558,14 @@ class ListElementsMember extends RealVariable {
 
     constructor(listParent: ListNodeVariable, cellValue: string,
                 listCellType: string, args: RealVariableArgs) {
-        super(args);
+        super('$elements$', '', '', '', args.context, args.frameId, listParent);
         this.listParent = listParent;
         this.cellValue = cellValue;
         this.listCellType = listCellType;
     }
 
-    async getTreeItem() {
-        return {
-            label: '$elements$',
-            collapsibleState: this.listParent.isEmpty()
-                ? vscode.TreeItemCollapsibleState.None
-                : vscode.TreeItemCollapsibleState.Collapsed,
-        };
+    protected isExpandable() {
+        return !this.listParent.isEmpty();
     }
 
     async getPointerElements() {
@@ -3585,7 +3575,7 @@ class ListElementsMember extends RealVariable {
         }
 
         const listType = this.listParent.getMemberExpression('elements');
-        const expression = `(${this.listCellType}*)(${listType})`;
+        const expression = `(${this.listCellType} *)(${listType})`;
         return super.getArrayMembers(expression, length);
     }
 
@@ -3600,12 +3590,14 @@ class ListElementsMember extends RealVariable {
          * due to padding in union.  For these we iterate
          * each element and evaluate each item independently
          */
+        
         const elements: RealVariable[] = [];
+        const elementsMemberExpr = `((ListCell *)${this.listParent.getMemberExpression('elements')})`;
         for (let i = 0; i < length; i++) {
-            const expression = `((ListCell *)${this.getPointer()})[${i}].${this.cellValue}`;
+            const expression = `${elementsMemberExpr}[${i}].${this.cellValue}`;
             const response = await this.debug.evaluate(expression, this.frameId);
             elements.push(new RealVariable({
-                name: `[${i}]` /* array elements behaviour */,
+                name: `[${i}]` /* array elements behavior */,
                 type: this.listCellType,
                 declaredType: this.listCellType,
                 variablesReference: response.variablesReference,
@@ -3625,15 +3617,13 @@ class ListElementsMember extends RealVariable {
             return this.members;
         }
 
-        this.members = await (this.listParent.realNodeTag === 'List'
-            ? this.getPointerElements()
-            : this.getIntegerElements());
+        this.members = await (
+            this.listParent.realNodeTag === 'List'
+                ? this.getPointerElements()
+                : this.getIntegerElements()
+        );
 
         return this.members;
-    }
-
-    protected isExpandable(): boolean {
-        return true;
     }
 }
 
@@ -3734,6 +3724,7 @@ export class ListNodeVariable extends NodeVariable {
     }
 
     isEmpty() {
+        /* Empty 'List *' is NIL (== NULL) */
         return this.debug.isNull(this);
     }
 
@@ -3764,15 +3755,27 @@ export class ListNodeVariable extends NodeVariable {
 
     private async findTypeForPtr() {
         /*
-         * Usually (i.e. in planner) ptr value is a node variable (Node *),
-         * but actually it can be any pointer.
+         * Usually pointer value in List is a Node variable (Node *),
+         * but in general it can be any pointer, so declared as 'void *'.
          *
-         * All `List`s hold Nodes, but sometimes it can be custom data.
-         * These special cases can be identified by:
+         * As such situations are more exceptional, so we treat List as
+         * Node storing, but other non-Node can be identified by:
          *
          * 1. Function name + variable name (if this is top level variable)
          * 2. Structure name + member name (if this is a member of structure)
+         * 
+         * Such cases are only manually searched from source code - there is
+         * no information at runtime.
+         * 
+         * To make search faster, first check member/variable name, because
+         * it is cheaper than sending requests to debugger or parsing type
+         * name of parent.
          */
+        const defaultType = 'Node *';
+        const map = this.context.specialMemberRegistry.listCustomPtrs.get(this.name);
+        if (!map) {
+            return defaultType;
+        }
 
         if (!this.parent) {
             /*
@@ -3780,37 +3783,26 @@ export class ListNodeVariable extends NodeVariable {
              * except special case 'VariablesRoot', but we are 'List',
              * not 'VariablesRoot'.
              */
-            return 'Node *';
+            return defaultType;
         }
 
-        const map = this.context.specialMemberRegistry.listCustomPtrs.get(this.name);
-        if (!map) {
-            return 'Node *';
-        }
-
-        /* Check only 1 case - they are mutually exclusive */
+        let parent;
         if (this.parent instanceof VariablesRoot) {
-            const func = await this.context.getCurrentFunctionName();
-            if (func) {
-                const info = map.get(func);
-                if (info) {
-                    return info.type;
-                }
-            }
+            parent = await this.context.getCurrentFunctionName();
         } else {
-            const parentType = dbg.getStructNameFromType(this.parent.type);
-            const info = map.get(parentType);
-            if (info) {
-                return info.type;
-            }
+            parent = dbg.getStructNameFromType(this.parent.type);
+        }
+        
+        if (!parent) {
+            return defaultType;
         }
 
-        return 'Node *';
+        return map.get(parent)?.type ?? defaultType;
     }
 
     private async createArrayNodeElementsMember(elementsMember: RealVariable) {
-        const info = await this.getListInfoSafe();
-        return new ListElementsMember(this, info.member, info.type, {
+        const {member, type} = await this.getListInfoSafe();
+        return new ListElementsMember(this, member, type, {
             ...elementsMember.getRealVariableArgs(),
             frameId: this.frameId,
             parent: this,
@@ -3819,8 +3811,8 @@ export class ListNodeVariable extends NodeVariable {
     }
 
     private async createLinkedListNodeElementsMember() {
-        const info = await this.getListInfoSafe();
-        return new LinkedListElementsMember(this, info.member, info.type, this.context);
+        const {member, type} = await this.getListInfoSafe();
+        return new LinkedListElementsMember(this, member, type, this.context);
     }
 
     override computeEffectiveType(): string {
@@ -3870,11 +3862,15 @@ export class ListNodeVariable extends NodeVariable {
             return m;
         }
 
+        /* 
+         * Do not show implementation specific fields: head/tail for linked list
+         * and initial_elements/elements (FLA) for array.
+         */
         const e = m.find(v => v.name === 'elements');
         if (!e) {
             this.listElements = await this.createLinkedListNodeElementsMember();
             return [
-                ...m.filter(v => v.name !== 'head' && v.name !== 'tail'),
+                ...m.filter(v => !(v.name === 'head' || v.name === 'tail')),
                 this.listElements,
             ];
         }
@@ -3885,7 +3881,7 @@ export class ListNodeVariable extends NodeVariable {
 
         this.listElements = await this.createArrayNodeElementsMember(e);
         return [
-            ...m.filter(v => v.name !== 'elements' && v.name !== 'initial_elements'),
+            ...m.filter(v => !(v.name === 'elements' || v.name === 'initial_elements')),
             this.listElements,
         ];
     }
@@ -3902,6 +3898,7 @@ export class ListNodeVariable extends NodeVariable {
             logger.warn('failed to obtain list size for %s', this.name);
             return;
         }
+        /* TODO: add size check */
         return length;
     }
 
@@ -3953,6 +3950,15 @@ export class ArraySpecialMember extends RealVariable {
     }
 
     getLengthExpr() {
+        const parentExpr = `((${this.parent?.type})${this.parent?.getPointer()})`;
+
+        /* 
+         * ES2021 has 'string.replaceAll' function, which perfectly suites.
+         * But extension supports VS Code 1.67.0, which has only ES2020.
+         * So just use 'replace' with global regexp.
+         */
+        const lengthExpr = this.info.lengthExpression.replace(/{}/g, parentExpr);
+
         /* 
          * To be more flexible and (simultaneously) simple we have 2 forms
          * of expressions:
@@ -3963,11 +3969,9 @@ export class ArraySpecialMember extends RealVariable {
          * Generic expression starts with `!` (because parent member expression
          * will never be member expression in that way).
          * Also, to be able to reference parent `{}` is used as a placeholder,
-         * so we can reference parent (members) multple times or use function
+         * so we can reference parent (members) multiple times or use function
          * invocation instead of simple member.
          */
-        const parentExpr = `((${this.parent?.type})${this.parent?.getPointer()})`;
-        const lengthExpr = this.info.lengthExpression.replace(/{}/g, parentExpr);
         if (lengthExpr.startsWith('!')) {
             return lengthExpr.substring(1);
         } else {
@@ -4211,12 +4215,11 @@ class BitmapSetSpecialMember extends NodeVariable {
             /* NULL means empty */
             return [];
         }
-        
-        const bms = e.result;
+
+        const expression = `bms_first_member((Bitmapset *)${e.result})`;
         let number = -1;
         const numbers = [];
         do {
-            const expression = `bms_first_member((Bitmapset *)${bms})`;
             const response = await this.evaluate(expression);
             number = Number(response.result);
             if (Number.isNaN(number)) {
@@ -4232,7 +4235,7 @@ class BitmapSetSpecialMember extends NodeVariable {
             numbers.push(number);
         } while (number >= 0);
 
-        await this.pfree(bms);
+        await this.pfree(e.result);
 
         return numbers;
     }
@@ -4542,7 +4545,7 @@ class ValueVariable extends NodeVariable {
         return this.realNodeTag === 'String';
     }
 
-    protected async checkTagMatch() {
+    protected async checkNodeTagMatchType() {
         const structName = dbg.getStructNameFromType(this.type);
 
         if (structName === this.realNodeTag || structName === 'Value') {
@@ -4559,7 +4562,7 @@ class ValueVariable extends NodeVariable {
         /* Try cast struct to corresponding tag */
         if (!this.context.hasValueStruct) {
             try {
-                await this.castToTag(this.realNodeTag);
+                await this.castToNodeTag(this.realNodeTag);
 
                 /* Success */
                 return;
@@ -4578,7 +4581,7 @@ class ValueVariable extends NodeVariable {
          * contains all possible fields and decision based only on tag.
          */
         try {
-            await this.castToTag('Value');
+            await this.castToNodeTag('Value');
 
             /* On success update flag indicating we have 'Value' structure */
             this.context.hasValueStruct = true;
@@ -4694,12 +4697,6 @@ class ValueVariable extends NodeVariable {
  * Represents Hash Table (HTAB) variable.
  */
 class HTABSpecialMember extends RealVariable {
-    private static evaluationUsedFunctions = [
-        'hash_seq_init',
-        'hash_seq_search',
-        'hash_seq_term',
-    ];
-
     async findEntryType(): Promise<string | undefined> {
         const map = this.context.hashTableTypes.htab.get(this.name);
         if (!map) {
@@ -4721,11 +4718,7 @@ class HTABSpecialMember extends RealVariable {
         }
 
         const info = map.get(parent);
-        if (!info) {
-            return;
-        }
-
-        return info.type;
+        return info?.type;
     }
 
     isDangerousBreakpoint(breakpoint: vscode.Breakpoint) {
@@ -5352,14 +5345,7 @@ class FlagsMemberVariable extends RealVariable {
 }
 
 export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable>, vscode.Disposable {
-    /* 
-     * Object containing configuration for current workspace.
-     */
-    config: Configuration;
-    
-    constructor(config: Configuration) {
-        this.config = config;
-    }
+    constructor(private config: Configuration) { }
     
     /**
      * ExecContext used to pass to all members.
@@ -5510,72 +5496,75 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
      * Cached pair [Cached type info, PG version] from previous run.
      * Can be used only if configuration file have not changed since previous run.
      */
-    private cachedTypes?: [{
-        nodeVars: NodeVarRegistry,
-        specialMembers: SpecialMemberRegistry,
-        hashTables: HashTableTypes,
-    }, number];
-
-    async createExecContext(frameId: number) {
-        let nodeVars: NodeVarRegistry;
-        let specialMembers: SpecialMemberRegistry;
-        let hashTables: HashTableTypes;
+    private cachedTypes?: [ExecContextData, number];
+    
+    async createExecContext(pgversion: number | undefined): Promise<ExecContextData> {
+        const specialMembers = new SpecialMemberRegistry();
+        specialMembers.addArraySpecialMembers(constants.getArraySpecialMembers());
+        specialMembers.addListCustomPtrSpecialMembers(constants.getKnownCustomListPtrs());
         
+        const hashTables = new HashTableTypes();
+        hashTables.addHTABTypes(constants.getWellKnownHTABTypes());
+        
+        const nodeVars = new NodeVarRegistry();
+        
+        /* Version specific initialization */
+        if (pgversion) {
+            if (10_00_00 <= pgversion) {
+                hashTables.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
+            }
+
+            /* 
+             * Initialize flags only if we know PostgreSQL version for sure,
+             * otherwise we will lead developer in the wrong way - this is
+             * even worse.
+             */
+            specialMembers.addFlagsMembers(constants.getWellKnownFlagsMembers(pgversion));
+        } else {
+            hashTables.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
+        }
+
+        this.initializeExecContextFromConfig(nodeVars, specialMembers, hashTables);
+        
+        return {
+            specialMembers,
+            hashTables,
+            nodeVars,
+        };
+    }
+    
+    tryGetCache(pgversion: number) {
+        /*
+         * We can use cache only if configuration have not changed AND 
+         * we are debugging the same PG version
+         */
+        if (   this.cachedTypes?.[1] === pgversion
+            && !this.config.isDirty()) {
+            return this.cachedTypes[0];
+        }
+    }
+
+    async getExecContext(frameId: number) {
+        let data: ExecContextData | undefined;
+
         const pgversion = await this.tryGetPgVersion(frameId);
         if (pgversion) {
             logger.debug('detected PostgreSQL version: %i', pgversion);
+            data = this.tryGetCache(pgversion);
         } else {
             logger.info('could not detect PostgreSQL version');
         }
 
-        /*
-         * We can use cache only if configuration have not changed AND 
-         * debugging the same PG version
-         */
-        if (   pgversion && pgversion === this.cachedTypes?.[1]
-            && !this.config.isDirty()) {
-            nodeVars = this.cachedTypes[0].nodeVars;
-            specialMembers = this.cachedTypes[0].specialMembers;
-            hashTables = this.cachedTypes[0].hashTables;
-        } else {
-            specialMembers = new SpecialMemberRegistry();
-            specialMembers.addArraySpecialMembers(constants.getArraySpecialMembers());
-            specialMembers.addListCustomPtrSpecialMembers(constants.getKnownCustomListPtrs());
-            
-            hashTables = new HashTableTypes();
-            hashTables.addHTABTypes(constants.getWellKnownHTABTypes());
-            
-            nodeVars = new NodeVarRegistry();
-            
-            /* Version specific initialization */
-            if (pgversion) {
-                logger.info('detected PostgreSQL version: %i', pgversion);
+        if (!data) {
+            data = await this.createExecContext(pgversion);
 
-                if (10_00_00 <= pgversion) {
-                    hashTables.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
-                }
-
-                /* 
-                 * Initialize flags only if we know PostgreSQL version for sure,
-                 * otherwise we will lead developer in the wrong way - this is
-                 * even worse.
-                 */
-                specialMembers.addFlagsMembers(constants.getWellKnownFlagsMembers(pgversion));
-            } else {
-                hashTables.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
-            }
-
-            this.initializeExecContextFromConfig(nodeVars, specialMembers, hashTables);
-            
             /* Store cache */
             if (pgversion) {
-                this.cachedTypes = [{nodeVars, specialMembers, hashTables}, pgversion];
+                this.cachedTypes = [data, pgversion];
             }
         }
-        
-        const context = new ExecContext(this.getDebug(), nodeVars, specialMembers, hashTables);
-        context.pgversion = pgversion;
 
+        const context = new ExecContext(this.getDebug(), data, pgversion);
         if (pgversion) {
             this._onDidDebugStart.fire(context);
         }
@@ -5594,7 +5583,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         }
 
         if (!this.context) {
-            this.context = await this.createExecContext(frameId);
+            this.context = await this.getExecContext(frameId);
         }
 
         const variables = await this.getTopLevelVariables(this.context, frameId);
@@ -5781,6 +5770,7 @@ export async function dumpNodeVariableToDocumentCommand(pgvars: PgVariablesViewP
             name: nodeVar.name,
             type: nodeVar.type,
             value: nodeVar.value,
+            /* TODO: remove evaluateName - unused */
             evaluateName: nodeVar.name,
             variablesReference: nodeVar.variablesReference,
             memoryReference: nodeVar.memoryReference,
