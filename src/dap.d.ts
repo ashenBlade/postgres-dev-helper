@@ -106,12 +106,6 @@ export interface DebugVariable {
     type: string;
 
     /**
-     * The evaluatable name of this variable which can be passed to the `evaluate`
-     * request to fetch the variable's value.
-     */
-    evaluateName: string;
-
-    /**
      * If `variablesReference` is > 0, the variable is structured and its children
      * can be retrieved by passing `variablesReference` to the `variables` request
      * as long as execution remains suspended. See 'Lifetime of Object References'

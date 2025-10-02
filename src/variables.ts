@@ -3678,7 +3678,6 @@ class LinkedListElementsMember extends Variable {
                 name: `[${i}]`,
                 value: response.result,
                 type: this.realType,
-                evaluateName: valueExpression,
                 variablesReference: response.variablesReference,
                 memoryReference: response.memoryReference,
             });
@@ -4429,7 +4428,6 @@ class BitmapSetSpecialMember extends NodeVariable {
                     ...result,
                     name: `ref(${field.name})`,
                     value: result.result,
-                    evaluateName: expr,
                 }, this.bmsParent.frameId, this.context, this);
             }
         }
@@ -4904,7 +4902,6 @@ class HTABElementsMember extends Variable {
                     ...result,
                     name: `${variables.length}`,
                     value: result.result,
-                    evaluateName: `((${this.entryType})${entry})`,
                 }, this.frameId, this.context, this);
                 variables.push(variable);
             } catch (error) {
@@ -5118,7 +5115,6 @@ class SimplehashElementsMember extends Variable {
                 ...result,
                 name: `${current}`,
                 value: result.result,
-                evaluateName: `((${this.hashTable.elementType} *)${result.result})`,
             }, this.frameId, this.context, this);
         } catch (err) {
             if (!(err instanceof EvaluationError)) {
@@ -5770,8 +5766,6 @@ export async function dumpNodeVariableToDocumentCommand(pgvars: PgVariablesViewP
             name: nodeVar.name,
             type: nodeVar.type,
             value: nodeVar.value,
-            /* TODO: remove evaluateName - unused */
-            evaluateName: nodeVar.name,
             variablesReference: nodeVar.variablesReference,
             memoryReference: nodeVar.memoryReference,
         };
