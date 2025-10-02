@@ -555,31 +555,24 @@ suite('Variables', async function () {
     suite('Config file', async () => {
         /* List with Non-Node pointer array elements */
         test('List[CustomPtr]', async () => {
-            /* list = [{value: 1}, {value: 2}, {value: 3}] */
+            const checkListMembers = async (listVar: vars.Variable) => {
+                const elementsMember = await getMemberOf(listVar, '$elements$');
+                const elements = await expand(elementsMember);
+                assert.equal(elements.length, 3,
+                             '$elements$ of variable does not contains all list members');
+                    
+                /* list = [{value: 1}, {value: 2}, {value: 3}] */
+                for (const [i, element] of elements.entries()) {
+                    const valueMember = await getMemberOf(element, 'value');
+                    assert.match(valueMember.item.description, intRegexp(i + 1),
+                                 `Element at ${i} does not contain valid value for variable`);
+                }
+            };
 
-            /* Check variable */
-            let elementsMember = await getMemberOf(getVar('custom_list'), '$elements$');
-            const elements = await expand(elementsMember);
-            assert.equal(elements.length, 3,
-                         '$elements$ of variable does not contains all list members');
-
-            for (const [i, element] of elements.entries()) {
-                const valueMember = await getMemberOf(element, 'value');
-                assert.match(valueMember.item.description, intRegexp(i + 1),
-                             `Element at ${i} does not contain valid value for variable`);
-            }
-
-            /* Check member */
-            const valueMember = await getMemberOf(getVar('custom_list_variable'), 'value');
-            elementsMember = await getMemberOf(valueMember, '$elements$');
-            assert.equal(elements.length, 3,
-                         '$elements$ of member does not contains all list members');
-
-            for (const [i, element] of elements.entries()) {
-                const valueMember = await getMemberOf(element, 'value');
-                assert.match(valueMember.item.description, intRegexp(i + 1),
-                             `Element at ${i} does not contain valid value for member`);
-            }
+            /* variable */
+            await checkListMembers(getVar('custom_list'));
+            /* member */
+            await checkListMembers((await getMemberOf(getVar('custom_list_variable'), 'value')).var);
         });
 
         /* Array members are rendered as actual array */

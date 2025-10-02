@@ -47,7 +47,7 @@
         {
             "type": "CustomListElement *",
             "parent": "CustomListVariable",
-            "member": "custom_list"
+            "member": "value"
         }
     ]
 }
