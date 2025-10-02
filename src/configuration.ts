@@ -778,6 +778,7 @@ export class VsCodeSettings {
         LogLevel: 'logLevel',
         PgbsdindentPath: 'pg_bsd_indentPath',
         SrcPath: 'srcPath',
+        MaxContainerLength: 'maxContainerLength',
     };
     
     static logLevel: string | undefined;
@@ -801,6 +802,12 @@ export class VsCodeSettings {
         return this.srcPath ??= this.getConfig<string>(this.ConfigSections.SrcPath);
     }
 
+    static maxContainerLength: number | undefined;
+    static getMaxContainerLength() {
+        /* 128 - default value specified in package.json */
+        return this.maxContainerLength ??= (this.getConfig<number>(this.ConfigSections.MaxContainerLength) ?? 128);
+    }
+
     static getConfig<T>(section: string) {
         const topLevelSection = this.ConfigSections.TopLevelSection;
         const config = vscode.workspace.getConfiguration(topLevelSection);
@@ -816,6 +823,7 @@ export class VsCodeSettings {
         this.srcPath = this.getConfig<string>(this.ConfigSections.SrcPath);
         this.customPgBsdIndentPath = this.getConfig<string>(this.ConfigSections.PgbsdindentPath);
         this.customNodeTagFiles = this.getConfig<string[]>(this.ConfigSections.NodeTagFiles);
+        this.maxContainerLength = this.getConfig<number>(this.ConfigSections.MaxContainerLength);
     }
 }
 

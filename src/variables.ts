@@ -4,7 +4,7 @@ import * as constants from './constants';
 import * as dbg from './debugger';
 import { Log as logger } from './logger';
 import { PghhError, EvaluationError, unnullify } from './error';
-import { Configuration } from './configuration';
+import { Configuration, VsCodeSettings } from './configuration';
 
 export interface AliasInfo {
     /* Declared type */
@@ -577,6 +577,15 @@ export class ExecContext {
             this.hasOidOutputFunctionCall = false;
         }
     }
+}
+
+function clampContainerLength(size: number) {
+    const max = VsCodeSettings.getMaxContainerLength();
+    return max < size ? max : size;
+}
+
+function getMaxContainerLength() {
+    return VsCodeSettings.getMaxContainerLength();
 }
 
 /**
@@ -3897,8 +3906,8 @@ export class ListNodeVariable extends NodeVariable {
             logger.warn('failed to obtain list size for %s', this.name);
             return;
         }
-        /* TODO: add size check */
-        return length;
+        
+        return clampContainerLength(length);
     }
 
     async getListElements() {
@@ -3921,12 +3930,6 @@ export class ListNodeVariable extends NodeVariable {
 
 
 export class ArraySpecialMember extends RealVariable {
-    /**
-     * Prevent errors/bugs if there was garbage after
-     * length expression evaluation.
-     */
-    static plausibleMaxLength = 1024;
-    
     /**
      * Expression to evaluate to obtain array length.
      * Appended to target struct from right.
@@ -4000,9 +4003,7 @@ export class ArraySpecialMember extends RealVariable {
         }
 
         /* Yes, we may have garbage, but what if the array is that huge? */
-        if (ArraySpecialMember.plausibleMaxLength < length) {
-            length = ArraySpecialMember.plausibleMaxLength;
-        }
+        length = clampContainerLength(length);
 
         const parent = unnullify(this.parent, 'this.parent');
         const memberExpr = `((${parent.type})${parent.getPointer()})->${this.info.memberName}`;
@@ -4063,11 +4064,14 @@ class BitmapSetSpecialMember extends NodeVariable {
         }
         
         const n = Number(nwords.value);
+
         /* 
-         * For 64-bit system even 20 is large number: 10 * 64 = 640.
-         * Human will not be able to handle such amount of data.
+         * For 64-bit system even 50 is large number: 50 * 64 = 3200.
+         * But actually this is *potential* size, so can we allow such
+         * large value - in reality it can contain only 1 element, just
+         * in last word, but this acts like a pretty good correctness check.
          */
-        const maxNWords = 10;
+        const maxNWords = 50;
         if (Number.isNaN(n) || maxNWords <= n) {
             return false;
         }
@@ -4165,6 +4169,7 @@ class BitmapSetSpecialMember extends NodeVariable {
 
         let number = -1;
         const numbers = [];
+        const maxLength = getMaxContainerLength();
         do {
             const expression = `bms_next_member((Bitmapset *)${this.getPointer()}, ${number})`;
             try {
@@ -4188,7 +4193,7 @@ class BitmapSetSpecialMember extends NodeVariable {
             }
 
             numbers.push(number);
-        } while (number >= 0);
+        } while (number >= 0 && numbers.length < maxLength);
 
         return numbers;
     }
@@ -4216,6 +4221,7 @@ class BitmapSetSpecialMember extends NodeVariable {
         }
 
         const expression = `bms_first_member((Bitmapset *)${e.result})`;
+        const maxLength = getMaxContainerLength();
         let number = -1;
         const numbers = [];
         do {
@@ -4232,7 +4238,7 @@ class BitmapSetSpecialMember extends NodeVariable {
             }
 
             numbers.push(number);
-        } while (number >= 0);
+        } while (number >= 0 && numbers.length < maxLength);
 
         await this.pfree(e.result);
 
@@ -4843,7 +4849,6 @@ class HTABElementsMember extends Variable {
          */
         try {
             await this.evaluateVoid(`hash_seq_term((HASH_SEQ_STATUS *)${hashSeqStatus})`);
-
         } catch (err) {
             if (!(err instanceof EvaluationError)) {
                 throw err;
@@ -4879,6 +4884,7 @@ class HTABElementsMember extends Variable {
             return;
         }
 
+        const maxLength = getMaxContainerLength();
         let entry;
         while ((entry = await this.getNextHashEntry(hashSeqStatus))) {
             let result;
@@ -4897,13 +4903,14 @@ class HTABElementsMember extends Variable {
                 return undefined;
             }
 
+            let variable;
             try {
-                const variable = await Variable.create({
+                variable = await Variable.create({
                     ...result,
-                    name: `${variables.length}`,
+                    name: `[${variables.length}]`,
                     value: result.result,
+                    memoryReference: result.memoryReference,
                 }, this.frameId, this.context, this);
-                variables.push(variable);
             } catch (error) {
                 if (error instanceof EvaluationError) {
                     await this.finalizeHashSeqStatus(hashSeqStatus);
@@ -4911,6 +4918,16 @@ class HTABElementsMember extends Variable {
                 }
 
                 throw error;
+            }
+
+            variables.push(variable);
+            if (maxLength < variables.length) {
+                /* 
+                 * If we terminate iteration before iteration is completed,
+                 * we have to call finalizer function
+                 */
+                await this.finalizeHashSeqStatus(hashSeqStatus);
+                break;
             }
         }
 
@@ -5008,15 +5025,16 @@ class SimplehashElementsMember extends Variable {
               hashTable);
         this.hashTable = hashTable;
     }
-
-    async getTreeItem(): Promise<vscode.TreeItem> {
-        /* Show only '$elements$' */
-        return {
-            label: '$elements$',
-            collapsibleState: vscode.TreeItemCollapsibleState.Collapsed,
-        };
+    
+    protected async getDescription() {
+        return '';
     }
 
+    protected isExpandable() {
+        return true;
+    }
+
+    /* TODO: no need to cache these */
     /* 
      * Cached identifier names for function and types
      */
@@ -5087,7 +5105,7 @@ class SimplehashElementsMember extends Variable {
         return iteratorPtr;
     }
 
-    async iterate(iterator: string, current: number) {
+    async iterate(iterator: string, index: number) {
         const iterFunction = this.getIteratorFunction();
         const hashTableType = `(${this.getHashTableType()} *) ${this.hashTable.getPointer()}`;
         const iteratorArg = `(${this.getIteratorType()} *) ${iterator}`;
@@ -5113,8 +5131,9 @@ class SimplehashElementsMember extends Variable {
         try {
             return await Variable.create({
                 ...result,
-                name: `${current}`,
+                name: `[${index}]`,
                 value: result.result,
+                memoryReference: result.memoryReference,
             }, this.frameId, this.context, this);
         } catch (err) {
             if (!(err instanceof EvaluationError)) {
@@ -5149,10 +5168,12 @@ class SimplehashElementsMember extends Variable {
             return;
         }
 
+        const maxLength = getMaxContainerLength();
         const variables = [];
         let id = 0;
         let variable;
-        while ((variable = await this.iterate(iterator, id))) {
+        while (   variables.length < maxLength 
+               && (variable = await this.iterate(iterator, id))) {
             ++id;
             variables.push(variable);
         }
@@ -5179,7 +5200,7 @@ class FlagsMemberVariable extends RealVariable {
      * debug symbols (i.e. for gdb use '-g3' level).
      * 
      * But even if we know numeric value of enum member and have the same
-     * endianess we still have to evaluate all expressions in debugger, because
+     * endianness we still have to evaluate all expressions in debugger, because
      * 1) due to another major pg version numeric values can change
      * 2) we can debug coredump collected from another machine, so we should not
      *    assume this PC is binary compatible with one that is debugged  

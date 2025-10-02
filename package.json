@@ -209,6 +209,13 @@
                     "title": "Path to root of PostgreSQL source files",
                     "type": "string",
                     "description": "Path to source files of PostgreSQL. Set it if you have sources in separate sub-directory from root of project.\nIf not set search will start in project root directory"
+                },
+                "postgresql-hacker-helper.maxContainerLength": {
+                    "title": "Max length to show in container types",
+                    "type": "integer",
+                    "default": 128,
+                    "minimum": 1,
+                    "description": "Max length of elements to show in PG variables view. Applies to container types: List, arrays, Bitmapset, HTAB, simplehash, etc..."
                 }
             }
         },

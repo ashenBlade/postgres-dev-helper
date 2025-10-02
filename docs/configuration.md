@@ -4,7 +4,7 @@ Extension has multiple settings to customize different aspects.
 
 ## VS Code settings
 
-There are 3 settings:
+There are 4 settings:
 
 - `postgresql-hacker-helper.logLevel` - minimum log level (for old VS Code up to 1.74.0).
 
@@ -24,6 +24,13 @@ There are 3 settings:
 
   - If not specified, it will be searched in `*srcPath*/src/tools` directory.
   - If specified, and failed to run extension will try to build it.
+
+- `postgresql-hacker-helper.maxContainerLength` - max length of elements shown in container types: `List`, arrays, `Bitmapset`, hash tables, etc...
+
+  How many elements must be shown in elements of container type.
+  This setting must prevent using garbage stored in fields.
+  
+  Default: `128`
 
 ## Configuration file
 
