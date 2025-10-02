@@ -1,0 +1,150 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Configure",
+            "type": "shell",
+            "detail": "Setup environment for development, run ./configure script",
+            "command": "${workspaceFolder}/scripts/build.sh",
+            "args": [
+                "--configure"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Bootstrap",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/build.sh",
+            "args": [
+                "--bootstrap",
+                "-j",
+                "${input:threads}"
+            ],
+            "problemMatcher": [],
+            "detail": "Run build and install DB with all contribs"
+        },
+        {
+            "label": "Build",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/build.sh",
+            "args": [
+                "--build",
+                "-j",
+                "${input:threads}"
+            ],
+            "problemMatcher": [],
+            "detail": "Run build and install DB with all contribs",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "Run DB",
+            "detail": "Run and init DB",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/run.sh",
+            "args": [
+                "--init-db",
+                "--run-db"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Run psql",
+            "detail": "Run psql",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/run.sh",
+            "args": [
+                "--init-db",
+                "--run-db",
+                "--psql"
+            ],
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "Stop DB",
+            "detail": "Stop running DB",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/run.sh",
+            "args": [
+                "--stop-db"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Remove DB",
+            "detail": "Remove database files directory",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/clean.sh",
+            "args": [
+                "--database"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Run terminal",
+            "detail": "Run terminal with imported environment variables specific to environment",
+            "type": "shell",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared",
+                "showReuseMessage": false,
+                "clear": false
+            },
+            "command": "/usr/bin/sh",
+            "args": [
+                "-c",
+                ". ${workspaceFolder}/scripts/env.sh; $SHELL"
+            ],
+            "problemMatcher": [],
+            "isBackground": true
+        },
+        {
+            "label": "Run tests (check-world)",
+            "detail": "Run all tests: regress, tap, isolation etc... (make check-world)",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/test.sh",
+            "args": [
+                "--full"
+            ],
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "Clean build artifacts",
+            "detail": "Clean object files and other artifacts created during build",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/clean.sh",
+            "args": [
+                "--build"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Full clean (distclean)",
+            "detail": "Clean build artifacts and reset source tree to default state",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/clean.sh",
+            "args": [
+                "--full"
+            ],
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "threads",
+            "type": "pickString",
+            "options": [ "1", "2", "3", "4", "5", "6", "7", "8", "31" ],
+            "default": "31",
+            "description": "Number of threads to use"        
+        }
+    ]
+}

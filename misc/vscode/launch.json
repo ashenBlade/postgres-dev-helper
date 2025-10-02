@@ -1,0 +1,48 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Backend (Attach)",
+            "type": "cppdbg",
+            "request": "attach",
+            "program": "${workspaceFolder}/src/backend/postgres",
+            "processId": "${command:pickProcess}",
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "internalConsoleOptions": "neverOpen"
+        },
+        {
+            "name": "pg_ctl",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/pg_ctl",
+            "args": [
+                "status"
+            ],
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/scripts/.env",
+            "internalConsoleOptions": "neverOpen"
+        },
+        {
+            "name": "CoreDump",
+            "type": "cppdbg",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "program": "${workspaceRoot}/src/backend/postgres",
+            "coreDumpPath": "${input:coreDumpPath}"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "coreDumpPath",
+            "type": "promptString",
+            "description": "Enter path to CoreDump"
+        }
+    ]
+}

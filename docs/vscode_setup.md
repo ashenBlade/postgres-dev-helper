@@ -8,7 +8,7 @@ Here is shown VS Code setup for PostgreSQL debugging.
 
 This is the main extension we are talking about. It significantly simplifies development and debugging of source code.
 
-[Link](https://marketplace.visualstudio.com/items?itemName=ash-blade.postgresql-hacker-helper).
+[Link to the extension](https://marketplace.visualstudio.com/items?itemName=ash-blade.postgresql-hacker-helper).
 
 This is the only extension I recommend installing, because there are no alternatives to it.
 For the further extensions you are free to choose that suit you - no restrictions, just suggestions.
@@ -55,6 +55,8 @@ There is no recommendation, because I do not use VS Code extension: only `psql` 
 Moreover, you may have multiple different versions of PostgreSQL installed on your system simultaneously and again, it is unlikely that the general solution (extension) takes into account such features.
 
 ## `launch.json`
+
+> [Link to file on GitHub](https://github.com/ashenBlade/postgres-dev-helper/tree/master/misc/vscode/launch.json)
 
 File `.vscode/launch.json` describes debug session configuration: name, debugger, path to binary/pid to attach, launch args, etc...
 When we are talking about PostgreSQL you should remember that it has multi-process architecture, not multi-threaded, this defines how we start debugging.
@@ -113,7 +115,7 @@ They are separate binaries, so you can launch them directly, but usually they in
 
 We can pass it directly using flags, but a better idea would be to use environment variables, because different binaries can use different flags.
 
-All frontend utilities are located in own `src/bin/UTILITY_NAME` directory and after building each directory contains it's binary.
+After installation all frontend utilities will be located in `PGINSTDIR` - directory specified during database setup, so all you have to do is just pick required binary in it.
 
 For example configuration for `pg_ctl` would be:
 
@@ -125,7 +127,7 @@ For example configuration for `pg_ctl` would be:
             "name": "pg_ctl",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/src/bin/pg_ctl/pg_ctl",
+            "program": "${workspaceFolder}/build/bin/pg_ctl",
             "cwd": "${workspaceFolder}",
             "args": [
                 "status"
@@ -145,12 +147,188 @@ Here we are debugging `pg_ctl status` command (see `"args"`) and pass `PGDATA` e
 
 The value of it can be any, but in the example I suppose that for development purposes your installation in `data` directory in the repository itself.
 
-> A better idea than passing environment variables would be to pass environmental variable *file*.
-> It have 2 benefits against manual specifying:
->
-> 1. This file can be automatically generated during database creation
-> 2. If you have configuration for multiple binaries, then you do not have to enter the same parameters - just pass this env file.
+A better idea than passing environment variables would be to pass environmental variable *file*.
+It have 2 benefits against manual specifying:
+
+1. This file can be automatically generated during database creation
+2. If you have configuration for multiple binaries, then you do not have to enter the same parameters - just pass this env file.
+
+On [Development scripts](./dev_scripts.md#buildsh) page are shown useful development scripts, one of them (`build.sh`) will create special `.env` file, which contains all generated environment variables, so you can just specify this file:
+
+```json
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "pg_ctl",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/pg_ctl",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "status"
+            ],
+            "envFile": "${workspaceFolder}/scripts/.env"
+        }
+    ]
+}
+```
+
+### CoreDump
+
+Sometimes SEGFAULT happens or `Assert` test fails. In such cases a coredump will be created (you can enable them using `ulimit -c unlimited` shell command from root).
+
+C/C++ extension has special configuration for debugging CoreDump:
+
+```json
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "pg_ctl",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/backend/postgres",
+            "cwd": "${workspaceFolder}",
+            "coreDumpPath": "${input:coreDumpPath}"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "coreDumpPath",
+            "type": "promptString",
+            "description": "Enter path to CoreDump"
+        }
+    ]
+}
+```
+
+To start debugging core dump you have to enter path to core dump file in prompt.
+
+> PostgreSQL Hacker Helper also works with core dumps.
 
 ## `tasks.json`
 
-TODO
+> [Link to file on GitHub](https://github.com/ashenBlade/postgres-dev-helper/tree/master/misc/vscode/tasks.json)
+
+Another useful functionality of VS Code are Tasks. In short, Task - is a named command, which can be any shell script.
+
+The schema of task entry is very simple:
+
+```json
+{
+    "label": "Name of task",
+    "detail": "Description of a task",
+    "command": "path/to/command",
+    "args": [
+        "additional",
+        "args",
+        "to",
+        "command"
+    ],
+}
+```
+
+On [Development scripts](./dev_scripts.md) page we have defined some useful scripts and now it's time to integrate them into IDE.
+
+This file can be very large, so here we define the most common and necessary.
+
+### Build
+
+To build we can use `build.sh` script. It accepts `--build` flag, that starts building.
+But it also accepts number of threads to use and we will use it.
+
+```json
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build",
+            "command": "${workspaceFolder}/scripts/build.sh",
+            "args": [
+                "--build",
+                "-j",
+                "${input:threads}"
+            ],
+            "detail": "Run build and install DB with all contribs",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ],
+    "inputs": [
+        {
+            "id": "threads",
+            "type": "pickString",
+            "options": [ "1", "2", "3", "4", "5", "6", "7", "8" ],
+            "default": "8",
+            "description": "Number of threads to use"        
+        }
+    ]
+}
+```
+
+As you can see this task runs our `build.sh` script and passes number of threads to it.
+And number of threads is prompted interactively using quick-pick - you can see example on screenshot below.
+
+![Quick pick with number of threads](./img/vscode_setup/build_task_threads_number.png)
+
+More than that, we also added a `"group"` member. What did it give us? Now we can run build just by using shortcut `Ctrl + Shift + B`. And that's it - build is running!
+
+### Running PSQL
+
+Next step after compilation is a database creation and connecting to it. For this task we have `run.sh` script which manages database instance.
+
+It may seem annoying to constantly run the same task sequence: `Init database` -> `Run database` -> `Run PSQL`. So we will combine all 3 commands into single task.
+
+```json
+{
+    "label": "Run psql",
+    "detail": "Run psql",
+    "command": "${workspaceFolder}/scripts/run.sh",
+    "args": [
+        "--init-db",
+        "--run-db",
+        "--psql"
+    ],
+    "isBackground": true,
+}
+```
+
+Now just after database compilation has completed you just types `psql` in `Run task` prompt and clicks required task. That's it - you are running PSQL and can send queries!
+
+### Start terminal in database environment
+
+Complex tasks are not that simple, so sometimes you have to do everything manually. For such kind of work you must start a new terminal session using `env.sh` script defined earlier. It will setup environment variables in such way, so you will be working with compiled binaries and database instance.
+
+```json
+{
+    "label": "Run terminal",
+    "detail": "Run terminal with imported environment variables specific to environment",
+    "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+    },
+    "command": "/usr/bin/sh",
+    "args": [
+        "-c",
+        ". ${workspaceFolder}/scripts/env.sh; $SHELL"
+    ],
+    "isBackground": true
+},
+```
+
+After launching this task a new shell with all PG env variables will be created.
+
+### Other scripts
+
+In `tasks.json` file you can find more predefined tasks for VS Code. They include:
+
+- Running tests (using `Ctrl + Shift + T` shortcut)
+- Managing database instance
+- Cleaning files

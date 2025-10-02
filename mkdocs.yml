@@ -1,10 +1,14 @@
 site_name: PostgreSQL Hacker Helper
 site_url: https://ashenBlade.github.io/postgres-dev-helper
+repo_url: https://github.com/ashenBlade/postgres-dev-helper
 theme: readthedocs
+strict: true
 
 nav:
 - Home: index.md
 - Configuration: configuration.md
+- PostgreSQL setup: postgresql_setup.md
+- Development scripts: dev_scripts.md
 - VS Code setup: vscode_setup.md
 - Tutorials:
   - Create extension: create_extension.md
