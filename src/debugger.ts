@@ -86,15 +86,15 @@ export function getStructNameFromType(type: string) {
     }
     
     /* Search for start of typename - it must be first space before typename */
-    let startOfIndentifier = type.lastIndexOf(' ', endOfIdentifier);
-    if (startOfIndentifier === -1) {
+    let startOfIdentifier = type.lastIndexOf(' ', endOfIdentifier);
+    if (startOfIdentifier === -1) {
         /* Type without any qualifiers */
-        startOfIndentifier = 0;
+        startOfIdentifier = 0;
     } else {
-        startOfIndentifier++;
+        startOfIdentifier++;
     }
 
-    return type.substring(startOfIndentifier, endOfIdentifier + 1);
+    return type.substring(startOfIdentifier, endOfIdentifier + 1);
 }
 
 /**
