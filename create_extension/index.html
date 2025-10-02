@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><link rel="canonical" href="https://ashenBlade.github.io/postgres-dev-helper/create_extension/" />
+      <link rel="shortcut icon" href="../img/favicon.ico" />
+    <title>Create extension - PostgreSQL Hacker Helper</title>
+    <link rel="stylesheet" href="../css/theme.css" />
+    <link rel="stylesheet" href="../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Create extension";
+        var mkdocs_page_input_path = "create_extension.md";
+        var mkdocs_page_url = "/postgres-dev-helper/create_extension/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href=".." class="icon icon-home"> PostgreSQL Hacker Helper
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../configuration/">Configuration</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Tutorials</span></p>
+              <ul class="current">
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Create extension</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#creating-initial-files">Creating initial files</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#initial-code">Initial code</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#examine-queries">Examine queries</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#is_sus_query-implementation">is_sus_query implementation</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#contains_predicates-implementation">contains_predicates implementation</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#testing">Testing</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#further-improvements">Further improvements</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#result">Result</a>
+    </li>
+    </ul>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="..">PostgreSQL Hacker Helper</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Tutorials</li>
+      <li class="breadcrumb-item active">Create extension</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="tutorial-creating-extension">Tutorial: creating extension</h1>
+<p>In this tutorial we will create extension <code>ban_sus_query</code>. It will check that DML queries contain predicates, otherwise will just throw an error.</p>
+<blockquote>
+<p>Next, in order not to mislead up, I will use term <code>contrib</code> for PostgreSQL extension, and for <code>extension</code> for PostgreSQL Hacker Helper VS Code extension.</p>
+</blockquote>
+<h2 id="creating-initial-files">Creating initial files</h2>
+<p>PostgreSQL has infrastructure for contrib building and installation. In short, contribs have a template architecture - most parts are common for all.</p>
+<p>So, for faster contrib creation we will use command: <code>PgSQL: Bootstrap extension</code>.</p>
+<p><img alt="Bootstrap extension command" src="../img/create_extension/bootstrap_extension.png" /></p>
+<p>It will prompt us to bootstrap some files - choose only C sources.</p>
+<p>After that we will have our contrib files created:</p>
+<p><img alt="README.md with directory contents" src="../img/create_extension/initial_dir_content.png" /></p>
+<h2 id="initial-code">Initial code</h2>
+<p>Query execution pipeline has 3 stages:</p>
+<ol>
+<li>Parse/Semantic analysis - query string parsing and resolving tables</li>
+<li>Plan - query optimization and creating execution plan</li>
+<li>Execution - actual query execution</li>
+</ol>
+<p>Our logic will be added to the 2 stage, because we must check real execution plan, not Query.
+This is because after multiple transformations query can be changed in multiple ways - predicates can be deleted or added, therefore we may get a completely different query than in the original query string.</p>
+<p>To implement that we will create hook on planner - <code>planner_hook</code>. Inside we will invoke actual <code>planner</code> and check it's output for the existence of predicates.</p>
+<p>Starter code is the following:</p>
+<pre><code class="language-c">#include &quot;postgres.h&quot;
+
+#include &quot;fmgr.h&quot;
+#include &quot;optimizer/planner.h&quot;
+
+#ifdef PG_MODULE_MAGIC
+PG_MODULE_MAGIC;
+#endif
+
+static planner_hook_type prev_planner_hook;
+
+void _PG_init(void);
+void _PG_fini(void);
+
+static bool
+is_sus_query(Plan *plan)
+{
+    /* ... */
+    return false;
+}
+
+static PlannedStmt *
+ban_sus_query_planner_hook(Query *parse,
+                           const char *query_string,
+                           int cursorOptions,
+                           ParamListInfo boundParams)
+{
+    PlannedStmt *stmt;
+
+    if (prev_planner_hook)
+        stmt = prev_planner_hook(parse, query_string, cursorOptions, boundParams);
+    else
+        stmt = standard_planner(parse, query_string, cursorOptions, boundParams);
+
+    if (is_sus_query(stmt-&gt;planTree))
+        ereport(ERROR,
+                (errmsg(&quot;DML query does not contain predicates&quot;)));
+
+    return stmt;
+}
+void
+_PG_init(void)
+{
+    prev_planner_hook = planner_hook;
+    planner_hook = ban_sus_query_planner_hook;
+}
+
+void
+_PG_fini(void)
+{
+    planner_hook = prev_planner_hook;
+}
+</code></pre>
+<p>Now we are ready to add "business-logic", but before let's understand how such suspicious queries look like.</p>
+<h2 id="examine-queries">Examine queries</h2>
+<p>Suspicious query - is a DELETE/UPDATE query that does not contain predicates.</p>
+<p>One of the benefits that we are checking already planned statements is that all predicates are already optimized in a sense that boolean rules are applied.</p>
+<p>Query plan - is a tree of <code>Plan</code> nodes. Each <code>Plan</code> contains <code>lefttree</code>/<code>righttree</code> - left and right children and <code>qual</code> - list of predicates to apply at this node. But we must check only UPDATE/DELETE nodes, not each node, - nodes for them is <code>ModifyTable</code>.</p>
+<p>Thus our goal is:</p>
+<blockquote>
+<p>traverse query tree, find <code>ModifyTable</code> and check that it's <code>qual</code> is not empty</p>
+</blockquote>
+<p>But, before run sample queries to look what their queries looks like (inside) and which predicates they have.</p>
+<p>For tests we will use this setup:</p>
+<pre><code class="language-sql">-- Schema
+CREATE TABLE tbl(x int);
+
+-- Test queries
+DELETE FROM tbl;
+DELETE FROM tbl WHERE x = 0;
+
+UPDATE tbl SET x = 1;
+UPDATE tbl SET x = 1 WHERE x = 0;
+</code></pre>
+<p>To do this we will use our contrib - install it using <code>make install</code>, add to <code>shared_preload_libraries='ban_sus_query'</code> and put a breakpoint to <code>return</code> in <code>ban_sus_query_planner_hook</code> function.</p>
+<p>When we run first DELETE query without predicate, we will see the following:</p>
+<ol>
+<li>
+<p><code>PlannedStmt</code> contains top-level <code>ModifyTable</code> with empty <code>qual</code> list</p>
+<p><img alt="qual is empty in ModifyTable node" src="../img/create_extension/delete_no_pred_modifytable.png" /></p>
+</li>
+<li>
+<p>Inner <code>SeqScan</code> also contains empty <code>qual</code> list</p>
+<p><img alt="qual is empty in SeqScan node" src="../img/create_extension/delete_no_pred_seqscan.png" /></p>
+</li>
+</ol>
+<p>Now run <code>DELETE</code> query with predicate:</p>
+<ol>
+<li>
+<p><code>PlannedStmt</code> still contains empty <code>qual</code> list</p>
+<p><img alt="qual is still empty in ModifyTable node" src="../img/create_extension/delete_pred_modifytable.png" /></p>
+</li>
+<li>
+<p>Inner <code>SeqScan</code> now contains <code>qual</code> with single element - equality predicate</p>
+<p><img alt="SeqScan has single equality predicate" src="../img/create_extension/delete_pred_seqscan.png" /></p>
+</li>
+</ol>
+<p>This is no surprise, because our <code>ModifyTable</code> does not apply any filtering - it just takes tuples from children (note, that by convention single-child nodes store them in <code>lefttree</code>), so it's <code>qual</code> is empty, but filtering is applied to <code>SeqScan</code> - we must check this.</p>
+<blockquote>
+<p>As you can mention, extension shows all Node variables with actual types, without showing generic <code>Plan</code> entry.
+Also extension is able to show you elements of container types (<code>List *</code> in this example).
+More than that, it renders <code>Expr</code> nodes (expressions) as it was in a query, so you do not have to manually check each field, trying to figure out what expression it is.</p>
+<p>In vanilla PostgreSQL you would have to evaluate 2 expressions: (first) get <code>NodeTag</code> and (second) cast variable to obtained <code>NodeTag</code>.
+In this example, to show <code>stmt-&gt;planTree</code> all you need to do is expand the tree node in variables explorer, but manually (without extension), you need to evaluate (i.e. in <code>watch</code>) 2 expressions/steps:</p>
+<ol>
+<li><code>((Node *)planTree)-&gt;type</code> get <code>T_ModifyTable</code> - tag of <code>ModifyTable</code> node, and then</li>
+<li><code>(ModifyTable *)planTree</code> - show variable with real type.</li>
+</ol>
+<p><img alt="Evaluate variable in watch" src="../img/create_extension/nodetag_watch.png" /></p>
+<p>Such manipulations take roughly 5 second, but, as this time accumulates, totally it can take up to 1 hour in a day - just to show variable's contents!</p>
+<p>But there is not such support for <code>Expr</code> variables - you will not see their representation.
+For this you have to dump variable to log using <code>pprint</code> function, which is not very convenient when you developing in IDE.</p>
+</blockquote>
+<p>Now we are ready to write some code.</p>
+<h2 id="is_sus_query-implementation"><code>is_sus_query</code> implementation</h2>
+<p>I repeat, our goal is to <em>traverse query tree, find <code>ModifyTable</code> and check that it's <code>qual</code> is not empty</em>, but now we can refine it:</p>
+<blockquote>
+<p>Search for <code>ModifyTable</code> in <code>Plan</code> tree and check that it's children have non-empty <code>qual</code> list</p>
+</blockquote>
+<p>As tree traversal is a recursive function, we will use 2 recursive functions:</p>
+<ul>
+<li><code>is_sus_query</code> - main function that traverses plan tree to find <code>ModifyTable</code> node, and when it finds one invokes...</li>
+<li><code>contains_predicates</code> - function that checks that this <code>Plan</code> node contains any predicate in a query</li>
+</ul>
+<p>Let's start with <code>is_sus_query</code>. All we have to do here is to check that <code>Plan</code> is a <code>ModifyTable</code> and if so, then check that it's children contain predicates.</p>
+<p>Node type checking is a frequent operation, so extension ships with some snippets - one of them is a <code>isaif</code>, which expands to <code>if(IsA())</code> check:</p>
+<p><img alt="isaif expansion" src="../img/create_extension/isaif_modifytable.png" /></p>
+<p>When we have determined, that it is a DML operation check that it is DELETE or UPDATE, because <code>ModifyTable</code> is used for other operations, i.e. <code>INSERT</code>. This is not hard - just check <code>operation</code> member.</p>
+<pre><code class="language-c">static bool
+is_sus_query(Plan *plan)
+{
+    /* ... */
+    ModifyTable *modify = (ModifyTable *)plan;
+    switch (modify-&gt;operation)
+    {
+        case CMD_UPDATE:
+        case CMD_DELETE:
+            /* Check predicates */
+            break;
+        default:
+            break;
+    }
+    /* ... */
+}
+
+</code></pre>
+<p>And now check these operations contain predicates using <code>contains_predicates</code> function (will be defined further).</p>
+<p>Also, do not forget to handle recursion: call <code>is_sus_query</code> for children and handle end case (<code>NULL</code>).</p>
+<p>The result function looks like this:</p>
+<pre><code class="language-c">static bool
+is_sus_query(Plan *plan)
+{
+    /* Recursion end */
+    if (plan == NULL)
+        return false;
+
+    if (IsA(plan, ModifyTable))
+    {
+        ModifyTable *modify = (ModifyTable *)plan;
+        switch (modify-&gt;operation)
+        {
+            case CMD_UPDATE:
+            case CMD_DELETE:
+                return !contains_predicates(modify-&gt;plan.lefttree);
+            default:
+                break;
+        }
+    }
+
+    /* Handle recursion */
+    return is_sus_query(plan-&gt;lefttree) || is_sus_query(plan-&gt;righttree);
+}
+</code></pre>
+<h2 id="contains_predicates-implementation"><code>contains_predicates</code> implementation</h2>
+<p>Now perform actual checking of the predicates existence using <code>contains_predicates</code>. Inside this function we must check that given <code>Plan</code> contains predicates.</p>
+<p>But situation is complicated by the fact that only base <code>Plan</code> is given and we do not know actual query. For example this query:</p>
+<pre><code class="language-sql">DELETE FROM t1 using t2 where t1.x = t2.x;
+</code></pre>
+<p>Will contain JOIN in <code>lefttree</code> of <code>ModifyTable</code>:</p>
+<p><img alt="Merge Join as child of ModifyTable" src="../img/create_extension/mergejoin_child_modifytable.png" /></p>
+<p>Thus we have to clarify what does <code>contains_predicates</code> must check. In order not to complicate things a lot, we will just find first node with any predicate.</p>
+<pre><code class="language-c">static bool
+contains_predicates(Plan *plan)
+{
+    if (plan == NULL)
+        return false;
+
+    if (plan-&gt;qual != NIL)
+        return true;
+
+    return contains_predicates(plan-&gt;lefttree) || contains_predicates(plan-&gt;righttree);
+}
+</code></pre>
+<h2 id="testing">Testing</h2>
+<p>First things first - test on example queries we defined above:</p>
+<pre><code class="language-sql">postgres=# delete from tbl;
+ERROR:  DML query does not contain predicates
+postgres=# delete from t1 where x = 0;
+DELETE 0
+
+postgres=# update tbl set x = 0;
+ERROR:  DML query does not contain predicates
+postgres=# update tbl set x = 0 where x = 0;
+UPDATE 0
+</code></pre>
+<p>It's working as expected.</p>
+<p>Also, as we injected our contrib as the last step, we can handle more complicated cases, like:</p>
+<pre><code class="language-sql">postgres=# delete from t1 where true;
+ERROR:  DML query does not contain predicates
+</code></pre>
+<h2 id="further-improvements">Further improvements</h2>
+<p>This is just the beginning of the contrib, because there are lot's of corner cases that are not handled.</p>
+<p>For example, if we change <code>true</code> to <code>false</code> in last query, then we still will get an <code>ERROR</code>.
+That is because the database has realized that subquery will not return anything, so replaced with "dummy" Plan - <code>Result</code> node with <code>FALSE</code> one-time check, so nothing will be returned:</p>
+<p><img alt="dummy Result Node" src="../img/create_extension/dummy_result_node.png" /></p>
+<h2 id="result">Result</h2>
+<p>So far we have seen how you can quickly create new contrib using single command that will create all necessary files.</p>
+<p>To write some templated code, we used <code>isaif</code> snippet to quickly add check for Node type.</p>
+<p>Also, we have traversed query plan tree and saw it's nodes, without requirement to obtain <code>NodeTag</code> and cast to given type, which incredibly boosts performance.</p>
+<p>And like the icing on the cake we saw expression representations of predicates. For our purposes this is not a very big deal, because query contained only 1 predicate, but in large queries with dozens of different predicates it's just a lifesaver.</p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../configuration/" class="btn btn-neutral float-left" title="Configuration"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href="../configuration/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+  </span>
+</div>
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>
