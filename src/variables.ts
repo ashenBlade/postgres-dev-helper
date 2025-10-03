@@ -4,7 +4,9 @@ import * as constants from './constants';
 import * as dbg from './debugger';
 import { Log as logger } from './logger';
 import { PghhError, EvaluationError, unnullify } from './error';
-import { Configuration, VsCodeSettings } from './configuration';
+import { Configuration,
+         getWorkspaceFolder,
+         getWorkspacePgSrcFile, VsCodeSettings } from './configuration';
 
 export interface AliasInfo {
     /* Declared type */
@@ -392,6 +394,16 @@ interface ExecContextData {
 };
 
 /**
+ * Which executable we are debugging
+ */
+enum ExecutableType {
+    /* Main 'postgres' executable */
+    Server,
+    /* Frontend utils: pg_ctl, pg_waldump, initdb, etc... */
+    Frontend,
+};
+
+/**
  * Context of current execution.
  */
 export class ExecContext {
@@ -512,18 +524,33 @@ export class ExecContext {
     hasOidOutputFunctionCall = true;
     
     /**
+     * Which executable we are debugging: 'postgres' or frontend utility
+     */
+    executableType: ExecutableType;
+    
+    get isFrontend() {
+        return this.executableType === ExecutableType.Frontend;
+    }
+    
+    get isServer() {
+        return this.executableType === ExecutableType.Server;
+    }
+    
+    /**
      * Current debugger can understand macros and use their actual values.
      * 
      * In example, to show enum values defined by macros in `t_infomask`
      */
     canUseMacros = true;
 
-    constructor(debug: dbg.IDebuggerFacade, data: ExecContextData, pgversion: number | undefined) {
+    constructor(debug: dbg.IDebuggerFacade, data: ExecContextData,
+                pgversion: number | undefined, executableType: ExecutableType) {
         this.debug = debug;
         this.nodeVarRegistry = data.nodeVars;
         this.specialMemberRegistry = data.specialMembers;
         this.hashTableTypes = data.hashTables;
         this.pgversion = pgversion;
+        this.executableType = executableType;
     }
 
     async getCurrentFunctionName() {
@@ -572,7 +599,7 @@ export class ExecContext {
         if (version < 11_00_00) {
             this.hasGetAttname3 = false;
         }
-        
+
         if (version <  8_01_00) {
             this.hasOidOutputFunctionCall = false;
         }
@@ -1326,6 +1353,7 @@ export class RealVariable extends Variable {
         }
 
         try {
+            /* TODO: we can be in FRONTEND, so we can not invoke function */
             const result = await this.directFunctionCall('pg_lsn_out', 'char *', this.value);
             const ptr = this.debug.extractPtrFromString(result);
             if (!ptr) {
@@ -5361,6 +5389,14 @@ class FlagsMemberVariable extends RealVariable {
     }
 }
 
+function pgVersionIsValid(version: number) {
+    /*
+     * PG_VERSION_NUM is a 6 digit number in form: MAJOR_MINOR_PATCH,
+     * so perform not only Integer check, but also a value range.
+     */
+    return Number.isInteger(version) && 1_00_00 < version && version < 99_99_99;
+}
+
 export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable>, vscode.Disposable {
     constructor(private config: Configuration) { }
     
@@ -5493,28 +5529,63 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         }
     }
 
-    async tryGetPgVersion(frameId: number) {
-        try {
-            const result = await this.getDebug().evaluate('server_version_num', frameId);
-            const version = Number(result.result);
-            if (!Number.isInteger(version) || !(0 <= version && version <= 999999)) {
-                logger.warn('server_version_num has unexpected result: %s', result.result);
-                return undefined;
-            }
-
-            return version;
-        } catch (err) {
-            logger.warn('could not get value of "server_version_num"', err);
+    async tryGetServerVersionNumGuc(frameId: number) {
+        const result = await this.getDebug().evaluate('server_version_num', frameId);
+        const pgversion = Number(result.result);
+        if (!pgVersionIsValid(pgversion)) {
+            logger.warn('"server_version_num" is not valid: %s', result.result);
             return undefined;
         }
+
+        return pgversion;
+    }
+    
+    async tryGetPgVersionNumPgConfig() {
+        const path = getWorkspacePgSrcFile(
+            getWorkspaceFolder(), 'src', 'include', 'pg_config.h');
+        
+        let text;
+        try {
+            const doc = await vscode.workspace.openTextDocument(path);
+            text = doc.getText();
+        } catch (err) {
+            logger.error('could not open pg_config.h file %s', path.fsPath, err);
+            return;
+        }
+    
+        /*
+         * Assume there are no other entries with the same name
+         * in the generated pg_config.h file, so no check in loop.
+         */
+        const macro = 'PG_VERSION_NUM';
+        const macroIndex = text.indexOf(macro);
+        if (macroIndex === -1) {
+            return;
+        }
+        
+        /* Next character must be space, so skip it right away */
+        let start = macroIndex + macro.length + 1;
+        while (   start < text.length
+               && isSpace(text[start])) {
+            start++;
+        }
+    
+        let end = start + 1;
+        while (   end < text.length
+               && !isSpace(text[end])) {
+            end++;
+        }
+        
+        const versionString = text.substring(start, end);
+        const version = Number(versionString);
+        if (!pgVersionIsValid(version)) {
+            logger.warn('parsed PG_VERSION_NUM "%s" is not valid', versionString);
+            return;
+        }
+        
+        return version;
     }
 
-    /* 
-     * Cached pair [Cached type info, PG version] from previous run.
-     * Can be used only if configuration file have not changed since previous run.
-     */
-    private cachedTypes?: [ExecContextData, number];
-    
     async createExecContext(pgversion: number | undefined): Promise<ExecContextData> {
         const specialMembers = new SpecialMemberRegistry();
         specialMembers.addArraySpecialMembers(constants.getArraySpecialMembers());
@@ -5549,11 +5620,18 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
             nodeVars,
         };
     }
-    
+
+    /* 
+     * Cached pair [Cached type info, PG version] from previous run.
+     * Can be used only if configuration file have not changed since previous run.
+     */
+    private cachedTypes?: [ExecContextData, number];
+
     tryGetCache(pgversion: number) {
         /*
          * We can use cache only if configuration have not changed AND 
-         * we are debugging the same PG version
+         * we are debugging the same PG version (executable type may not
+         * be checked).
          */
         if (   this.cachedTypes?.[1] === pgversion
             && !this.config.isDirty()) {
@@ -5561,10 +5639,62 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         }
     }
 
+    async getDebugContext(frameId: number) {
+        /* 
+         * For correct initialization we must know PG version, so
+         * some version-dependent type information is initialized
+         * correctly.
+         * 
+         * Also, in some cases we must know which executable we are
+         * debugging: 'postgres' server or frontend utility.
+         * 
+         * We derive executable type from the place where we got
+         * pg version, because "server_version_num" is only available
+         * at the server.
+         */
+        let pgversion;
+
+        try {
+            pgversion = await this.tryGetServerVersionNumGuc(frameId);
+        } catch (err) {
+            logger.error('could not get "server_version_num" GUC', err);
+        }
+
+        if (pgversion) {
+            return {
+                pgversion,
+                isServer: true,
+            };
+        }
+        
+        try {
+            pgversion = await this.tryGetPgVersionNumPgConfig();
+        } catch (err) {
+            logger.error('could not parse pg_config.h file for PG_VERSION_NUM', err);
+        }
+
+        if (pgversion) {
+            return {
+                pgversion,
+                isServer: false,
+            };
+        }
+
+        /*
+         * This is a safe default value which will disable many features
+         * and make our work more "safe", because we will not touch many
+         * things.
+         */
+        return {
+            pgversion: undefined,
+            isServer: false,
+        };
+    }
+    
     async getExecContext(frameId: number) {
         let data: ExecContextData | undefined;
+        const {pgversion, isServer} = await this.getDebugContext(frameId);
 
-        const pgversion = await this.tryGetPgVersion(frameId);
         if (pgversion) {
             logger.debug('detected PostgreSQL version: %i', pgversion);
             data = this.tryGetCache(pgversion);
@@ -5581,7 +5711,8 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
             }
         }
 
-        const context = new ExecContext(this.getDebug(), data, pgversion);
+        const exeType = isServer ? ExecutableType.Server : ExecutableType.Frontend;
+        const context = new ExecContext(this.getDebug(), data, pgversion, exeType);
         if (pgversion) {
             this._onDidDebugStart.fire(context);
         }
