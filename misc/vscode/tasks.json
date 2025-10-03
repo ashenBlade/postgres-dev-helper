@@ -141,9 +141,12 @@
     "inputs": [
         {
             "id": "threads",
+            // 8 is the value which is expected to be on most
+            // modern PCs and you can add your values here,
+            // i.e. set max number of cores (get using `nproc`).
             "type": "pickString",
-            "options": [ "1", "2", "3", "4", "5", "6", "7", "8", "31" ],
-            "default": "31",
+            "options": [ "1", "2", "3", "4", "5", "6", "7", "8" ],
+            "default": "8",
             "description": "Number of threads to use"        
         }
     ]
