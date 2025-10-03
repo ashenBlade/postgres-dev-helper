@@ -707,6 +707,74 @@ async function formatBitmask(v: Variable) {
     return bitmask;
 }
 
+async function rangeTblEntryDescriptionFormatter(v: Variable) {
+    const nv = v as NodeVariable;
+    const getAliasName = async (member: string) => {
+        const alias = await nv.getRealMember(member);
+        if (nv.debug.isNull(alias)) {
+            /* Alias can be NULL and this is ok */
+            return;
+        }
+
+        const aliasname = await alias.getMember('aliasname');
+        if (!aliasname) {
+            return;
+        }
+
+        return nv.debug.extractString(aliasname);
+    };
+
+    let alias;
+    
+    try {
+        alias = await getAliasName('alias');
+    } catch {
+        /* 'alias' is non-NULL only if alias is specified by user */
+    }
+
+    if (alias) {
+        return alias;
+    }
+    
+    /* Make another attempt, but now read 'eref' which must exist */
+    try {
+        /* Return 'undefined' instead of 'null' to fit function signature */
+        return await getAliasName('eref') ?? undefined;
+    } catch (err) {
+        logger.error('could not get string value of "eref" and "alias"', err);
+    }
+}
+
+function getNodeVariableDescriptionFormatter(nodetag: string) {
+    let member;
+    switch (nodetag) {
+        case 'TargetEntry':
+            member = 'expr';
+            break;
+        case 'EquivalenceMember':
+            member = 'em_expr';
+            break;
+        case 'RestrictInfo':
+            member = 'clause';
+            break;
+    }
+
+    if (member) {
+        /* XXX: we can define 3 specialized functions for each case */
+        return async (v: Variable) => {
+            const nv = v as NodeVariable;
+            const m = await nv.getMember(member);
+            if (m instanceof ExprNodeVariable) {
+                return await m.getRepr();
+            }
+        };
+    }
+
+    if (nodetag === 'RangeTblEntry') {
+        return rangeTblEntryDescriptionFormatter;
+    }
+}
+
 function isValidMemoryContextTag(tag: string) {
     /*
      * Different versions has different algorithms (tags)
@@ -1871,7 +1939,7 @@ export class NodeVariable extends RealVariable {
          * 
          * So, this is the only suitable place for such logic.
          */
-        args.formatter = ExprNodeVariable.getExprReprDescriptionFormatter(realTag);
+        args.formatter = getNodeVariableDescriptionFormatter(realTag);
 
         /* Expressions with it's representation */
         if (context.nodeVarRegistry.exprs.has(realTag)) {
@@ -3575,32 +3643,6 @@ class ExprNodeVariable extends NodeVariable {
         const children = await super.doGetChildren() ?? [];
         children.unshift(exprVariable);
         return children;
-    }
-    
-    static getExprReprDescriptionFormatter(nodetag: string) {
-        let member;
-        switch (nodetag) {
-            case 'TargetEntry':
-                member = 'expr';
-                break;
-            case 'EquivalenceMember':
-                member = 'em_expr';
-                break;
-            case 'RestrictInfo':
-                member = 'clause';
-                break;
-        }
-
-        if (member) {
-            /* XXX: we can define 3 specialized functions for each case */
-            return async (v: Variable) => {
-                const nv = v as NodeVariable;
-                const m = await nv.getMember(member);
-                if (m instanceof ExprNodeVariable) {
-                    return await m.getRepr();
-                }
-            };
-        }
     }
 }
 
