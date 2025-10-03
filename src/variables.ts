@@ -5756,6 +5756,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         const exeType = isServer ? ExecutableType.Server : ExecutableType.Frontend;
         const context = new ExecContext(this.getDebug(), data, pgversion, exeType);
         if (pgversion) {
+            context.adjustProperties(pgversion);
             this._onDidDebugStart.fire(context);
         }
 
