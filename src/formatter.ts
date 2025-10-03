@@ -534,10 +534,6 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
                                          _options: vscode.FormattingOptions,
                                          _token: vscode.CancellationToken) {
         const workspace = getWorkspaceFolder();
-        if (!workspace) {
-            throw new Error('No workspaces opened');
-        }
-
         logger.debug('formatting document: %s', document.uri.fsPath);
         let indented;
         try {
@@ -575,11 +571,6 @@ export async function showFormatterDiffCommand(formatter: PgindentDocumentFormat
 
     const document = vscode.window.activeTextEditor.document;
     const workspace = getWorkspaceFolder();
-    if (!workspace) {
-        vscode.window.showWarningMessage('Open workspace before running formatting');
-        return;
-    }
-
     let parsed;
     try {
         parsed = await formatter.indentFileWithTemp(workspace, document);

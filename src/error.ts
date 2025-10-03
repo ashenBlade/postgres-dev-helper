@@ -21,3 +21,9 @@ export function unnullify<T>(arg: T | undefined | null, name: string): T {
     
     throw new AssumptionError(`${name} is null or undefined`);
 }
+
+export class WorkspaceNotOpenedError extends PghhError {
+    constructor() {
+        super('No workspace opened');
+    }
+}

@@ -5,7 +5,7 @@ import * as vars from './variables';
 import * as utils from './utils';
 import * as dbg from './debugger';
 import { Log as logger } from './logger';
-import { PghhError } from './error';
+import { WorkspaceNotOpenedError } from './error';
 
 export interface VariablesConfiguration {
     /* Array special members */
@@ -649,10 +649,15 @@ async function writeConfigFile(config: ConfigurationFile, file: vscode.Uri) {
     await utils.writeFile(file, data);
 }
 
+/**
+ * Get vscode.Uri of currently opened workspace.
+ * 
+ * @throws { WorkspaceNotOpenedError } if no workspaces opened
+ */
 export function getWorkspaceFolder() {
     const folders = vscode.workspace.workspaceFolders;
     if (!folders?.length) {
-        return;
+        throw new WorkspaceNotOpenedError();
     }
     
     /* 
@@ -702,10 +707,6 @@ export class Configuration {
     
     async refreshConfig() {
         const workspace = getWorkspaceFolder();
-        if (!workspace) {
-            return;
-        }
-
         const path = getExtensionConfigFile(workspace);
 
         let config;
@@ -732,10 +733,6 @@ export class Configuration {
     
     async mutate(mutator: (config: ConfigurationFile) => void) {
         const workspace = getWorkspaceFolder();
-        if (!workspace) {
-            throw new PghhError('Workspace is not opened');
-        }
-
         const file = getExtensionConfigFile(workspace);
         const configFile = await this.getConfigRefresh() ?? createEmptyConfigurationFile();
         mutator(configFile);
@@ -853,14 +850,18 @@ export function setupConfiguration(context: vscode.ExtensionContext) {
         watcher.onDidDelete(markDirty, undefined, context.subscriptions);  
     };
 
-    const folder = getWorkspaceFolder();
-    if (folder) {
+    try {
+        const folder = getWorkspaceFolder();
         registerFolderWatcher(folder);
-    } else {
-        const d = vscode.workspace.onDidChangeWorkspaceFolders(e => {
-            d.dispose();
-            e.added.forEach(f => registerFolderWatcher(f.uri));
-        }, undefined, context.subscriptions);
+    } catch (err) {
+        if (err instanceof WorkspaceNotOpenedError) {
+            const d = vscode.workspace.onDidChangeWorkspaceFolders(e => {
+                d.dispose();
+                e.added.forEach(f => registerFolderWatcher(f.uri));
+            }, undefined, context.subscriptions);   
+        } else {
+            logger.error('unknown error during registering config file fs watcher', err);
+        }
     }
 
     /* VS Code configuration changes quiet rarely, so it's also cached */
@@ -890,11 +891,6 @@ export async function openConfigFileCommand() {
      * because we will be notified of changes by fs watcher.
      */
     const folder = getWorkspaceFolder();
-    if (!folder) {
-        vscode.window.showInformationMessage('No workspaces found - open directory first');
-        return;
-    }
-
     const configFilePath = getExtensionConfigFile(folder);
     /* Create default configuration file if not exists */
     if (!await utils.fileExists(configFilePath)) {

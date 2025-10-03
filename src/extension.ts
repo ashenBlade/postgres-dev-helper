@@ -18,6 +18,7 @@ import { PgindentDocumentFormatterProvider,
          setupFormatting } from './formatter';
 import * as formatter from './formatter';
 import { Log as logger } from './logger';
+import { WorkspaceNotOpenedError } from './error';
 
 function createDebuggerFacade(type: string, provider: vars.PgVariablesViewProvider): dbg.GenericDebuggerFacade | undefined {
     let debug;
@@ -546,6 +547,10 @@ function registerCommands(context: vscode.ExtensionContext,
                 logger.debug('executing command %s', name);
                 return await command(...args);
             } catch (err) {
+                if (err instanceof WorkspaceNotOpenedError) {
+                    vscode.window.showInformationMessage('Open workspace before executing command');
+                }
+
                 logger.error('failed to execute command %s', name, err);
                 throw err;
             }
