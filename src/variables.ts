@@ -707,6 +707,28 @@ async function formatBitmask(v: Variable) {
     return bitmask;
 }
 
+function isValidMemoryContextTag(tag: string) {
+    /*
+     * Different versions has different algorithms (tags)
+     * for memory allocations.
+     * We check all of them, without knowledge of pg version.
+     *
+     * In comments you will see version when it was introduced
+     * (AllocSetContext was here forever).
+     */
+    switch (tag) {
+        case 'T_AllocSetContext':
+        case 'T_SlabContext':       /* 10 */
+        case 'T_GenerationContext': /* 11 */
+        case 'T_BumpContext':       /* 17 */
+            return true;
+    }
+
+    /* This is T_Invalid or something else */
+    return false;
+};
+
+
 export abstract class Variable {
     /**
      * Raw variable name (variable/struct member)
@@ -1144,29 +1166,13 @@ export abstract class Variable {
     }
 
     private async isSafeToAllocateMemory() {
-        const isValidMemoryContextTag = (tag: string) => {
-            /*
-             * Different versions has different algorithms (tags)
-             * for memory allocations.
-             * We check all of them, without knowledge of pg version.
-             *
-             * In comments you will see version when it was introduced
-             * (AllocSetContext was here forever).
-             */
-            switch (tag) {
-                case 'T_AllocSetContext':
-                case 'T_SlabContext':       /* 10 */
-                case 'T_GenerationContext': /* 11 */
-                case 'T_BumpContext':       /* 17 */
-                    return true;
-                default:
-                    /* This is T_Invalid or something else */
-                    return false;
-            }
-        };
-        
         if (this.context.step.isSafeToAllocateMemory !== undefined) {
             return this.context.step.isSafeToAllocateMemory;
+        }
+        
+        if (this.context.isFrontend) {
+            /* Frontend does not have CurrentMemoryContext */
+            return this.context.step.isSafeToAllocateMemory = true;;
         }
 
         const T_Invalid = this.debug.formatEnumValue('NodeTag', 'T_Invalid');
@@ -1369,6 +1375,8 @@ export class RealVariable extends Variable {
             frameId: this.frameId,
             parent: this.parent,
             context: this.context,
+            /* Do not inherit descriptionFormatter - it is type specific */
+            formatter: undefined,
         };
     }
 
@@ -4682,8 +4690,8 @@ class ValueVariable extends NodeVariable {
      * Get string value if node is T_String.
      *
      * @returns `string` value or `null` if it was NULL
-     * @throws EvaluationError if current Node is not T_String or errors
-     * during evalution occured
+     * @throws {EvaluationError} if current Node is not T_String or errors
+     * during evaluation occurred
      */
     async getStringValue() {
         if (!this.isString()) {
@@ -4815,11 +4823,8 @@ class HTABElementsMember extends Variable {
         this.entryType = entryType;
     }
 
-    async getTreeItem() {
-        return {
-            label: '$elements$',
-            collapsibleState: vscode.TreeItemCollapsibleState.Collapsed,
-        };
+    protected isExpandable(): boolean {
+        return true;
     }
 
     private async createHashSeqStatus(): Promise<string | undefined> {
@@ -5052,12 +5057,9 @@ class SimplehashElementsMember extends Variable {
               hashTable);
         this.hashTable = hashTable;
     }
-
-    async getTreeItem() {
-        return {
-            label: '$elements$',
-            collapsibleState: vscode.TreeItemCollapsibleState.Collapsed,
-        };
+    
+    protected isExpandable(): boolean {
+        return true;
     }
 
     /* TODO: no need to cache these */
