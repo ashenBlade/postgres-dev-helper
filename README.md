@@ -125,7 +125,7 @@ Feature supported for PostgreSQL starting from 10 version.
 > Primary tool required is `pg_bsd_indent` - extension will try to build it.
 > For this `pg_config` is used, but if extension fails to find it you will be prompted to enter path to it.
 
-Using command `PgSQL: Show diff preview for PostgreSQL formatter` you can
+Using command `PGHH: Show diff preview for PostgreSQL formatter` you can
 preview changes made by formatter.
 
 Also, you can add your custom `typedefs.list` files and extension will use it during formatting (`"typedefs"`). For more info check [documentation](docs/config_file.md#custom-typedefslist-files).

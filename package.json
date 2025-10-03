@@ -45,68 +45,68 @@
                 "command": "postgresql-hacker-helper.dumpNodeToLog",
                 "title": "Dump Node to stdout",
                 "shortTitle": "Dump Node to stdout",
-                "category": "PgSQL"
+                "category": "PGHH"
             },
             {
                 "command": "postgresql-hacker-helper.dumpNodeToDoc",
                 "title": "Dump Node to document",
                 "shortTitle": "Dump Node to document",
-                "category": "PgSQL"
+                "category": "PGHH"
             },
             {
                 "command": "postgresql-hacker-helper.openConfigurationFile",
                 "title": "Open or create configuration file (JSON)",
                 "shortTitle": "Open configuration file",
-                "category": "PgSQL"
+                "category": "PGHH"
             },
             {
                 "command": "postgresql-hacker-helper.refreshPostgresVariablesView",
                 "title": "Refresh Postgres variables view",
                 "shortTitle": "Refresh variables view",
-                "category": "PgSQL",
+                "category": "PGHH",
                 "icon": "$(refresh)"
             },
             {
                 "command": "postgresql-hacker-helper.refreshConfigFile",
                 "title": "Refresh configuration file",
                 "shortTitle": "Refresh config file",
-                "category": "PgSQL"
+                "category": "PGHH"
             },
             {
                 "command": "postgresql-hacker-helper.formatterShowDiff",
                 "title": "Show diff preview for PostgreSQL formatter",
                 "shortTitle": "Diff PostgreSQL formatter",
-                "category": "PgSQL"
+                "category": "PGHH"
             },
             {
                 "command": "postgresql-hacker-helper.formatterFindTypedefsList",
                 "title": "Find custom typedefs.list in repository",
                 "shortTitle": "Find typedefs.list",
-                "category": "PgSQL"
+                "category": "PGHH"
             },
             {
                 "command": "postgresql-hacker-helper.bootstrapExtension",
                 "title": "Bootstrap extension",
                 "shortTitle": "Bootstrap extension",
-                "category": "PgSQL"
+                "category": "PGHH"
             },
             {
                 "command": "postgresql-hacker-helper.addVariableToWatch",
                 "title": "Add Variable to Watch",
                 "shortTitle": "Add to Watch",
-                "category": "PgSQL"
+                "category": "PGHH"
             },
             {
                 "command": "postgresql-hacker-helper.getVariables",
                 "title": "Get all variables currently shown in PostgreSQL variables view",
                 "shortTitle": "Get Postgres variables",
-                "category": "PgSQL"
+                "category": "PGHH"
             },
             {
                 "command": "postgresql-hacker-helper.getTreeViewProvider",
                 "title": "Get TreeViewProvider object that manages Postgres variables view",
                 "shortTitle": "Get TreeViewProvider",
-                "category": "PgSQL"
+                "category": "PGHH"
             }
         ],
         "menus": {

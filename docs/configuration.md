@@ -36,9 +36,9 @@ There are 4 settings:
 
 Extension has config file with custom settings - `.vscode/pgsql_hacker_helper.json`.
 
-You can create file manually or using command `PgSQL: Open or create configuration file`. Json schema will assist you while editing.
+You can create file manually or using command `PGHH: Open or create configuration file`. Json schema will assist you while editing.
 
-Extension tracks changes in the file and rereads it, when necessary. Also, you can run `PgSQL: Refresh configuration file` command.
+Extension tracks changes in the file and rereads it, when necessary. Also, you can run `PGHH: Refresh configuration file` command.
 
 > NOTE: after debug session have started changes in configuration file will not be reflected.
 
@@ -451,4 +451,4 @@ Example:
 
 For convenience, if you will try to format file in contrib's directory, extension will try to detect `typedefs.list` in it without specifying it explicitly in configuration file. I.e. if you are formatting file `contrib/my_ext/my_ext.c`, then extension will probe `contrib/my_ext/typedefs.list`.
 
-> There is handy command `PgSQL: Find custom typedefs.list in repository` that will execute shell command to find all `*typedefs.list` files in repository.
+> There is handy command `PGHH: Find custom typedefs.list in repository` that will execute shell command to find all `*typedefs.list` files in repository.

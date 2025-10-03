@@ -8,7 +8,7 @@ In this tutorial we will create extension `ban_sus_query`. It will check that DM
 
 PostgreSQL has infrastructure for contrib building and installation. In short, contribs have a template architecture - most parts are common for all.
 
-So, for faster contrib creation we will use command: `PgSQL: Bootstrap extension`.
+So, for faster contrib creation we will use command: `PGHH: Bootstrap extension`.
 
 ![Bootstrap extension command](img/create_extension/bootstrap_extension.png)
 
