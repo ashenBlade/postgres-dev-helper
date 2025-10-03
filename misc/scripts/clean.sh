@@ -53,7 +53,7 @@ while [[ "$1" ]]; do
     shift
 done
 
-set -e -o pipefile
+set -e -o pipefail
 
 source "$(dirname ${BASH_SOURCE[0]:-$0})/utils.sh"
 source_env_file
@@ -71,7 +71,7 @@ fi
 if [[ -n "$DATABASE" ]]; then
     case "$(get_cluster_status)" in
         "3")
-            echo "Removing database files =============================>"
+            echo "Removing database files"
             rm -rf "$PGDATA"
             ;;
         "0")
