@@ -1437,6 +1437,8 @@ export function getArraySpecialMembers(): ArraySpecialMemberInfo[] {
         _('PartitionScheme', 'parttyplen', 'partnatts'),
         _('PartitionScheme', 'parttypbyval', 'partnatts'),
 
+        _('EquivalenceClass', 'ec_childmembers', 'ec_childmembers_size'),
+
         /* src/include/nodes/execnodes.h */
         _('ResultRelInfo', 'ri_IndexRelationInfo', 'ri_NumIndices'),
         _('ResultRelInfo', 'ri_TrigWhenExprs', 'ri_TrigDesc->numtriggers'),
@@ -1765,6 +1767,10 @@ export function getArraySpecialMembers(): ArraySpecialMemberInfo[] {
         /* src/include/utils/geo_decls.h */
         _('PATH', 'p', 'npts'),
         _('POLYGON', 'p', 'npts'),
+        
+        /* src/include/utils/lsyscache.h */
+        _('AttStatsSlot', 'values', 'nvalues'),
+        _('AttStatsSlot', 'nnumbers', 'numbers'),
 
         /* src/include/executor/execParallel.h */
         _('ParallelExecutorInfo', 'reader', 'pcxt->nworkers_launched'),
@@ -1954,6 +1960,8 @@ export function getArraySpecialMembers(): ArraySpecialMemberInfo[] {
         /* src/bin/pg_upgrade/pg_upgrade.h */
         _('OSInfo', 'old_tablespaces', 'num_old_tablespaces'),
         _('OSInfo', 'libraries', 'num_libraries'),
+        
+        _('ClusterInfo', 'tablespaces', 'num_tablespaces'),
 
         /* src/bin/pg_dump/pg_dump.h */
         _('TableInfo', 'parents', 'numParents'),
@@ -2143,6 +2151,7 @@ export function getWellKnownHTABTypes(): HtabEntryInfo[] {
         type('plperl_interp_desc', 'query_hash', 'plperl_query_entry *'),
         type('PgStat_StatDBEntry', 'tables', 'PgStat_StatTabEntry *'),
         type('PgStat_StatDBEntry', 'functions', 'PgStat_StatFuncEntry *'),
+        type('PlannerGlobal', 'rel_notnullatts_hash', 'NotnullHashEntry *'),
     ];
 };
 
@@ -2157,6 +2166,7 @@ export function getWellKnownSimpleHashTableTypes(): SimplehashEntryInfo[] {
         type('pagetable', 'PagetableEntry *'),
         type('pgstat_entry_ref_hash', 'PgStat_EntryRefHashEntry *'),
         type('tuplehash', 'TupleHashEntryData *'),
+        type('derives', 'ECDerivesEntry *'),
 
         /* 
          * These simple hash tables have iteration logic trimmed,
@@ -2379,6 +2389,10 @@ function getVersionedFlagMembers() {
 
         /* src/include/access/skey.h */
         _('ScanKeyData', 'sk_flags', [
+            /*
+             * Actually, there are more flags - different AMs can use
+             * private part (higher digits), i.e. SK_BT_MINVAL in nbtree.h
+             */
             to(8_01_00, [
                 ['SK_ISNULL',		'0x0001'],
                 ['SK_UNARY',		'0x0002'],
@@ -3866,6 +3880,14 @@ function getVersionedFlagMembers() {
                 ['XACT_COMPLETION_FORCE_SYNC_COMMIT', '(1U << 31)'],
             ]),
         ])),
+        
+        /* src/include/replication/walsender_private.h */
+        _('WalSndCtlData', 'sync_standbys_status', [
+            from(17_00_00, [
+                ['SYNC_STANDBY_INIT',			'(1 << 0)'],
+                ['SYNC_STANDBY_DEFINED',		'(1 << 1)'],
+            ]),
+        ]),
 
         /* src/tsearch2/ispell/spell.h */
         ...[
