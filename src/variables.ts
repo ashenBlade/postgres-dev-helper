@@ -649,6 +649,64 @@ function isExpectedError(error: unknown) {
            || (error instanceof Error && error?.name === 'CodeExpectedError');
 }
 
+/* Custom description formatter functions */
+
+/* 
+ * Check that given XLogRecPtr variable can be formatted
+ * using 'pg_lsn_out' function.
+ */
+function shouldFormatXLogRecPtr(v: dap.DebugVariable, context: ExecContext) {
+    /* 
+     * In old pg versions XLogRecPtr stored as structure, so
+     * there is no need to invoke 'pg_lsn_out'.
+     * Also, current executable must be a server, because to invoke target
+     * function DirectFunctionCall is used ('pg_lsn_out' is an sql function).
+     */
+    return Number.isInteger(Number(v.value)) && context.isServer;
+}
+
+/** 
+ * Format XLogRecPtr in File/Offset form using 'pg_lsn_out' function.
+ *
+ * Before using this perform check using {@link shouldFormatXLogRecPtr}
+ */
+async function formatXLogRecPtr(v: Variable) {
+    const debug = v.debug;
+    const result = await v.directFunctionCall('pg_lsn_out', 'char *', v.value);
+    const ptr = debug.extractPtrFromString(result);
+    if (!ptr) {
+        return;
+    }
+
+    await v.pfree(ptr);
+    const format = debug.extractString(result);
+    if (!format) {
+        return;
+    }
+
+    return format;
+}
+
+/*
+ * Format bitmask types, i.e. bitmapword or bits8
+ */
+async function formatBitmask(v: Variable) {
+    const value = Number(v.value);
+    if (Number.isNaN(value)) {
+        return;
+    }
+
+    let bitmask = value.toString(2);
+
+    /* 
+     * Pad length to nearest power of 2, so it is easier to compare
+     * multiple bitmapwords lying together.
+     */
+    const length = Math.pow(2, Math.ceil(Math.log2(bitmask.length)));
+    bitmask = bitmask.padStart(length, '0');
+    return bitmask;
+}
+
 export abstract class Variable {
     /**
      * Raw variable name (variable/struct member)
@@ -879,9 +937,14 @@ export abstract class Variable {
                 }
             }
             
-            if (effectiveType === 'bitmapword') {
+            if (effectiveType === 'bitmapword' || effectiveType === 'bits8') {
                 /* Show bitmapword as bitmask, not integer */
-                return new BitmapwordVariable(args);
+                args.formatter = formatBitmask;
+            }
+            
+            if (   effectiveType === 'XLogRecPtr'
+                && shouldFormatXLogRecPtr(debugVariable, context)) {
+                args.formatter = formatXLogRecPtr;
             }
 
             return new RealVariable(args);
@@ -1231,6 +1294,8 @@ class ScalarVariable extends Variable {
     }
 }
 
+type DescriptionFormatter = (variable: Variable) => Promise<string | undefined>;
+
 /* Utility structure used to reduce the number of function arguments */
 interface RealVariableArgs {
     memoryReference?: string;
@@ -1242,6 +1307,7 @@ interface RealVariableArgs {
     frameId: number;
     parent?: Variable;
     context: ExecContext;
+    formatter?: DescriptionFormatter;
 }
 
 /**
@@ -1276,6 +1342,12 @@ export class RealVariable extends Variable {
      * I.e. get subvariables
      */
     variablesReference: number;
+    
+    /**
+     * Formatter function that will parse given Variable instance
+     * using custom, type-specific logic.
+     */
+    descriptionFormatter: DescriptionFormatter | undefined;
 
     constructor(args: RealVariableArgs) {
         super(args.name, args.value, args.type, args.declaredType, 
@@ -1283,6 +1355,7 @@ export class RealVariable extends Variable {
         this.memoryReference = args.memoryReference;
         this.variablesReference = args.variablesReference;
         this.parent = args.parent;
+        this.descriptionFormatter = args.formatter;
     }
 
     getRealVariableArgs(): RealVariableArgs {
@@ -1341,35 +1414,16 @@ export class RealVariable extends Variable {
         this.realMembersCache = await this.doGetRealMembers();
         return this.realMembersCache;
     }
-    
+
     async getDescription() {
-        /*
-         * We want to display XLogRecPtr (LSN) in File/Offset form, not
-         * plain integers, but up to 9.3 LSN was represented by a struct,
-         * so add check for integer type.
-         */
-        if (!(this.type === 'XLogRecPtr' && Number.isInteger(Number(this.value)))) {
-            return await super.getDescription();
-        }
-
-        try {
-            /* TODO: we can be in FRONTEND, so we can not invoke function */
-            const result = await this.directFunctionCall('pg_lsn_out', 'char *', this.value);
-            const ptr = this.debug.extractPtrFromString(result);
-            if (!ptr) {
-                return await super.getDescription();
-            }
-
-            await this.pfree(ptr);
-            const format = this.debug.extractString(result);
-            if (!format) {
-                return await super.getDescription();
-            }
-
-            return format;
-        } catch (err) {
-            if (!(err instanceof EvaluationError)) {
-                throw err;
+        if (this.descriptionFormatter) {
+            try {
+                const description = await this.descriptionFormatter(this);
+                if (description) {
+                    return description;
+                }
+            } catch (err) {
+                logger.error('could not invoke custom formatter', err);
             }
         }
         
@@ -1790,6 +1844,7 @@ export class NodeVariable extends RealVariable {
 
         /* List */
         if (ListNodeVariable.listInfo.has(realTag)) {
+            /* TODO: check manually - Map is too small */
             return new ListNodeVariable(realTag, args);
         }
 
@@ -1798,20 +1853,18 @@ export class NodeVariable extends RealVariable {
             return new BitmapSetSpecialMember(args);
         }
 
-        /* Display expressions in EquivalenceMember and RestrictInfo */
-        if (realTag === 'TargetEntry') {
-            /* TargetEntry should be checked before 'exprs' - see class comment */
-            return new TargetEntryVariable(args);
-        }
-        
-        if (realTag === 'EquivalenceMember') {
-            return new DisplayExprReprVariable(realTag, 'em_expr', args);
-        }
+        /*
+         * Search custom formatter for $expr$ children. Do it now, because
+         *
+         * 1. previous types do not have custom formatter and
+         * 2. next, ExprNodeVariable is created which also can have custom
+         *    formatter (this is true for TargetEntry which is both Expr
+         *    and require custom description).
+         * 
+         * So, this is the only suitable place for such logic.
+         */
+        args.formatter = ExprNodeVariable.getExprReprDescriptionFormatter(realTag);
 
-        if (realTag === 'RestrictInfo') {
-            return new DisplayExprReprVariable(realTag, 'clause', args);
-        }
-        
         /* Expressions with it's representation */
         if (context.nodeVarRegistry.exprs.has(realTag)) {
             return new ExprNodeVariable(realTag, args);
@@ -2423,10 +2476,6 @@ class ExprNodeVariable extends NodeVariable {
     }
 
     private async formatTargetEntry() {
-        /*
-         * NOTE: keep return type annotation, because now compiler can not
-         *       handle such recursion correctly
-         */
         const expr = await this.getMember('expr');
         return await this.getReprPlaceholder(expr);
     }
@@ -3519,54 +3568,31 @@ class ExprNodeVariable extends NodeVariable {
         children.unshift(exprVariable);
         return children;
     }
-}
-
-/**
- * Simple wrapper around 'Expr' containing variable,
- * which must display it's repr in description member.
- *
- * Used for 'EquivalenceMember' and 'RestrictInfo'.
- */
-class DisplayExprReprVariable extends NodeVariable {
-    /**
-     * 'Expr' member which representation is shown
-     */
-    readonly exprMember: string;
-
-    constructor(tag: string, exprMember: string, args: RealVariableArgs) {
-        super(tag, args);
-        this.exprMember = exprMember;
-    }
-
-    async getDescription() {
-        const exprMember = await this.getMember(this.exprMember);
-        if (exprMember instanceof ExprNodeVariable) {
-            return await exprMember.getRepr();
+    
+    static getExprReprDescriptionFormatter(nodetag: string) {
+        let member;
+        switch (nodetag) {
+            case 'TargetEntry':
+                member = 'expr';
+                break;
+            case 'EquivalenceMember':
+                member = 'em_expr';
+                break;
+            case 'RestrictInfo':
+                member = 'clause';
+                break;
         }
 
-        return '';
-    }
-}
-
-/**
- * Special case for 'TargetEntry' to display it's repr in description.
- * It can not be moved to 'DisplayExprReprVariable' because it is Expr
- * and can be used in 'ExprVariable'.  Also I do not want to move such
- * logic to 'ExprVariable', because repr evaluation is resource-intensive
- * operation and UI just blocks.
- */
-class TargetEntryVariable extends ExprNodeVariable {
-    constructor(args: RealVariableArgs) {
-        super('TargetEntry', args);
-    }
-
-    async getDescription() {
-        const repr = await this.getRepr();
-        if (!repr) {
-            return await super.getDescription();
+        if (member) {
+            /* XXX: we can define 3 specialized functions for each case */
+            return async (v: Variable) => {
+                const nv = v as NodeVariable;
+                const m = await nv.getMember(member);
+                if (m instanceof ExprNodeVariable) {
+                    return await m.getRepr();
+                }
+            };
         }
-
-        return repr;
     }
 }
 
@@ -4540,33 +4566,6 @@ class BitmapSetSpecialMember extends NodeVariable {
 }
 
 /**
- * Represent single 'bitmapword' as bitmask, not integer
- */
-class BitmapwordVariable extends RealVariable {
-    async getTreeItem(): Promise<vscode.TreeItem> {
-        const value = Number(this.value);
-        if (Number.isNaN(value)) {
-            return await super.getTreeItem();
-        }
-
-        let bitmask = value.toString(2);
-
-        /* 
-         * Pad length to nearest power of 2, so it is easier to compare
-         * multiple bitmapwords lying together.
-         */
-        const length = Math.pow(2, Math.ceil(Math.log2(bitmask.length)));
-        bitmask = bitmask.padStart(length, '0');
-
-        return {
-            label: `${this.name}: bitmapword`,
-            description: bitmask,
-            collapsibleState: vscode.TreeItemCollapsibleState.None,
-        };
-    }
-}
-
-/**
  * Represents Integer, String, Boolean, Float or BitString nodes.
  * In older systems there was single 'Value' struct for them,
  * but now separate.
@@ -5053,13 +5052,12 @@ class SimplehashElementsMember extends Variable {
               hashTable);
         this.hashTable = hashTable;
     }
-    
-    protected async getDescription() {
-        return '';
-    }
 
-    protected isExpandable() {
-        return true;
+    async getTreeItem() {
+        return {
+            label: '$elements$',
+            collapsibleState: vscode.TreeItemCollapsibleState.Collapsed,
+        };
     }
 
     /* TODO: no need to cache these */
