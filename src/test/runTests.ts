@@ -56,6 +56,7 @@ async function main() {
         launchArgs: [
             workspacePath,
             ...extraArgs,
+            '--log', 'ash-blade.postgresql-hacker-helper:debug',
         ],
     });
 }

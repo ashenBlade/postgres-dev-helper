@@ -98,3 +98,4 @@ jobs:
         path: |
           pgsrc/${{ matrix.pgversion }}/data/postgresql.log
           src/test/log
+          .vscode-test/user-data/logs/**/ash-blade.postgresql-hacker-helper/*.log
