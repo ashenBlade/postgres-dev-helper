@@ -353,3 +353,13 @@ In `tasks.json` file you can find more predefined tasks for VS Code. They includ
 - Running tests (using `Ctrl + Shift + T` shortcut)
 - Managing database instance
 - Cleaning files
+
+### Tips & tricks
+
+To run task you must run command in pallette: `Tasks: Run task` and then enter command label which you want to execute.
+As tasks are executed often you may want to speed up this process.
+
+You can bind a shortcut to open task name prompt immediately.
+I.e. you can bind `Alt + T` or other combination.
+
+![Shortcut to execute `Tasks: Run Task`](./img/vscode_setup/run_task_shortcut.png)
