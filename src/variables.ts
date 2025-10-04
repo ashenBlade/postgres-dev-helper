@@ -850,7 +850,22 @@ async function formatRelFileLocatorBackend(v: Variable) {
     const locatorRepr = await locator.getDescription();
     const backend = await rv.getMemberValueNumber('backend');
     return `${locatorRepr} [${backend}]`;
-}/* TODO: NameData */
+}
+
+async function formatNameData(v: Variable) {
+    const rv = v as RealVariable;
+    /* 
+     * NameData always stores as embedded value struct, so it is not a pointer.
+     * The actual data stored as 'char[64]', so it is also not a pointer.
+     * Thus, we can not just take pointer of 'data' array or NameData itself
+     * and the only thing left is to take 'NameData.data' watch expression
+     * which must return correct value and cast it.
+     */
+    const data = await rv.getMember('data');
+    const expression = await data.formatWatchExpression();
+    const result = await rv.debug.evaluate(`(char *)${expression}`, rv.frameId);
+    return rv.debug.extractString(result);
+}
 
 async function formatStringMemberGeneric(v: Variable, member: string) {
     const rv = v as RealVariable;
@@ -1152,7 +1167,7 @@ export abstract class Variable {
             declaredType: debugVariable.type,
         };
         
-        /* Value struct are not so interesting for us */
+        /* Value struct or scalar types are not so interesting for us */
         if (   context.debug.isValueStruct(debugVariable, effectiveType)
             || context.debug.isScalarType(debugVariable, effectiveType)) {
             if (parent) {
@@ -1170,12 +1185,14 @@ export abstract class Variable {
                 /* Show bitmapword as bitmask, not integer */
                 args.formatter = formatBitmask;
             } else if (   effectiveType === 'XLogRecPtr'
-                && shouldFormatXLogRecPtr(debugVariable, context)) {
+                       && shouldFormatXLogRecPtr(debugVariable, context)) {
                 args.formatter = formatXLogRecPtr;
             } else if (effectiveType === 'RelFileLocator') {
                 args.formatter = formatRelFileLocator;
             } else if (effectiveType === 'RelFileLocatorBackend') {
                 args.formatter = formatRelFileLocatorBackend;
+            } else if (effectiveType === 'NameData') {
+                args.formatter = formatNameData;
             }
 
             return new RealVariable(args);
@@ -1311,7 +1328,7 @@ export abstract class Variable {
      *
      * @returns Expression to be evaluated in 'Watch' view
      */
-    async getWatchExpression(): Promise<string | null> {
+    async getUserWatchExpression(): Promise<string | null> {
         return null;
     }
     
@@ -1834,7 +1851,7 @@ export class RealVariable extends Variable {
         return num;
     }
 
-    protected async formatWatchExpression(): Promise<string | null> {
+    async formatWatchExpression(): Promise<string | null> {
         if (!this.parent) {
             /* should not happen */
             return null;
@@ -1902,7 +1919,7 @@ export class RealVariable extends Variable {
         return null;
     }
 
-    async getWatchExpression() {
+    async getUserWatchExpression() {
         let expr = await this.formatWatchExpression();
         if (expr && this.debug.type === dbg.DebuggerType.CodeLLDB) {
             expr = `/nat ${expr}`;
@@ -6315,7 +6332,7 @@ export async function addVariableToWatchCommand(...args: unknown[]) {
         return;
     }
 
-    const expr = await variable.getWatchExpression();
+    const expr = await variable.getUserWatchExpression();
     if (!expr) {
         return;
     }
