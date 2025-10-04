@@ -367,14 +367,19 @@ export class StepContext {
     currentFunctionName?: string;
     
     /*
-     * Whether is it safe to get elements of Bitmapset.
+     * Is it safe to get elements of Bitmapset.
      */
     isSafeToObserveBitmapset?: boolean;
     
     /* 
-     * Whether is it safe to get elements of HTAB.
+     * Is it safe to get elements of HTAB.
      */
     isSafeToObserveHTAB?: boolean;
+    
+    /*
+     * Is it safe to invoke function, that use sys/catcache?
+     */
+    isSafeToUseSysCache?: boolean;
 
     reset() {
         this.isSafeToAllocateMemory = undefined;
@@ -384,7 +389,8 @@ export class StepContext {
         this.currentFunctionName = undefined;
         this.isSafeToObserveBitmapset = undefined;
         this.isSafeToObserveHTAB = undefined;
-    }   
+        this.isSafeToUseSysCache = undefined;
+    }
 }
 
 interface ExecContextData {
@@ -671,6 +677,8 @@ function shouldFormatXLogRecPtr(v: dap.DebugVariable, context: ExecContext) {
  * Before using this perform check using {@link shouldFormatXLogRecPtr}
  */
 async function formatXLogRecPtr(v: Variable) {
+    await v.checkCanAlloc();
+
     const debug = v.debug;
     const result = await v.directFunctionCall('pg_lsn_out', 'char *', v.value);
     const ptr = debug.extractPtrFromString(result);
@@ -842,7 +850,7 @@ async function formatRelFileLocatorBackend(v: Variable) {
     const locatorRepr = await locator.getDescription();
     const backend = await rv.getMemberValueNumber('backend');
     return `${locatorRepr} [${backend}]`;
-}
+}/* TODO: NameData */
 
 async function formatStringMemberGeneric(v: Variable, member: string) {
     const rv = v as RealVariable;
@@ -1373,6 +1381,39 @@ export abstract class Variable {
 
         await this.pfree(fmgrInfo);
         return result;
+    }
+    
+    private haveSysCatCacheBreakpoint() {
+        return !!vscode.debug.breakpoints.find(b => {
+            if (!b.enabled) {
+                return false;
+            }
+            if (b instanceof vscode.FunctionBreakpoint) {
+                return     b.functionName.indexOf('SysCache') !== -1
+                        || b.functionName.indexOf('CatCache') !== -1;
+            }
+            if (b instanceof vscode.SourceBreakpoint) {
+                return     b.location.uri.fsPath.endsWith('catcache.c') 
+                        /* this also will cover 'lsyscache.c' */
+                        || b.location.uri.fsPath.endsWith('syscache.c');
+            }
+        });
+    }
+    
+    private isSafeToUseSysCache() {
+        return this.context.step.isSafeToUseSysCache 
+            ??= !this.haveSysCatCacheBreakpoint();
+    }
+
+    /* 
+     * Call evaluate with safety checks for sys/cat cache usage.
+     */
+    async evaluateSysCache(expr: string) {
+        if (!this.isSafeToUseSysCache()) {
+            throw new EvaluationError('Not safe to use SysCache');
+        }
+
+        return await this.evaluate(expr);
     }
 
     private async isSafeToAllocateMemory() {
@@ -2123,7 +2164,7 @@ class ExprNodeVariable extends NodeVariable {
             return null;
         }
 
-        const result = await this.evaluate(`get_func_name((Oid) ${oid})`);
+        const result = await this.evaluateSysCache(`get_func_name((Oid) ${oid})`);
         const str = this.debug.extractString(result);
         if (str === null) {
             return null;
@@ -2145,7 +2186,7 @@ class ExprNodeVariable extends NodeVariable {
             return null;
         }
 
-        const result = await this.evaluate(`get_opname((Oid)${oid})`);
+        const result = await this.evaluateSysCache(`get_opname((Oid)${oid})`);
 
         const str = this.debug.extractString(result);
         if (str === null) {
@@ -2374,7 +2415,7 @@ class ExprNodeVariable extends NodeVariable {
                      *    case of such error)
                      */
                     try {
-                        r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno}, true)`);
+                        r = await this.evaluateSysCache(`get_attname(${rtePtr}->relid, ${varattno}, true)`);
                         attname = this.debug.extractString(r);
                         if (attname !== null) {
                             return attname;
@@ -2390,14 +2431,14 @@ class ExprNodeVariable extends NodeVariable {
                         }
                     }
 
-                    r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno})`);
+                    r = await this.evaluateSysCache(`get_attname(${rtePtr}->relid, ${varattno})`);
                     attname = this.debug.extractString(r);
                     if (attname !== null) {
                         this.context.hasGetAttname3 = false;
                         return attname;
                     }
                 } else {
-                    r = await this.evaluate(`get_attname(${rtePtr}->relid, ${varattno})`);
+                    r = await this.evaluateSysCache(`get_attname(${rtePtr}->relid, ${varattno})`);
                     attname = this.debug.extractString(r);
                     if (attname !== null) {
                         return attname;
@@ -3804,7 +3845,6 @@ class ExprNodeVariable extends NodeVariable {
     }
 
     async doGetChildren() {
-        /* TODO: check for breakpoints inside catalog/system cache (catcache/syscache) */
         const expr = await this.getRepr();
         if (!expr) {
             return await super.doGetChildren();
@@ -4497,6 +4537,8 @@ class BitmapSetSpecialMember extends NodeVariable {
     }
 
     private async getSetElementsFirstMember(): Promise<number[] | undefined> {
+        await this.checkCanAlloc();
+
         /*
          * Old style (prior to 9.2) of reading Bitmapset values:
          *
