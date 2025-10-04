@@ -1153,7 +1153,8 @@ export abstract class Variable {
         };
         
         /* Value struct are not so interesting for us */
-        if (context.debug.isValueStruct(debugVariable, effectiveType)) {
+        if (   context.debug.isValueStruct(debugVariable, effectiveType)
+            || context.debug.isScalarType(debugVariable, effectiveType)) {
             if (parent) {
                 if (dbg.isValueStructOrPointerType(parent.type)) {
                     const flagsMember = context.specialMemberRegistry.getFlagsMember(
@@ -5892,6 +5893,10 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
              * even worse.
              */
             specialMembers.addFlagsMembers(constants.getWellKnownFlagsMembers(pgversion));
+
+            if (12_00_00 <= pgversion) {
+                nodeVars.aliases.set('TupleDesc', 'TupleDescData *');
+            }
         } else {
             hashTables.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
         }
