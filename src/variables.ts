@@ -1710,7 +1710,11 @@ export class RealVariable extends Variable {
     }
 
     async getWatchExpression() {
-        return this.formatWatchExpression();
+        let expr = await this.formatWatchExpression();
+        if (expr && this.debug.type === dbg.DebuggerType.CodeLLDB) {
+            expr = `/nat ${expr}`;
+        }
+        return expr;
     }
 }
 
