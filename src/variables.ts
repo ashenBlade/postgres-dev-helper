@@ -2050,8 +2050,7 @@ export class NodeVariable extends RealVariable {
         }
 
         /* List */
-        if (ListNodeVariable.listInfo.has(realTag)) {
-            /* TODO: check manually - Map is too small */
+        if (ListNodeVariable.isListVariable(realTag)) {
             return new ListNodeVariable(realTag, args);
         }
 
@@ -3954,13 +3953,6 @@ class LinkedListElementsMember extends Variable {
  * Special class to represent various Lists: Node, int, Oid, Xid...
  */
 export class ListNodeVariable extends NodeVariable {
-    static listInfo = new Map<string, {member: string, type: string}>([
-        ['List', {member: 'ptr_value', type: 'void *'}],
-        ['IntList', {member: 'int_value', type: 'int'}],
-        ['OidList', {member: 'oid_value', type: 'Oid'}],
-        ['XidList', {member: 'xid_value', type: 'TransactionId'}],
-    ]);
-
     /* Special member, that manages elements of this List */
     listElements?: ListElementsMember | LinkedListElementsMember;
 
@@ -3972,6 +3964,19 @@ export class ListNodeVariable extends NodeVariable {
         /* Empty 'List *' is NIL (== NULL) */
         return this.debug.isNull(this);
     }
+    
+    getListInfo() {
+        switch (this.realNodeTag) {
+            case 'List': 
+                return {member: 'ptr_value', type: 'void *'};
+            case 'IntList': 
+                return {member: 'int_value', type: 'int'};
+            case 'OidList': 
+                return {member: 'oid_value', type: 'Oid'};
+            case 'XidList': 
+                return {member: 'xid_value', type: 'TransactionId'};
+        }
+    }
 
     async getListInfoSafe() {
         if (this.realNodeTag === 'List') {
@@ -3982,16 +3987,22 @@ export class ListNodeVariable extends NodeVariable {
                     type: realType,
                 };
             }
+            
+            return {member: 'ptr_value', type: 'void *'};
         }
         
-        let info = ListNodeVariable.listInfo.get(this.realNodeTag);
-        if (!info) {
-            logger.debug('failed to determine List tag for %s->elements. using ptr value',
-                         this.name);
-            info = {member: 'ptr_value', type: 'void *'};
+        switch (this.realNodeTag) {
+            case 'IntList': 
+                return {member: 'int_value', type: 'int'};
+            case 'OidList': 
+                return {member: 'oid_value', type: 'Oid'};
+            case 'XidList': 
+                return {member: 'xid_value', type: 'TransactionId'};
         }
-
-        return info;
+        
+        logger.debug('failed to determine List tag for %s->elements. using ptr value',
+                     this.name);
+        return {member: 'ptr_value', type: 'void *'};
     }
 
     protected isExpandable(): boolean {
@@ -4162,6 +4173,15 @@ export class ListNodeVariable extends NodeVariable {
         }
 
         return await this.listElements.getChildren();
+    }
+    
+    static isListVariable(nodetag: string) {
+        return (
+            nodetag === 'List' ||
+            nodetag === 'IntList' ||
+            nodetag === 'XidList' ||
+            nodetag === 'OidList'
+        );
     }
 }
 
