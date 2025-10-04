@@ -1560,8 +1560,7 @@ export class RealVariable extends Variable {
      * I.e. get subvariables
      */
     variablesReference: number;
-    
-    /* TODO: cache it's result */
+
     /**
      * Formatter function that will parse given Variable instance
      * using custom, type-specific logic.
