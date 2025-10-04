@@ -5271,24 +5271,16 @@ class SimplehashElementsMember extends Variable {
         return true;
     }
 
-    /* TODO: no need to cache these */
-    /* 
-     * Cached identifier names for function and types
-     */
-    hashTableType?: string = undefined;
-    iteratorType?: string = undefined;
-    iteratorFunction?: string = undefined;
-
     private getHashTableType() {
-        return this.hashTableType ??= `${this.hashTable.prefix}_hash`;
+        return `${this.hashTable.prefix}_hash`;
     }
 
     private getIteratorFunction() {
-        return this.iteratorFunction ??= `${this.hashTable.prefix}_iterate`;
+        return `${this.hashTable.prefix}_iterate`;
     }
 
     private getIteratorType() {
-        return this.iteratorType ??= `${this.hashTable.prefix}_iterator`;
+        return `${this.hashTable.prefix}_iterator`;
     }
     
     private removeFromContext() {
@@ -5342,16 +5334,10 @@ class SimplehashElementsMember extends Variable {
         return iteratorPtr;
     }
 
-    async iterate(iterator: string, index: number) {
-        const iterFunction = this.getIteratorFunction();
-        const hashTableType = `(${this.getHashTableType()} *) ${this.hashTable.getPointer()}`;
-        const iteratorArg = `(${this.getIteratorType()} *) ${iterator}`;
-        const elementType = this.hashTable.elementType;
-        const expression = `(${elementType}) ${iterFunction}(${hashTableType}, ${iteratorArg})`;
-
+    async iterate(iterator: string, index: number, iterExpression: string) {
         let result;
         try {
-            result = await this.evaluate(expression);
+            result = await this.evaluate(iterExpression);
         } catch (err) {
             if (!(err instanceof EvaluationError)) {
                 throw err;
@@ -5405,12 +5391,18 @@ class SimplehashElementsMember extends Variable {
             return;
         }
 
+        const iterFunction = this.getIteratorFunction();
+        const hashTableType = `(${this.getHashTableType()} *) ${this.hashTable.getPointer()}`;
+        const iteratorArg = `(${this.getIteratorType()} *) ${iterator}`;
+        const elementType = this.hashTable.elementType;
+        /* Iteration expression does not change, so cache it here and pass as arg */
+        const expression = `(${elementType}) ${iterFunction}(${hashTableType}, ${iteratorArg})`;
         const maxLength = getMaxContainerLength();
         const variables = [];
         let id = 0;
         let variable;
         while (   variables.length < maxLength 
-               && (variable = await this.iterate(iterator, id))) {
+               && (variable = await this.iterate(iterator, id, expression))) {
             ++id;
             variables.push(variable);
         }
