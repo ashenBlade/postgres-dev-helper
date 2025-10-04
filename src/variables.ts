@@ -5904,10 +5904,6 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
              * even worse.
              */
             specialMembers.addFlagsMembers(constants.getWellKnownFlagsMembers(pgversion));
-
-            if (12_00_00 <= pgversion) {
-                nodeVars.aliases.set('TupleDesc', 'TupleDescData *');
-            }
         } else {
             hashTables.addSimplehashTypes(constants.getWellKnownSimpleHashTableTypes());
         }

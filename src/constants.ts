@@ -1671,9 +1671,8 @@ export function getArraySpecialMembers(): ArraySpecialMemberInfo[] {
          */
         
         /* src/include/access/tupdesc.h */
-        _('TupleDescData', 'attrs', 'natts'),
-        
-        _('TupleDescData', 'compact_attrs', 'natts'),
+        _('TupleDesc', 'attrs', 'natts'),
+        _('TupleDesc', 'compact_attrs', 'natts'),
         
         /* src/include/access/xact.h */
         _('xl_xact_assignment', 'xsub', 'nsubxacts'),
