@@ -5530,6 +5530,17 @@ class FlagsMemberVariable extends RealVariable {
          */
         return !!this.bitmaskInfo.fields?.length;
     }
+    
+    async getTreeItem() {
+        const item = await super.getTreeItem();
+        /*
+         * Show original integer value in tooltip, because user may
+         * want to know it, i.e. because our flags seem strange and
+         * he would like to recheck.
+         */
+        item.tooltip = this.value;
+        return item;
+    }
 
     private async collectFlagValuesInternal(exprFormatter: (m: FlagMemberInfo) => string) {
         if (!this.bitmaskInfo.flags) {
