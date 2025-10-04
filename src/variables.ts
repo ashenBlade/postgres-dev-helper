@@ -707,27 +707,21 @@ async function formatBitmask(v: Variable) {
     return bitmask;
 }
 
+async function getNullableAliasValue(v: RealVariable) {
+    if (v.debug.isNull(v)) {
+        /* Alias can be NULL and this is ok */
+        return null;
+    }
+
+    return await v.getMemberValueCharString('aliasname');
+}
+
 async function rangeTblEntryDescriptionFormatter(v: Variable) {
     const nv = v as NodeVariable;
-    const getAliasName = async (member: string) => {
-        const alias = await nv.getRealMember(member);
-        if (nv.debug.isNull(alias)) {
-            /* Alias can be NULL and this is ok */
-            return;
-        }
-
-        const aliasname = await alias.getMember('aliasname');
-        if (!aliasname) {
-            return;
-        }
-
-        return nv.debug.extractString(aliasname);
-    };
-
     let alias;
     
     try {
-        alias = await getAliasName('alias');
+        alias = await getNullableAliasValue(await nv.getMember('alias'));
     } catch {
         /* 'alias' is non-NULL only if alias is specified by user */
     }
@@ -739,9 +733,127 @@ async function rangeTblEntryDescriptionFormatter(v: Variable) {
     /* Make another attempt, but now read 'eref' which must exist */
     try {
         /* Return 'undefined' instead of 'null' to fit function signature */
-        return await getAliasName('eref') ?? undefined;
+        return await getNullableAliasValue(await nv.getMember('eref')) ?? undefined;
     } catch (err) {
         logger.error('could not get string value of "eref" and "alias"', err);
+    }
+}
+
+async function formatDefElem(v: Variable) {
+    const nv = v as NodeVariable;
+    const value = await getDefElemArgString(nv);
+    if (!value) {
+        return;
+    }
+
+    const defnamespace = await nv.getMemberValueCharString('defnamespace');
+    const defname = await nv.getMemberValueCharString('defname');
+    if (defnamespace) {
+        return `${defnamespace}.${defname} = ${value}`;
+    } else {
+        return `${defname} = ${value}`;
+    }
+}
+
+async function formatTypeNameRepr(v: Variable) {
+    /* src/backend/parser/parse_type.c:appendTypeNameToBuffer */
+    const nv = v as NodeVariable;
+    const elements = await nv.getListMemberElements('names');
+    if (!elements) {
+        /* List can be empty - do not check 'length' */
+        return;
+    }
+
+    let name;
+    if (elements.length) {
+        const names = [];
+        for (const e of elements) {
+            if (e instanceof ValueVariable) {
+                names.push(await e.getStringRepr());
+            }
+        }
+
+        name = names.length? names.join('.') : undefined;
+    }
+
+    /* 
+     * Actual implementation also handle case, when there are no
+     * elements in 'names' List. If so, we must go to syscache
+     * and search type using 'typeOid' member, but SysCache but
+     * used function ('format_type_be') will throw ERROR, if no
+     * type found in system catalog, which is real, because we
+     * could be observing DefElem during it's construction, or
+     * there is a garbage
+     */
+    name ??= '$TYPENAME$';
+    
+    if (await nv.getMemberValueBool('pct_type')) {
+        name += '%TYPE';
+    }
+    
+    if (!nv.debug.isNull(await nv.getMember('arrayBounds'))) {
+        name += '[]';
+    }
+    
+    return name;
+}
+
+async function formatRangeVarRepr(v: Variable) {
+    const nv = v as RealVariable;
+    const catalog = await nv.getMemberValueCharString('catalogname');
+    const schema = await nv.getMemberValueCharString('schemaname');
+    const rel = await nv.getMemberValueCharString('relname');
+    const names = [];
+    if (catalog) {
+        names.push(catalog);
+    }
+    if (schema) {
+        names.push(schema);
+    }
+    if (rel) {
+        names.push(rel);
+    }
+    
+    const name = names.join('.');
+    const alias = await getNullableAliasValue(await nv.getMember('alias'));
+    
+    if (alias) {
+        return `${name} AS ${alias}`;
+    } else {
+        return name;
+    }
+}
+
+async function formatRelFileLocator(v: Variable) {
+    const rv = v as RealVariable;
+    const spcOid = await rv.getMemberValueNumber('spcOid');
+    const dbOid = await rv.getMemberValueNumber('dbOid');
+    const relNumber = await rv.getMemberValueNumber('relNumber');
+    return `${spcOid}/${dbOid}/${relNumber}`;
+}
+
+async function formatRelFileLocatorBackend(v: Variable) {
+    const rv = v as RealVariable;
+    const locator = await rv.getMember('locator');
+    if (locator.type !== 'RelFileLocator') {
+        return;
+    }
+    
+    const locatorRepr = await locator.getDescription();
+    const backend = await rv.getMemberValueNumber('backend');
+    return `${locatorRepr} [${backend}]`;
+}
+
+async function formatStringMemberGeneric(v: Variable, member: string) {
+    const rv = v as RealVariable;
+    return await rv.getMemberValueCharString(member);
+}
+
+async function formatExprMember(v: Variable, member: string) {
+    const rv = v as RealVariable;
+    const m = await rv.getMember(member);
+    if (m instanceof ExprNodeVariable) {
+        return await m.getRepr();
     }
 }
 
@@ -761,17 +873,35 @@ function getNodeVariableDescriptionFormatter(nodetag: string) {
 
     if (member) {
         /* XXX: we can define 3 specialized functions for each case */
-        return async (v: Variable) => {
-            const nv = v as NodeVariable;
-            const m = await nv.getMember(member);
-            if (m instanceof ExprNodeVariable) {
-                return await m.getRepr();
-            }
-        };
+        return async (v: Variable) => await formatExprMember(v, member);
     }
 
     if (nodetag === 'RangeTblEntry') {
         return rangeTblEntryDescriptionFormatter;
+    }
+    
+    if (nodetag === 'DefElem') {
+        return formatDefElem;
+    }
+    
+    if (nodetag === 'TypeName') {
+        return formatTypeNameRepr;
+    }
+    
+    if (nodetag === 'RangeVar') {
+        return formatRangeVarRepr;
+    }
+    
+    if (nodetag === 'Alias') {
+        return async (v: Variable) => await formatStringMemberGeneric(v, 'aliasname');
+    }
+    
+    if (nodetag === 'ColumnDef') {
+        return async (v: Variable) => await formatStringMemberGeneric(v, 'colname');
+    }
+    
+    if (nodetag === 'CommonTableExpr') {
+        return async (v: Variable) => await formatStringMemberGeneric(v, 'ctename');
     }
 }
 
@@ -1003,7 +1133,7 @@ export abstract class Variable {
     }
 
     static async create(debugVariable: dap.DebugVariable, frameId: number,
-                        context: ExecContext, parent?: Variable) {
+                        context: ExecContext, parent?: Variable): Promise<RealVariable> {
         const effectiveType = Variable.getRealType(debugVariable.type, context);
         const args: RealVariableArgs = {
             ...debugVariable,
@@ -1030,11 +1160,13 @@ export abstract class Variable {
             if (effectiveType === 'bitmapword' || effectiveType === 'bits8') {
                 /* Show bitmapword as bitmask, not integer */
                 args.formatter = formatBitmask;
-            }
-            
-            if (   effectiveType === 'XLogRecPtr'
+            } else if (   effectiveType === 'XLogRecPtr'
                 && shouldFormatXLogRecPtr(debugVariable, context)) {
                 args.formatter = formatXLogRecPtr;
+            } else if (effectiveType === 'RelFileLocator') {
+                args.formatter = formatRelFileLocator;
+            } else if (effectiveType === 'RelFileLocatorBackend') {
+                args.formatter = formatRelFileLocatorBackend;
             }
 
             return new RealVariable(args);
@@ -1139,20 +1271,30 @@ export abstract class Variable {
     }
 
     static async getVariables(variablesReference: number, frameId: number,
-                              context: ExecContext, parent?: RealVariable): Promise<Variable[]> {
+                              context: ExecContext, parent?: RealVariable): Promise<RealVariable[]> {
         const debugVariables = await context.debug.getMembers(variablesReference);
-        return await Promise.all(debugVariables.map(variable =>
-            Variable.create(variable, frameId, context, parent)),
-        );
+        const variables: RealVariable[] = [];
+        for (const dv of debugVariables) {
+            const v = await Variable.create(dv, frameId, context, parent);
+            if (v) {
+                variables.push(v);
+            }
+        }
+        return variables;
     }
 
     static async mapVariables(debugVariables: dap.DebugVariable[],
                               frameId: number,
                               context: ExecContext,
-                              parent?: Variable): Promise<Variable[]> {
-        return await (Promise.all(debugVariables.map(v =>
-            Variable.create(v, frameId, context, parent)),
-        ));
+                              parent?: Variable) {
+        const variables: RealVariable[] = [];
+        for (const dv of debugVariables) {
+            const v = await Variable.create(dv, frameId, context, parent);
+            if (v) {
+                variables.push(v);
+            }
+        }
+        return variables;
     }
 
     /**
@@ -1368,7 +1510,7 @@ class ScalarVariable extends Variable {
     }
 }
 
-type DescriptionFormatter = (variable: Variable) => Promise<string | undefined>;
+type DescriptionFormatter = (variable: Variable) => Promise<string | null | undefined>;
 
 /* Utility structure used to reduce the number of function arguments */
 interface RealVariableArgs {
@@ -1400,6 +1542,8 @@ class NoMemberFoundError extends PghhError {
  */
 class UnexpectedOutputError extends EvaluationError { }
 
+/* TODO: subclass for NULL and invalid pointer variables, to prevent NULL pointer error */
+
 /**
  * Base class for all *real* variables (members or variables
  * obtained using 'evaluate' or as members of structs).
@@ -1417,6 +1561,7 @@ export class RealVariable extends Variable {
      */
     variablesReference: number;
     
+    /* TODO: cache it's result */
     /**
      * Formatter function that will parse given Variable instance
      * using custom, type-specific logic.
@@ -1466,7 +1611,7 @@ export class RealVariable extends Variable {
     /**
      * Cached *real* members of this variable
      */
-    realMembersCache?: Variable[];
+    realMembersCache?: RealVariable[];
 
     protected async doGetRealMembers() {
         return await Variable.getVariables(this.variablesReference, this.frameId,
@@ -1482,7 +1627,7 @@ export class RealVariable extends Variable {
      *       if someday i decide to override default implementation of one
      *       of these functions (work in both sides)
      */
-    async getRealMembers(): Promise<Variable[] | undefined> {
+    async getRealMembers(): Promise<RealVariable[] | undefined> {
         if (this.realMembersCache !== undefined) {
             return this.realMembersCache;
         }
@@ -1832,31 +1977,6 @@ export class NodeVariable extends RealVariable {
          */
         const resultType = dbg.substituteStructName(this.getType(), tag);
         return await this.castToType(resultType);
-    }
-
-    async doGetChildren() {
-        await this.checkNodeTagMatchType();
-
-        let members = await super.doGetChildren();
-
-        if (members?.length) {
-            return members;
-        }
-
-        /*
-         * If declared type has `struct' qualifier, we
-         * can fail cast, because of invalid type specifier.
-         * i.e. declared - `struct Path*' and real node tag
-         * is `T_NestPath'. This will create `struct NestPath*',
-         * but in versions prior to 14 NestPath is typedef
-         * for another struct, so there is no struct NestPath.
-         */
-        if (this.type.indexOf('struct') !== -1) {
-            const structLessType = this.type.replace('struct', '');
-            await this.castToType(structLessType);
-            members = await this.getRealMembers();
-        }
-        return members;
     }
 
     protected async doGetRealMembers() {
@@ -2222,7 +2342,7 @@ class ExprNodeVariable extends NodeVariable {
                 if (varattno <= aliasColnames.length) {
                     const colname = aliasColnames[varattno - 1];
                     if (colname instanceof ValueVariable) {
-                        return await colname.getStringValue() ?? '???';
+                        return await colname.getStringRepr() ?? '???';
                     }
                 }
             }
@@ -2286,7 +2406,7 @@ class ExprNodeVariable extends NodeVariable {
                 if (varattno <= erefColnames.length) {
                     const colname = erefColnames[varattno - 1];
                     if (colname instanceof ValueVariable) {
-                        return await colname.getStringValue() ?? '???';
+                        return await colname.getStringRepr() ?? '???';
                     }
                 }
             }
@@ -2853,7 +2973,7 @@ class ExprNodeVariable extends NodeVariable {
             for (const entry of list) {
                 if (entry instanceof ValueVariable) {
                     try {
-                        values.push(await entry.getStringValue() ?? 'NULL');
+                        values.push(await entry.getStringRepr() ?? 'NULL');
                     } catch (e) {
                         if (e instanceof EvaluationError) {
                             logger.debug('error during getting string value from ValueVariable', e);
@@ -3105,7 +3225,7 @@ class ExprNodeVariable extends NodeVariable {
         let opname = '???';
         const elements = await this.getListMemberElements('operName');
         if (elements?.length && elements[0] instanceof ValueVariable) {
-            opname = await elements[0].getStringValue() ?? '???';
+            opname = await elements[0].getStringRepr() ?? '???';
         }
 
         /* Maybe, there are no reprs in array, so 'join' seems safe here */
@@ -3538,6 +3658,7 @@ class ExprNodeVariable extends NodeVariable {
          * then look them for same nodes and also (if failed) find 'context *'
          * variable (in walkers/mutators it often contains these nodes).
          */
+        /* TODO: search in 'EState->es_range_table' */
         const isRtableContainingNode = (v: Variable) => {
             return v instanceof NodeVariable && 
                     (    v.realNodeTag === 'PlannerInfo'
@@ -3636,6 +3757,7 @@ class ExprNodeVariable extends NodeVariable {
     }
 
     async doGetChildren() {
+        /* TODO: check for breakpoints inside catalog/system cache (catcache/syscache) */
         const expr = await this.getRepr();
         if (!expr) {
             return await super.doGetChildren();
@@ -4037,7 +4159,7 @@ export class ListNodeVariable extends NodeVariable {
 }
 
 
-export class ArraySpecialMember extends RealVariable {
+class ArraySpecialMember extends RealVariable {
     /**
      * Expression to evaluate to obtain array length.
      * Appended to target struct from right.
@@ -4379,9 +4501,9 @@ class BitmapSetSpecialMember extends NodeVariable {
 
     async doGetChildren() {
         /* All existing members */
-        const members = await Variable.getVariables(this.variablesReference,
-                                                    this.frameId, this.context,
-                                                    this);
+        const members: Variable[] = await Variable.getVariables(this.variablesReference,
+                                                                this.frameId, this.context,
+                                                                this);
         if (!members?.length) {
             return members;
         }
@@ -4626,10 +4748,6 @@ class BitmapSetSpecialMember extends NodeVariable {
  * This class contains logic for handling both cases
  */
 class ValueVariable extends NodeVariable {
-    isString() {
-        return this.realNodeTag === 'String';
-    }
-
     protected async checkNodeTagMatchType() {
         const structName = dbg.getStructNameFromType(this.type);
 
@@ -4680,50 +4798,16 @@ class ValueVariable extends NodeVariable {
 
     async doGetChildren() {
         const children = await super.doGetChildren();
-        if (!(children && this.context.hasValueStruct)) {
-            /* For modern structures no need to show real values */
+        if (!children?.length) {
             return children;
         }
 
-        const val = children.find(v => v.name === 'val');
-        if (!val) {
+        if (!this.context.hasValueStruct) {
+            /* Modern pg versions already have type knowledge (distinct NodeTags) */
             return children;
         }
 
-        const valMembers = await val.getChildren();
-        if (!valMembers) {
-            return children;
-        }
-
-        let value: string;
-        switch (this.realNodeTag) {
-            case 'String':
-            case 'BitString':
-            case 'Float':
-                /* read str value */
-                const str = valMembers.find(v => v.name === 'str');
-                if (!str) {
-                    return children;
-                }
-                value = str.value;
-                break;
-            case 'Integer':
-            case 'Boolean':
-                /* read int value */
-                const ival = valMembers.find(v => v.name === 'ival');
-                if (!ival) {
-                    return children;
-                }
-                value = ival.value;
-                break;
-            case 'Null':
-                /* idk if this can happen, but anyway */
-                value = 'NULL';
-                break;
-            default:
-                return children;
-        }
-
+        const value = await this.getStringRepr();
         return [
             new ScalarVariable('$value$', value,
                                '' /* no type for this */,
@@ -4732,49 +4816,101 @@ class ValueVariable extends NodeVariable {
         ];
     }
 
-    /**
-     * Get string value if node is T_String.
-     *
-     * @returns `string` value or `null` if it was NULL
-     * @throws {EvaluationError} if current Node is not T_String or errors
-     * during evaluation occurred
-     */
-    async getStringValue() {
-        if (!this.isString()) {
-            throw new EvaluationError(`current ValueVariable is not String: ${this.realNodeTag}`);
+    private async getStringReprValueStruct() {
+        if (this.realNodeTag === 'Null') {
+            return 'NULL';
         }
 
-        const children = await this.getRealMembers();
-        if (!children) {
-            throw new EvaluationError('failed to get children of ValueVariable');
+        const valMember = await this.getMember('val');        
+
+        if (this.realNodeTag === 'Integer') {
+            return (await valMember.getMemberValueNumber('ival')).toString();
         }
+        
+        return await valMember.getMemberValueCharString('str');
+    }
+    
+    private async getStringReprDistinct() {
+        switch (this.realNodeTag) {
+            case 'Integer':
+                return (await this.getMemberValueNumber('ival')).toString();
+            case 'Float':
+                return await this.getMemberValueCharString('fval');
+            case 'Boolean':
+                return await this.getMemberValueBool('boolval') ? 'true' : 'false';
+            case 'String':
+                return await this.getMemberValueCharString('sval');
+            case 'BitString':
+                return await this.getMemberValueCharString('bsval');
+            case 'Null':
+                return 'NULL';
+        }
+
+        logger.warn('Unknown NodeTag for Value struct: %s', this.realNodeTag);
+        return '$UNKNOWN$';
+    }
+
+    cachedStringRepr?: string;
+
+    /*
+     * Get string representation of given Value (or Integer/String/etc...) struct
+     */
+    async getStringRepr() {
+        if (this.cachedStringRepr) {
+            return this.cachedStringRepr;
+        }
+        let repr;
 
         /* It must be known by this time */
         if (this.context.hasValueStruct) {
-            const val = children.find(v => v.name === 'val');
-            if (!val) {
-                throw new EvaluationError('member Value->val not found');
-            }
-
-            const members = await val.getChildren();
-            if (!members) {
-                throw new EvaluationError('failed to get members of Value->val union');
-            }
-
-            const str = members.find(v => v.name === 'str');
-            if (!str) {
-                throw new EvaluationError('member Value->val.str not found');
-            }
-
-            return this.debug.extractString(str);
+            repr = await this.getStringReprValueStruct() ?? 'NULL';
         } else {
-            const sval = children.find(v => v.name === 'sval');
-            if (!sval) {
-                throw new EvaluationError('member String->sval not found');
-            }
-
-            return this.debug.extractString(sval);
+            repr = await this.getStringReprDistinct() ?? 'NULL';
         }
+        
+        this.cachedStringRepr = repr;
+        return repr;
+    }
+}
+
+async function getDefElemArgString(defElemVar: NodeVariable) {
+    const arg = await defElemVar.getMember('arg');
+    if (!(arg instanceof NodeVariable)) {
+        logger.warn('DefElem->arg is not a Node variable, given: %s', arg.constructor.name);
+        return;
+    }
+
+    /* see src/backend/commands/define.c:defGetString */
+    if (arg instanceof ValueVariable) {
+        return await arg.getStringRepr();
+    }
+
+    if (arg.realNodeTag === 'A_Star') {
+        return '*';
+    }
+    
+    if (arg.realNodeTag === 'TypeName') {
+        return await formatTypeNameRepr(arg);
+    }
+    
+    if (arg.realNodeTag === 'List' && arg instanceof ListNodeVariable) {
+        /* src/backend/catalog/namespace.c:NameListToString */
+        const elements = await arg.getListElements();
+        if (!elements) {
+            return;
+        }
+
+        const names = [];
+        for (const e of elements) {
+            if (e instanceof ValueVariable) {
+                names.push(e.getStringRepr());
+            } else if (e instanceof NodeVariable && e.realNodeTag === 'A_Star') {
+                names.push('*');
+            } else {
+                logger.warn('unknown type in NameList of DefElem: %s', e.constructor.name);
+            }
+        }
+        return names.join('.');
     }
 }
 
