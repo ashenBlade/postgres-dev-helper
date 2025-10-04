@@ -1636,11 +1636,18 @@ export class RealVariable extends Variable {
         return this.realMembersCache;
     }
 
+    /* Cached value of `this.descriptionFormatter` */
+    customDescriptionCache?: string;
     async getDescription() {
         if (this.descriptionFormatter) {
+            if (this.customDescriptionCache) {
+                return this.customDescriptionCache;
+            }
+
             try {
                 const description = await this.descriptionFormatter(this);
                 if (description) {
+                    this.customDescriptionCache = description;
                     return description;
                 }
             } catch (err) {
