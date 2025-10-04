@@ -406,18 +406,24 @@ function setupPgVariablesView(context: vscode.ExtensionContext,
     /*
      * On start try to detect new NodeTags and if they exists, add to NodeVars
      * and ask user to add them to configuration file.
+     * 
+     * Also, run this only once, because if we will launch this check every time,
+     * then it will be too resource expensive.
      */
-    const disposable = pgvars.onDidDebugStart(async (c) => {
-        /* Run this only once */
-        disposable.dispose();
-        
-        try {
-            await searchNodeTagsWorker(config, c);
-        } catch (err) {
-            logger.error('could not search for new NodeTags', err);
-        }
-    });
-    
+    const key = 'NodeTagsCollectorLaunched';
+    if (!context.workspaceState.get(key)) {
+        const disposable = pgvars.onDidDebugStart(async (c) => {
+            /* Run this only once */
+            disposable.dispose();
+            context.workspaceState.update(key, true);
+
+            try {
+                await searchNodeTagsWorker(config, c);
+            } catch (err) {
+                logger.error('could not search for new NodeTags', err);
+            }
+        });
+    }
 
     return pgvars;
 }
