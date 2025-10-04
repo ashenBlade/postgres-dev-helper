@@ -674,7 +674,6 @@ export function getKnownCustomListPtrs(): ListPtrSpecialMemberInfo[] {
         _('RelationData', 'deparseTruncateSql', 'rels'),
         _('RelationData', 'postgresExecForeignTruncate', 'rels'),
 
-
         /* contrib/postgres_fdw/option.c */
         _('const char', 'ExtractExtensionList', 'extlist'),
 
@@ -2646,7 +2645,7 @@ function getVersionedFlagMembers() {
                 ['RBTXN_PREPARE',             '0x0040'],
                 ['RBTXN_SKIPPED_PREPARE',	  '0x0080'],
             ]),
-            from(16_00_00, [
+            interval(16_00_00, 17_00_00, [
                 ['RBTXN_HAS_CATALOG_CHANGES', '0x0001'],
                 ['RBTXN_IS_SUBXACT', '0x0002'],
                 ['RBTXN_IS_SERIALIZED', '0x0004'],
@@ -2656,6 +2655,33 @@ function getVersionedFlagMembers() {
                 ['RBTXN_PREPARE', '0x0040'],
                 ['RBTXN_SKIPPED_PREPARE', '0x0080'],
                 ['RBTXN_HAS_STREAMABLE_CHANGE', '0x0100'],
+            ]),
+            interval(17_00_00, 18_00_00, [
+                ['RBTXN_HAS_CATALOG_CHANGES', 		'0x0001'],
+                ['RBTXN_IS_SUBXACT',          		'0x0002'],
+                ['RBTXN_IS_SERIALIZED',       		'0x0004'],
+                ['RBTXN_IS_SERIALIZED_CLEAR', 		'0x0008'],
+                ['RBTXN_IS_STREAMED',         		'0x0010'],
+                ['RBTXN_HAS_PARTIAL_CHANGE',  		'0x0020'],
+                ['RBTXN_PREPARE',             		'0x0040'],
+                ['RBTXN_SKIPPED_PREPARE',	  		'0x0080'],
+                ['RBTXN_HAS_STREAMABLE_CHANGE',		'0x0100'],
+                ['RBTXN_DISTR_INVAL_OVERFLOWED',	'0x0200'],
+            ]),
+            from(18_00_00, [
+                ['RBTXN_HAS_CATALOG_CHANGES', 	'0x0001'],
+                ['RBTXN_IS_SUBXACT',          	'0x0002'],
+                ['RBTXN_IS_SERIALIZED',       	'0x0004'],
+                ['RBTXN_IS_SERIALIZED_CLEAR', 	'0x0008'],
+                ['RBTXN_IS_STREAMED',         	'0x0010'],
+                ['RBTXN_HAS_PARTIAL_CHANGE',  	'0x0020'],
+                ['RBTXN_IS_PREPARED', 			'0x0040'],
+                ['RBTXN_SKIPPED_PREPARE',	  	'0x0080'],
+                ['RBTXN_HAS_STREAMABLE_CHANGE',	'0x0100'],
+                ['RBTXN_SENT_PREPARE',			'0x0200'],
+                ['RBTXN_IS_COMMITTED',			'0x0400'],
+                ['RBTXN_IS_ABORTED',			'0x0800'],
+                ['RBTXN_DISTR_INVAL_OVERFLOWED',	'0x1000'],
             ]),
         ]),
 
@@ -2868,10 +2894,17 @@ function getVersionedFlagMembers() {
         ])),
 
         _('ExprState', 'flags', [
-            from(10_00_00, [
+            interval(10_00_00, 18_00_00, [
                 ['EEO_FLAG_IS_QUAL', '(1 << 0)'],
                 ['EEO_FLAG_INTERPRETER_INITIALIZED', '(1 << 1)'],
                 ['EEO_FLAG_DIRECT_THREADED', '(1 << 2)'],
+            ]),
+            from(18_00_00, [
+                ['EEO_FLAG_IS_QUAL',					'(1 << 0)'],
+                ['EEO_FLAG_HAS_OLD',					'(1 << 1)'],
+                ['EEO_FLAG_HAS_NEW',					'(1 << 2)'],
+                ['EEO_FLAG_OLD_IS_NULL',				'(1 << 3)'],
+                ['EEO_FLAG_NEW_IS_NULL',				'(1 << 4)'],
             ]),
         ]),
 
@@ -2912,18 +2945,18 @@ function getVersionedFlagMembers() {
                 ['EXEC_FLAG_SKIP_TRIGGERS', '0x0020'],
                 ['EXEC_FLAG_WITH_NO_DATA', '0x0040'],
             ]),
-        ]),
+        ])),
 
-              _('EState', 'es_jit_flags', [
-                  from(11_00_00, [
-                      ['PGJIT_NONE', '0'],
-                      ['PGJIT_PERFORM', '(1 << 0)'],
-                      ['PGJIT_OPT3', '(1 << 1)'],
-                      ['PGJIT_INLINE', '(1 << 2)'],
-                      ['PGJIT_EXPR', '(1 << 3)'],
-                      ['PGJIT_DEFORM', '(1 << 4)'],
-                  ]),
-              ])),
+        _('EState', 'es_jit_flags', [
+            from(11_00_00, [
+                ['PGJIT_NONE', '0'],
+                ['PGJIT_PERFORM', '(1 << 0)'],
+                ['PGJIT_OPT3', '(1 << 1)'],
+                ['PGJIT_INLINE', '(1 << 2)'],
+                ['PGJIT_EXPR', '(1 << 3)'],
+                ['PGJIT_DEFORM', '(1 << 4)'],
+            ]),
+        ]),
 
         _('ModifyTableState', 'mt_merge_subcommands', [
             from(15_00_00, [
@@ -2973,9 +3006,14 @@ function getVersionedFlagMembers() {
 
         /* src/include/storatge/proc.h */
         _('PGPROC', 'delayChkptFlags', [
-            from(10_00_00, [
+            interval(10_00_00, 18_00_00, [
                 ['DELAY_CHKPT_START', '(1<<0)'],
                 ['DELAY_CHKPT_COMPLETE', '(1<<1)'],
+            ]),
+            from(18_00_00, [
+                ['DELAY_CHKPT_START',		'(1<<0)'],
+                ['DELAY_CHKPT_COMPLETE',	'(1<<1)'],
+                ['DELAY_CHKPT_IN_COMMIT',	'((1<<0) | 1<<2)'],
             ]),
         ]),
         
@@ -4017,7 +4055,7 @@ export function getWellKnownConfigurationParameters() {
     /* 
      * For core:
      *
-     *   psql -c "select name from pg_settings where context <> 'internal' order by name" -t | awk "{print \"'\" \$1 \"',\" }" 
+     *   psql -c "select name from pg_settings where context <> 'internal' order by name" -t | awk "{print \"'\" \$1 \"',\" }"
      * 
      * For contribs:
      * 
