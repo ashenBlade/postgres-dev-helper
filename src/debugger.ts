@@ -650,14 +650,39 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
          */
         return response.result.startsWith('-var-create');
     }
+    
+    private isNullInternal(value: string) {
+        return value === '0x0';
+    }
 
     isNull(variable: IDebugVariable | dap.EvaluateResponse) {
-        return this.getValue(variable) === '0x0';
+        return this.isNullInternal(this.getValue(variable));
     }
 
     isValidPointerType(variable: IDebugVariable | dap.EvaluateResponse) {
-        /* Check isNull first, because lots of variables can be NULL, i.e. Bitmapset */
-        return !this.isNull(variable) && pointerRegex.test(this.getValue(variable));
+        /* Now check that value looks like pointer - otherwise it is not pointer */
+        const pointer = this.getValue(variable);
+        if (!(pointer.startsWith('0x') && pointerRegex.test(pointer))) {
+            return false;
+        }
+        
+        /* Check isNull first, because lots of variables can be NULL */
+        if (this.isNullInternal(pointer)) {
+            return false;
+        }
+
+        /* 
+         * Even if this is pointer it can have garbage. To check this
+         * compare with some definitely impossible pointer value.
+         * This can happen not only for garbage, but also when integer
+         * is assigned to pointer type.
+         */
+        const ptrNumber = Number(pointer);
+        if (Number.isNaN(ptrNumber) || ptrNumber < 0x10000) {
+            return false;
+        }
+
+        return true;
     }
 
     isValueStruct(variable: IDebugVariable, type?: string) {
