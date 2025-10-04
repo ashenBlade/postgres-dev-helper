@@ -3663,12 +3663,12 @@ class ExprNodeVariable extends NodeVariable {
          * then look them for same nodes and also (if failed) find 'context *'
          * variable (in walkers/mutators it often contains these nodes).
          */
-        /* TODO: search in 'EState->es_range_table' */
         const isRtableContainingNode = (v: Variable) => {
             return v instanceof NodeVariable && 
                     (    v.realNodeTag === 'PlannerInfo'
                       || v.realNodeTag === 'Query'
-                      || v.realNodeTag === 'PlannedStmt');
+                      || v.realNodeTag === 'PlannedStmt'
+                      || v.realNodeTag === 'EState');
         };
 
         const tryGetRtable = async (v: NodeVariable) => {
@@ -3685,19 +3685,59 @@ class ExprNodeVariable extends NodeVariable {
                     return await parse.getListMemberElements('rtable');
                 case 'PlannedStmt':
                     /* PlannedStmt->rtable */
-                    return v.getListMemberElements('rtable');
-                default:
-                    logger.warn('got unexpected NodeTag in findRtable: %s',
-                                v.realNodeTag);
-                    return;
+                    return await v.getListMemberElements('rtable');
+                case 'EState':
+                    /* EState->es_range_table */
+                    return v.getListMemberElements('es_range_table');
             }
+            logger.warn('got unexpected NodeTag in findRtable: %s',
+                        v.realNodeTag);
+            return;
         };
 
         let node = this.parent;
         while (node && !(node instanceof VariablesRoot)) {
             if (isRtableContainingNode(node)) {
-                /* Found suitable Node */
+                /* Found suitable Node directly */
                 break;
+            }
+            
+            /*
+             * In Executor we do not have planner data structures,
+             * but range table is stored inside 'EState' (which is handled
+             * in 'isRtableContainingNode')
+             * 
+             * This variable (type) most likely won't be our parent,
+             * because all Expr stored in Plan, which stored in PlanState
+             * and the latter stores 'EState'.
+             * 
+             * Thus we must detect, that we are in 'PlanState' and then
+             * take 'EState PlanState.state' member.
+             * 
+             * The only thing that breaks clean code is that 'PlanState'
+             * is abstract type - this structure is embedded into the
+             * inherited ones, so we must check not NodeTag, but it's
+             * type directly.
+             * 
+             * In code it looks like this:
+             * 
+             * ```c
+             * typedef struct PlanState
+             * {
+             *      Plan    *plan;   // <---- stores expressions
+             *                       //       searching starts here
+             *      EState  *state;  // <---- contains range table
+             * } PlanState;
+             * ```
+             */
+            if (node.type === 'PlanState' && node instanceof RealVariable) {
+                const state = await node.getMember('state');
+                if (state instanceof NodeVariable) {
+                    const rtable = await tryGetRtable(state);
+                    if (rtable) {
+                        return rtable;
+                    }
+                }
             }
 
             /* Continue traversing variable tree upper */
@@ -3712,6 +3752,8 @@ class ExprNodeVariable extends NodeVariable {
             /* Ok, Node variable found - extract */
             return await tryGetRtable(node as NodeVariable);
         }
+        
+        /* PlanState can not be  */
 
         /* 
          * Reached top level: search appropriate Node var at the top level
