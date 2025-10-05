@@ -20,8 +20,6 @@ Extension provides assistance with postgres variables:
 - Render `Expr` nodes by the original expression
 - Show integer enums as enum values, not integers
 
-> More info you can find in documentation for [`PG Variables` view](docs/pg_variables.md).
-
 Extension creates separate view in debug section - `PG Variables`. It contains postgres variables - extended with knowledge of source code.
 
 ![Overview of extension](./img/overview.gif)
@@ -35,7 +33,11 @@ Extension creates separate view in debug section - `PG Variables`. It contains p
 - Render `Expr` nodes by the original expression
 - `Bitmapset *` elements (numbers) store references to which they point, i.e. `Relids` will store `RelOptInfo` and `RangeTable` references
 - `List *` can support custom pointer types (not `Node *` types)
-- Some scalar types are rendered in more convenient way, i.e. `XLogRecPtr` displayed in `File/Offset` form - not integer
+- Some types are rendered in more convenient way, i.e.:
+  - `XLogRecPtr` - `File/Offset`
+  - `RelFileLocator` - `spc/db/file`
+  - `RangeTblEntry` - `alias` or `eref` value
+  - `NameData` - string value directly
 - Enum values, which defined using preprocessor (`#define`) are shown as enum values, not integers.
 
 ### Configuration file
@@ -43,74 +45,16 @@ Extension creates separate view in debug section - `PG Variables`. It contains p
 Extension has configuration file - `.vscode/pgsql_hacker_helper.json`.
 Main purpose is to allow to define container elements custom types, i.e. when you are developing a contrib.
 
-Example json:
+It allows adding information about:
 
-```json
-{
-    "arrays": [
-        {
-            "typeName": "PlannerInfo",
-            "memberName": "simple_rel_array",
-            "lengthExpression": "simple_rel_array_size"
-        },
-        {
-            "typeName": "RelOptInfo",
-            "memberName": "partexprs",
-            "lengthExpression": "part_scheme->partnatts"
-        },
-        {
-            "typeName": "GatherMergeState",
-            "memberName": "gm_slots",
-            "lengthExpression": "nreaders + 1"
-        }
-    ],
-    "aliases": [
-        {
-            "alias": "PlannerRef",
-            "type": "PlannerInfo *"
-        }
-    ],
-    "customListTypes": [
-        {
-            "type": "char *",
-            "parent": "UserData",
-            "member": "knownNames",
-        },
-        {
-            "type": "struct FileChunks *",
-            "parent": "ProcessFileChunks",
-            "member": "chunks"
-        }
-    ],
-    "htab": [
-        {
-            "type": "HashTableEntry *",
-            "parent":  "ParentStruct",
-            "member": "hashtable"
-        }
-    ],
-    "simplehash": [
-        {
-            "prefix": "userdata",
-            "type": "UserDataHashEntry *"
-        }
-    ],
-    "typedefs": "my.typedefs.file"
-}
-```
+- Custom array types (with dynamic length evaluation using provided expressions)
+- Pointer types in `List *`, which are not Node-derived
+- HashTable entry types for both `HTAB` and `simplehash`
+- Custom `typedefs.list` files for formatter
 
-Features:
+Also there is VS Code settings with generic behavior customization.
 
-- 3 array members (pointer field used as array) - `"typeName"->"memberName"` will be shown with length `"typeName"->"lengthExpression"`, not as simple pointers.
-- `PlannerRef` - custom user typedef for `PlannerInfo *` (used to correctly handle types).
-- `UserData->knownNames` is a `List *` that contains pointer elements not `Node *`, but `char *` (`List` of strings).
-Variable `chunks` in function `ProcessFileChunks` is a `List` that contains pointer elements not `Node *`, but `struct FileChunks *`.
-- `List *UserData->knownNames` contains pointers to `char *` (not Node), and variable `List *chunks` in function `ProcessFileChunks()` contains pointers to `struct FileChunks` (not Node)
-- Hash Table member `HTAB *hashtable` of struct `ParentStruct` contains entries of type `HashTableEntry *`
-- Simplehash struct `hashtable_hash` contains entries of type `UserDataHashEntry *`.
-- User provided custom `typedefs` list (used by formatter).
-
-For more info check [configuration file documentation](./docs/config_file.md).
+For more info check [configuration file documentation](./docs/configuration.md).
 
 ### Formatting
 
@@ -128,7 +72,7 @@ Feature supported for PostgreSQL starting from 10 version.
 Using command `PGHH: Show diff preview for PostgreSQL formatter` you can
 preview changes made by formatter.
 
-Also, you can add your custom `typedefs.list` files and extension will use it during formatting (`"typedefs"`). For more info check [documentation](docs/config_file.md#custom-typedefslist-files).
+Also, you can add your custom `typedefs.list` files and extension will use it during formatting (`"typedefs"`). For more info check [documentation](docs/configuration.md#custom-typedefslist).
 
 ### Dump `Node *`
 
@@ -156,37 +100,16 @@ Also, for there is autocompletion for configuration parameters also with default
 
 This syntax must be enabled for `postgresql[.auto].conf` files, but you can specify it using 'Change Language Mode' -> 'PostgreSQL configuration'
 
-## Extension Settings
-
-There are 3 settings:
-
-- `postgresql-hacker-helper.logLevel` - Log level
-
-  Minimum level of log messages in Output channel.
-  By default - `INFO`. If using VS Code 1.74.0 ang greater use `Output` channel
-  logger settings.
-
-- `postgresql-hacker-helper.srcPath` - Path to source code directory
-  
-  *Relative* path to custom PostgreSQL source code directory. Use it, if source
-  code files are not in your workspace root (i.e. in `${workspaceFolder}/postgresql`). Used for searching for
-  required files (node tag files, `pg_bsd_indent` and so on). If not specified
-  search starts from workspace root. (Next, this settings will be used as `*SrcPath*`).
-
-- `postgresql-hacker-helper.pg_bsd_indentPath` - Path to `pg_bsd_indent`
-  
-  Path to `pg_bsd_indent` tool. Required for formatting support. Use it if you have `pg_bsd_indent` installed globally or want to use specific version.
-
-  - If not specified, it will be searched in `*SrcPath*/src/tools` directory.
-  - If specified, and failed to run extension will try to build it.
-
 ## Compatibility
 
 Compatibility is ensured using testing. Minimal supported versions are **PostgreSQL 9.6** and **VS Code 1.70**.
 
-There are 2 supported debugger extensions: [C/C++](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools) and [CodeLLDB](https://marketplace.visualstudio.com/items?itemName=vadimcn.vscode-lldb).
+There are 2 supported debugger extensions:
+
+- [C/C++](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools) from **1.12**
+- [CodeLLDB](https://marketplace.visualstudio.com/items?itemName=vadimcn.vscode-lldb) from **11.0**
+
 Extension always tested on *latest version of debugger* and do not tries to be compatible with old ones due to *possible* large/breaking changes in behavior (most features implemented using hacks).
-Minimal supported version for **C/C++ 1.12** and **CodeLLDB 11.0**.
 
 For using formatter minimal supported version Postgres is `10`.
 
