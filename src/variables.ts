@@ -949,6 +949,14 @@ function isValidMemoryContextTag(tag: string) {
     return false;
 };
 
+/* 
+ * Format 'name' member for elements stored inside array.
+ */
+function getNameForArrayElement(index: number) {
+    /* Default VS Code behavior to show array elements */
+    return `[${index}]`;
+}
+
 
 export abstract class Variable {
     /**
@@ -3940,7 +3948,7 @@ class ListElementsMember extends Variable {
             const expression = `${elementsMemberExpr}[${i}].${this.cellValue}`;
             const response = await this.debug.evaluate(expression, this.frameId);
             elements.push(new RealVariable({
-                name: `[${i}]` /* array elements behavior */,
+                name: getNameForArrayElement(i),
                 type: this.listCellType,
                 declaredType: this.listCellType,
                 variablesReference: response.variablesReference,
@@ -4018,7 +4026,7 @@ class LinkedListElementsMember extends Variable {
             const valueExpression = `(${this.realType})((${evaluateName})->data.${this.cellValue})`;
             const response = await this.debug.evaluate(valueExpression, this.frameId);
             elements.push({
-                name: `[${i}]`,
+                name: getNameForArrayElement(i),
                 value: response.result,
                 type: this.realType,
                 variablesReference: response.variablesReference,
@@ -4664,7 +4672,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                     value: number,
                     context: ExecContext,
                     ref: constants.BitmapsetReference | undefined) {
-            super(`[${index}]`, value.toString(), '', '', context, parent.frameId, parent);
+            super(getNameForArrayElement(index), value.toString(), '', '', context, parent.frameId, parent);
             this.relid = value;
             this.bmsParent = bmsParent;
             this.ref = ref;
@@ -5241,7 +5249,7 @@ class HTABElementsMember extends Variable {
             try {
                 variable = await Variable.create({
                     ...result,
-                    name: `[${variables.length}]`,
+                    name: getNameForArrayElement(variables.length),
                     value: result.result,
                     memoryReference: result.memoryReference,
                 }, this.frameId, this.context, this);
@@ -5447,7 +5455,7 @@ class SimplehashElementsMember extends Variable {
         try {
             return await Variable.create({
                 ...result,
-                name: `[${index}]`,
+                name: getNameForArrayElement(index),
                 value: result.result,
                 memoryReference: result.memoryReference,
             }, this.frameId, this.context, this);
