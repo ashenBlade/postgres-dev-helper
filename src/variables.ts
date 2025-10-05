@@ -4689,7 +4689,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                     value: number,
                     context: ExecContext,
                     ref: constants.BitmapsetReference | undefined) {
-            super(getNameForArrayElement(index), value.toString(), '', '', context, parent.frameId, parent);
+            super(value.toString(), '', '', '', context, parent.frameId, parent);
             this.relid = value;
             this.bmsParent = bmsParent;
             this.ref = ref;
