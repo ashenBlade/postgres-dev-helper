@@ -574,6 +574,13 @@ suite('Variables', async function () {
             /* member */
             await checkListMembers((await getMemberOf(getVar('custom_list_variable'), 'value')).var);
         });
+        
+        /*
+         * NOTE: for testing arrays use at least 2 elements, because
+         *       debuggers expand array pointer as ordinal pointer type,
+         *       so this test will be passed, even if array expansion
+         *       logic does not work as expected
+         */
 
         /* Array members are rendered as actual array */
         test('Array members', async () => {
@@ -589,6 +596,7 @@ suite('Variables', async function () {
                 return elements.map(x => x.item.description.trim());
             };
 
+            /* This test covers 2 expression types: member added and generic (with '!') */
             const arrayFieldElements = await getArrayElementsOf('array_field');
             assert.deepStrictEqual(['1', '2'], arrayFieldElements,
                                    'array_field contains 2 elements: 1, 2');
