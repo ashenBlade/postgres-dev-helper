@@ -1125,6 +1125,11 @@ export abstract class Variable {
     }
 
     protected isExpandable() {
+        if (!this.type?.length) {
+            /* Special members */
+            return false;
+        }
+
         /* Pointer to struct */
         if (this.debug.isValidPointerType(this)) {
             return true;
@@ -1226,17 +1231,33 @@ export abstract class Variable {
             declaredType: debugVariable.type,
         };
 
+        const typeProps = context.debug.extractVariableProperties(debugVariable);
+
         /* Value struct or scalar types are not so interesting for us */
-        if (   context.debug.isValueStruct(debugVariable, effectiveType)
-            || context.debug.isScalarType(debugVariable, effectiveType)) {
-            if (parent) {
-                if (dbg.isValueStructOrPointerType(parent.type)) {
-                    const flagsMember = context.specialMemberRegistry.getFlagsMember(
-                        dbg.getStructNameFromType(parent.type),
-                        debugVariable.name);
-                    if (flagsMember) {
-                        return new FlagsMemberVariable(flagsMember, args);
+        if (!typeProps.isPointer()) {
+            if (typeProps.isFixedSizeArray()) {
+                return new RealVariable(args);
+            }
+    
+            if (typeProps.isFlexibleArray()) {
+                if (parent) {
+                    /* FLA can be expanded as array */
+                    const specialMember = context.specialMemberRegistry
+                        .getArraySpecialMember(parent.type, debugVariable.name);
+                    if (specialMember) {
+                        return new ArraySpecialMember(specialMember, args);
                     }
+                }
+    
+                return new RealVariable(args);
+            }
+            
+            if (parent && parent instanceof RealVariable) {
+                const flagsMember = context.specialMemberRegistry.getFlagsMember(
+                    dbg.getStructNameFromType(parent.type),
+                    debugVariable.name);
+                if (flagsMember) {
+                    return new FlagsMemberVariable(flagsMember, args);
                 }
             }
 
@@ -1245,23 +1266,8 @@ export abstract class Variable {
             return new RealVariable(args);
         }
 
-        /*
-         * Pointer types can be NULL or contain invalid pointers.
-         * cppdbg do not recognize invalid pointers, but CodeLLDB - <invalid pointer>.
-         * 
-         * For such variables use special InvalidVariable, which do not
-         * act like RealVariable, so it prevent some potential errors.
-         */
-        if (!(   context.debug.isValidPointerType(debugVariable) 
-              || context.debug.isFixedSizeArray(debugVariable))) {
-            /* 
-             * We are here if got scalar type or value struct (not pointer).
-             * These types are not so interesting for us, so pass here to
-             * quickly return usual variable.
-             */
-            
-            if (   context.debug.isNull(debugVariable)
-                && effectiveType.endsWith('List *')) {
+        if (typeProps.pointerIsNull()) {
+            if (effectiveType.endsWith('List *')) {
                 /* 
                  * Empty List is NIL == NULL == '0x0' Also 'endsWith'
                  * covers cases like 'const List *'.
@@ -1278,22 +1284,22 @@ export abstract class Variable {
                  */
                 return new ListNodeVariable('List', args);
             }
-
-            if (parent && dbg.isFlexibleArrayMember(effectiveType)) {
-                /* 
-                 * Flexible array members for now recognized as non-valid
-                 * pointers/scalars, but we actually can handle them.
-                 */
-                const parentType = Variable.getRealType(parent.type, context);
-                const specialMember = context.specialMemberRegistry
-                    .getArraySpecialMember(parentType, debugVariable.name);
-                if (specialMember) {
-                    return new ArraySpecialMember(specialMember, args);
-                }
-            }
-
+            
             return new InvalidVariable(args);
         }
+
+        /*
+         * Pointer types can be NULL or contain invalid pointers.
+         * cppdbg do not recognize invalid pointers, but CodeLLDB - <invalid pointer>.
+         * 
+         * For such variables use special InvalidVariable, which do not
+         * act like RealVariable, so it prevent some potential errors.
+         */
+        if (typeProps.pointerIsInvalid()) {
+            return new InvalidVariable(args);
+        }
+
+        /* Now we are working with normal pointer type */
 
         /* 
          * Array special member should be processed before all, because
@@ -1403,6 +1409,7 @@ export abstract class Variable {
     async palloc(size: string) {
         await this.checkCanAlloc();
 
+        /* TODO: use MemoryContextAllocExtended with NULL returning */
         if (this.context.hasPalloc) {
             const result = await this.evaluate(`palloc(${size})`);
 
@@ -1557,6 +1564,7 @@ export abstract class Variable {
      * call `pfree` with specified pointer
      */
     async pfree(pointer: string) {
+        /* Should not happen, but add this check */
         if (!dbg.pointerIsNull(pointer)) {
             await this.evaluateVoid(`pfree((void *)${pointer})`);
         }
@@ -1611,12 +1619,6 @@ class ScalarVariable extends Variable {
 
     async getTreeItem() {
         const item = await super.getTreeItem();
-
-        /* Some scalar variables are pseudo members without any type */
-        if (this.type === '') {
-            item.label = this.name;
-        }
-
         item.tooltip = this.tooltip;
         return item;
     }
@@ -1650,6 +1652,7 @@ interface RealVariableArgs {
     frameId: number;
     parent?: Variable;
     context: ExecContext;
+    typeProperties?: dbg.IVariableProperties;
     formatter?: DescriptionFormatter;
 }
 
@@ -1669,8 +1672,6 @@ class NoMemberFoundError extends PghhError {
  */
 class UnexpectedOutputError extends EvaluationError { }
 
-/* TODO: subclass for NULL and invalid pointer variables, to prevent NULL pointer error */
-
 /**
  * Base class for all *real* variables (members or variables
  * obtained using 'evaluate' or as members of structs).
@@ -1687,6 +1688,15 @@ export class RealVariable extends Variable {
      * I.e. get subvariables
      */
     variablesReference: number;
+    
+    /**
+     * Saved value of type properties during variable creation
+     */
+    typeProperties?: dbg.IVariableProperties;
+    
+    getTypeProperties() {
+        return this.typeProperties ??= this.debug.extractVariableProperties(this);
+    }
 
     /**
      * Formatter function that will parse given Variable instance
@@ -1700,6 +1710,7 @@ export class RealVariable extends Variable {
         this.memoryReference = args.memoryReference;
         this.variablesReference = args.variablesReference;
         this.parent = args.parent;
+        this.typeProperties = args.typeProperties;
         this.descriptionFormatter = args.formatter;
     }
 
@@ -1714,16 +1725,32 @@ export class RealVariable extends Variable {
             frameId: this.frameId,
             parent: this.parent,
             context: this.context,
-            /* Do not inherit descriptionFormatter - it is type specific */
+            /* These members are type specific, so do not inherit them */
             formatter: undefined,
+            typeProperties: undefined,
         };
     }
+    
+    protected isExpandable(): boolean {
+        if (!this.typeProperties) {
+            return super.isExpandable();
+        }
+        
+        const prop = this.typeProperties;
+        if (prop.isPointer()) {
+            return !(prop.pointerIsNull() || prop.pointerIsInvalid());
+        }
+        
+        if (prop.isScalar()) {
+            return false;
+        }
+        
+        if (prop.isFlexibleArray()) {
+            /* Flexible array is expandable only if it is a ArraySpecialMember */
+            return false;
+        }
 
-    /**
-     * Check that {@link value value} is valid pointer value
-     */
-    isValidPointer() {
-        return this.debug.isValidPointerType(this);
+        return true;
     }
 
     /**
@@ -1934,14 +1961,14 @@ export class RealVariable extends Variable {
             : `(${this.type})`;
         if (this.parent instanceof VariablesRoot) {
             /* Top level variable needs to be just printed */
-            if (this.debug.isValueStruct(this)) {
+            if (this.getTypeProperties().isValueStruct()) {
                 return this.name;
             } else {
                 return `${cast}${this.name}`;
             }
         } else if (   this.parent instanceof ListElementsMember
                   || this.parent instanceof LinkedListElementsMember) {
-            if (this.debug.isValidPointerType(this)) {
+            if (this.getTypeProperties().pointerCanDeref()) {
                 return `(${this.type})${this.getPointer()}`;
             } else {
                 const index = getIndexFromArrayElementName(this.name);
@@ -1950,7 +1977,7 @@ export class RealVariable extends Variable {
                 }
             }
         } else if (this.parent instanceof ArraySpecialMember) {
-            if (this.debug.isValidPointerType(this)) {
+            if (this.getTypeProperties().pointerCanDeref()) {
                 return `(${this.type})${this.getPointer()}`;
             } else {
                 /*
@@ -1964,7 +1991,7 @@ export class RealVariable extends Variable {
             }
         } else if (this.parent instanceof RealVariable) {
             /* Member of real structure */
-            if (this.debug.isValueStruct(this.parent)) {
+            if (this.parent.getTypeProperties().isValueStruct()) {
                 /*
                  * If parent is a value struct, then his parent also
                  * can be value struct, so we can not get pointer of
@@ -1984,11 +2011,11 @@ export class RealVariable extends Variable {
             }
         } else {
             /* Child of pseudo-member */
-            if (this.debug.isValueStruct(this, this.type)) {
+            if (this.getTypeProperties().isValueStruct()) {
                 const parent = `((${this.parent.type})${this.parent.getPointer()})`;
                 const separator = this.debug.isValidPointerType(this.parent) ? '->' : '.';
                 return `${parent}${separator}${this.name}`;
-            } else if (this.debug.isValidPointerType(this)) {
+            } else if (this.getTypeProperties().pointerCanDeref()) {
                 return `(${this.type})${this.getPointer()}`;
             }
         }
@@ -2083,8 +2110,7 @@ export class NodeVariable extends RealVariable {
     }
 
     protected isExpandable(): boolean {
-        /* We do not need to perform all base class tests - pointer check is enough */
-        return this.isValidPointer();
+        return true;
     }
     
     protected getLabel() {
@@ -4137,7 +4163,7 @@ export class ListNodeVariable extends NodeVariable {
 
     isEmpty() {
         /* Empty 'List *' is NIL (== NULL) */
-        return this.debug.isNull(this);
+        return this.getTypeProperties().pointerIsNull();
     }
     
     getListInfo() {

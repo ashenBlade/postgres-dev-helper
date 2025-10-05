@@ -4,10 +4,77 @@ import { Features } from './configuration';
 import { PgVariablesViewProvider } from './variables';
 import {EvaluationError} from './error';
 
+/* Simple representation of a variable obtained from debugger */
 export interface IDebugVariable {
     value: string;
     type: string;
     memoryReference?: string;
+}
+
+/* Represent properties of some variable */
+export interface IVariableProperties {
+    /*
+     * Type is a pointer, i.e. 'int *'
+     *
+     * NOTE: it does not check pointer validity.
+     */
+    isPointer(): boolean;
+    /* Pointer value is NOT NULL, but represents invalid value */
+    pointerIsInvalid(): boolean;
+    /* Pointer value is NULL */
+    pointerIsNull(): boolean;
+    /* Shortcut for `!(pointerIsNull() || pointerIsInvalid())` */
+    pointerCanDeref(): boolean;
+
+    /* Value struct - structure type without pointers, i.e.  */
+    isValueStruct(): boolean;
+    /* Value is a scalar (integer, char, etc), i.e. int */
+    isScalar(): boolean;
+    /* Type is a fixed size array, i.e. int[16] */
+    isFixedSizeArray(): boolean;
+    /* Type is a flexible array member, i.e. int[] */
+    isFlexibleArray(): boolean;
+}
+
+enum TypeProperty {
+    Pointer         = 1 << 0,
+    PointerNull     = 1 << 1,
+    PointerInvalid  = 1 << 2,
+    ValueStruct     = 1 << 3,
+    Scalar          = 1 << 4,
+    FixedSizeArray  = 1 << 5,
+    FlexibleArray   = 1 << 6,
+
+    PointerMask = Pointer | PointerNull | PointerInvalid,
+}
+
+/* Basic implementation, that use single enum bitmask field for space efficiency */
+class TypeProperties implements IVariableProperties {
+    constructor(private props: TypeProperty) { }
+    isPointer(): boolean {
+        return (this.props & TypeProperty.PointerMask) !== 0;
+    }
+    pointerIsInvalid(): boolean {
+        return (this.props & TypeProperty.PointerInvalid) !== 0;
+    }
+    pointerIsNull(): boolean {
+        return (this.props & TypeProperty.PointerNull) !== 0;
+    }
+    pointerCanDeref(): boolean {
+        return (this.props & TypeProperty.Pointer) !== 0;
+    }
+    isValueStruct(): boolean {
+        return (this.props & TypeProperty.ValueStruct) !== 0;
+    }
+    isScalar(): boolean {
+        return (this.props & TypeProperty.Scalar) !== 0;
+    }
+    isFixedSizeArray(): boolean {
+        return (this.props & TypeProperty.FixedSizeArray) !== 0;
+    }
+    isFlexibleArray(): boolean {
+        return (this.props & TypeProperty.FlexibleArray) !== 0;
+    }
 }
 
 const pointerRegex = /^0x[0-9abcdef]+$/i;
@@ -224,6 +291,8 @@ export interface IDebuggerFacade {
      * Get pointer for location of this variable
      */
     getPointer: (variable: IDebugVariable) => string | undefined;
+    /* Extract information about type of this variable */
+    extractVariableProperties: (dv: IDebugVariable) => IVariableProperties;
 
     /**
      * 
@@ -582,19 +651,33 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
     abstract maybeCalcFrameIndex(frameId: number): number | undefined;
     abstract shouldShowScope(scope: dap.Scope): boolean;
     abstract evaluate(expression: string, frameId: number | undefined, context?: string): Promise<dap.EvaluateResponse>;
+    abstract extractVariableProperties(dv: IDebugVariable): IVariableProperties;
     abstract isNull(variable: IDebugVariable | dap.EvaluateResponse): boolean;
     abstract isValidPointerType(variable: IDebugVariable | dap.EvaluateResponse): boolean;
     abstract isValueStruct(variable: IDebugVariable, type?: string): boolean;
     abstract extractString(variable: IDebugVariable | dap.EvaluateResponse): string | null;
     abstract extractBool(variable: IDebugVariable | dap.EvaluateResponse): boolean | null;
     abstract extractPtrFromString(variable: IDebugVariable | dap.EvaluateResponse): string | null;
-    abstract formatEnumValue(name: string, value: string): string;
     abstract extractLongString(variable: IDebugVariable, frameId: number): Promise<string | null>;
+    abstract formatEnumValue(name: string, value: string): string;
+}
+
+function pointerValueLooksCorrect(pointer: number) {
+    /* 
+     * Even if this is pointer it can have garbage. To check this
+     * compare with some definitely impossible pointer value.
+     * This can happen not only for garbage, but also when integer
+     * is assigned to pointer type.
+     * 
+     * NOTE: this done primarily for cppdbg, because CodeLLDB checks
+     * pointer correctness.
+     */
+    return Number.isInteger(pointer) && pointer > 0x10000;
 }
 
 export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
     type = DebuggerType.CppDbg;
-    
+
     shouldShowScope(scope: dap.Scope): boolean {
         return scope.name === 'Locals';
     }
@@ -683,7 +766,7 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
          * is assigned to pointer type.
          */
         const ptrNumber = Number(pointer);
-        if (Number.isNaN(ptrNumber) || ptrNumber < 0x10000) {
+        if (!pointerValueLooksCorrect(ptrNumber)) {
             return false;
         }
 
@@ -702,6 +785,41 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
         }
 
         return false;
+    }
+
+    extractVariableProperties(dv: IDebugVariable) {
+        const value = this.getValue(dv);
+
+        let prop: TypeProperty;
+        if (value.length === 0) {
+            if (dv.type.endsWith('[]')) {
+                prop = TypeProperty.FlexibleArray;
+            } else {
+                prop = TypeProperty.ValueStruct;
+            }
+        } else if (value.startsWith('0x')) {
+            /* Check for pointer type first - cppdbg always shows pointers in the value field */
+            const pointerValue = Number(value);
+            if (!pointerValueLooksCorrect(pointerValue)) {
+                if (pointerValue === 0) {
+                    prop = TypeProperty.PointerNull;
+                } else {
+                    prop = TypeProperty.PointerInvalid;
+                }
+            } else {
+                prop = TypeProperty.Pointer;
+            }
+        } else if (value === '{...}') {
+            prop = TypeProperty.ValueStruct;
+        } else if (dv.type.endsWith(']')) {
+            /* FLA was checked at first 'if' branch - it has empty 'value' */
+            prop = TypeProperty.FixedSizeArray;
+        } else {
+            /* The only left is a scalar */
+            prop = TypeProperty.Scalar;
+        }
+        
+        return new TypeProperties(prop);
     }
 
     extractString(variable: IDebugVariable | dap.EvaluateResponse) {
@@ -939,6 +1057,47 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
 
             throw err;
         }
+    }
+    
+    extractVariableProperties(dv: IDebugVariable) {
+        let prop: TypeProperty;
+        if (dv.value === '<null>' || dv.memoryReference === '0x0') {
+            prop = TypeProperty.PointerNull;
+        } else if (dv.value === '<invalid pointer>') {
+            prop = TypeProperty.PointerInvalid;
+        } else if (dv.value.startsWith('0x')) {
+            const pointer = Number(dv.value);
+            if (!pointerValueLooksCorrect(pointer)) {
+                prop = TypeProperty.PointerInvalid;
+            } else {
+                prop = TypeProperty.Pointer;
+            }
+        } else if (dv.type.endsWith(']')) {
+            /*
+             * Array must be checked before structure, because
+             * array is rendered like '{ELEM1, ELEM2, ...}'
+             */
+            if (dv.type[dv.type.length - 2] === '[') {
+                prop = TypeProperty.FlexibleArray;
+            } else {
+                prop = TypeProperty.FixedSizeArray;
+            }
+        } else if ((dv.value.startsWith('{') && dv.value.endsWith('}')) || dv.type.indexOf('*') !== -1) {
+            /* 
+             * CodeLLDB is smart and shows contents of structures explicitly,
+             * but because PostgreSQL has lots of typedefs to pointers
+             * (i.e. 'Data *' suffixes) we just can not tell the difference
+             * between Value Struct and Pointer if it's type is a pointer typedef.
+             * But we should not assign ValueStruct in such case, because
+             * many type-specific properties will not be checked, so assign
+             * Pointer type to every structure.
+             */
+            prop = TypeProperty.Pointer;
+        } else {
+            prop = TypeProperty.Scalar;
+        }
+        
+        return new TypeProperties(prop);
     }
 
     isNull(variable: IDebugVariable | dap.EvaluateResponse): boolean {
