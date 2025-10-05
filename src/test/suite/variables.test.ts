@@ -486,7 +486,7 @@ suite('Variables', async function () {
 
             const elementsMember = getMember(childrenItems, '$elements$');
             const elements = await expand(elementsMember);
-            const values = elements.map(v => v.item.description);
+            const values = elements.map(v => v.item.getName());
             assert.deepEqual(values, ['5', '6', '7', '8', '9'],
                              'Bitmapset does not contains valid numbers');
         });
@@ -514,7 +514,7 @@ suite('Variables', async function () {
 
             const elementsMember = getMember(allBaseRelsChildren, '$elements$');
             const allBaseRelsElements = await expand(elementsMember);
-            const relids = allBaseRelsElements.map(i => i.item.description);
+            const relids = allBaseRelsElements.map(i => i.item.getName());
             assert.deepEqual(relids, ['1', '2'], 'Invalid values for relids');
 
             /* Check each has link to 'RelOptInfo' and 'RangeTblEntry' */
