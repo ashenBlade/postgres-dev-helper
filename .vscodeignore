@@ -24,3 +24,5 @@ TODO
 
 .venv
 site
+misc
+mkdocs.yml
