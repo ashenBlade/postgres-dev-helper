@@ -743,7 +743,7 @@ async function rangeTblEntryDescriptionFormatter(v: Variable) {
         /* Return 'undefined' instead of 'null' to fit function signature */
         return await getNullableAliasValue(await nv.getMember('eref')) ?? undefined;
     } catch (err) {
-        logger.error('could not get string value of "eref" and "alias"', err);
+        logger.error(err, 'could not get string value of "eref" and "alias"');
     }
 }
 
@@ -1056,7 +1056,7 @@ export abstract class Variable {
 
             return children;
         } catch (error: unknown) {
-            logger.error('failed to get children for %s', this.name, error);
+            logger.error(error, 'failed to get children for', this.name);
             if (isExpectedError(error)) {
                 return;
             } else {
@@ -1118,7 +1118,7 @@ export abstract class Variable {
                     : vscode.TreeItemCollapsibleState.None,
             };
         } catch (error: unknown) {
-            logger.debug('failed get TreeItem for %s', this.name, error);
+            logger.error(error, 'failed get TreeItem for', this.name);
 
             if (isExpectedError(error)) {
                 /* Placeholder */
@@ -1709,7 +1709,7 @@ export class RealVariable extends Variable {
                     return description;
                 }
             } catch (err) {
-                logger.error('could not invoke custom formatter', err);
+                logger.error(err, 'could not invoke custom formatter');
             }
         }
         
@@ -2093,7 +2093,7 @@ export class NodeVariable extends RealVariable {
         try {
             response = await context.debug.evaluate(expr, frameId);
         } catch (err) {
-            logger.error('could not get NodeTag for %s', expr, err);
+            logger.error(err, 'could not get NodeTag for', expr);
             return;
         }
 
@@ -3040,7 +3040,7 @@ class ExprNodeVariable extends NodeVariable {
                         values.push(await entry.getStringRepr() ?? 'NULL');
                     } catch (e) {
                         if (e instanceof EvaluationError) {
-                            logger.debug('error during getting string value from ValueVariable', e);
+                            logger.error(e, 'error during getting string value from ValueVariable');
                             values.push('???');
                         } else {
                             throw e;
@@ -3627,7 +3627,7 @@ class ExprNodeVariable extends NodeVariable {
                 throw error;
             }
 
-            logger.debug('failed repr for %s', this.realNodeTag, error);
+            logger.error(error, 'failed repr for', this.realNodeTag);
         }
         return this.getExprPlaceholder(this);
     }
@@ -3749,8 +3749,7 @@ class ExprNodeVariable extends NodeVariable {
                     /* EState->es_range_table */
                     return v.getListMemberElements('es_range_table');
             }
-            logger.warn('got unexpected NodeTag in findRtable: %s',
-                        v.realNodeTag);
+            logger.warn('got unexpected NodeTag in findRtable', v.realNodeTag);
             return;
         };
 
@@ -4099,8 +4098,7 @@ export class ListNodeVariable extends NodeVariable {
                 return {member: 'xid_value', type: 'TransactionId'};
         }
         
-        logger.debug('failed to determine List tag for %s->elements. using ptr value',
-                     this.name);
+        logger.debug('failed to determine List tag for', this.name, '->elements. using ptr value');
         return {member: 'ptr_value', type: 'void *'};
     }
 
@@ -4183,8 +4181,7 @@ export class ListNodeVariable extends NodeVariable {
         const castExpression = `(${realType}) (${this.getPointer()})`;
         const response = await this.debug.evaluate(castExpression, this.frameId);
         if (!Number.isInteger(response.variablesReference)) {
-            logger.warn('failed to cast %s to List: %s',
-                        this.name, response.result);
+            logger.warn('failed to cast', this.name, 'to List - got unexpected result:', response.result);
             return;
         }
 
@@ -4250,7 +4247,7 @@ export class ListNodeVariable extends NodeVariable {
         const evalResult = await this.debug.evaluate(lengthExpression, this.frameId);
         const length = Number(evalResult.result);
         if (Number.isNaN(length)) {
-            logger.warn('failed to obtain list size for %s', this.name);
+            logger.warn('failed to obtain list size for', this.name);
             return;
         }
         
@@ -4348,8 +4345,7 @@ class ArraySpecialMember extends RealVariable {
                 throw err;
             }
 
-            logger.error('failed to evaluate length expr "%s" for %s',
-                         lengthExpr, this.name, err);
+            logger.error(err, 'failed to evaluate length expr "', lengthExpr, '" for', this.name);
             return await super.doGetRealMembers();
         }
 
@@ -4532,7 +4528,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                 const response = await this.evaluate(expression);
                 number = Number(response.result);
                 if (Number.isNaN(number)) {
-                    logger.warn('failed to get set elements for %s', this.name);
+                    logger.warn('failed to get set elements for', this.name);
                     return;
                 }
             } catch (err) {
@@ -4540,7 +4536,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                     throw err;
                 }
 
-                logger.error('failed to get set elements for %s', this.name, err);
+                logger.error(err, 'failed to get set elements for', this.name);
                 return;
             }
 
@@ -4586,8 +4582,7 @@ class BitmapSetSpecialMember extends NodeVariable {
             const response = await this.evaluate(expression);
             number = Number(response.result);
             if (Number.isNaN(number)) {
-                logger.warn('failed to get set elements for "%s": %s',
-                            this.name, response.result);
+                logger.warn('failed to get set elements for "', this.name, '" - got unexpected result:', response.result);
                 return;
             }
 
@@ -4899,8 +4894,7 @@ class ValueVariable extends NodeVariable {
                 return;
             } catch (err: unknown) {
                 if (err instanceof EvaluationError) {
-                    logger.debug('failed to cast type "%s" to tag "%s"',
-                                 this.type, this.realNodeTag, err);
+                    logger.error(err, 'could not cast type "', this.type, '" to tag', this.realNodeTag);
                 }
 
                 /* continue */
@@ -4918,8 +4912,7 @@ class ValueVariable extends NodeVariable {
             this.context.hasValueStruct = true;
         } catch (err) {
             if (err instanceof EvaluationError) {
-                logger.debug('failed to cast type "%s" to tag "Value"',
-                             this.type, err);
+                logger.error(err, 'could not cast type "', this.type, '" to tag "Value"');
             }
         }
     }
@@ -4974,7 +4967,7 @@ class ValueVariable extends NodeVariable {
                 return 'NULL';
         }
 
-        logger.warn('Unknown NodeTag for Value struct: %s', this.realNodeTag);
+        logger.warn('Unknown NodeTag for Value struct -', this.realNodeTag);
         return '$UNKNOWN$';
     }
 
@@ -5004,7 +4997,7 @@ class ValueVariable extends NodeVariable {
 async function getDefElemArgString(defElemVar: NodeVariable) {
     const arg = await defElemVar.getMember('arg');
     if (!(arg instanceof NodeVariable)) {
-        logger.warn('DefElem->arg is not a Node variable, given: %s', arg.constructor.name);
+        logger.warn('DefElem->arg is not a Node variable, given:', arg.constructor.name);
         return;
     }
 
@@ -5035,7 +5028,7 @@ async function getDefElemArgString(defElemVar: NodeVariable) {
             } else if (e instanceof NodeVariable && e.realNodeTag === 'A_Star') {
                 names.push('*');
             } else {
-                logger.warn('unknown type in NameList of DefElem: %s', e.constructor.name);
+                logger.warn('unknown type in NameList of DefElem:', e.constructor.name);
             }
         }
         return names.join('.');
@@ -5175,7 +5168,7 @@ class HTABElementsMember extends Variable {
              */
             if (err instanceof EvaluationError) {
                 await this.pfree(memory);
-                logger.error('failed to invoke hash_seq_init: %s', err.message);
+                logger.error(err, 'failed to invoke hash_seq_init');
             }
 
             throw err;
@@ -5196,7 +5189,7 @@ class HTABElementsMember extends Variable {
                 throw err;
             }
             
-            logger.error('Could not invoke hash_seq_term: %s', err.message);
+            logger.error(err, 'Could not invoke hash_seq_term');
         }
 
         await this.pfree(hashSeqStatus);
@@ -5238,8 +5231,7 @@ class HTABElementsMember extends Variable {
                 }
 
                 /* user can specify non-existent type */
-                logger.warn('Failed to create variable with type %s',
-                            this.entryType, err);
+                logger.error(err, 'Failed to create variable with type', this.entryType);
                 await this.finalizeHashSeqStatus(hashSeqStatus);
                 await this.pfree(hashSeqStatus);
                 return undefined;
@@ -5673,7 +5665,7 @@ class FlagsMemberVariable extends RealVariable {
                 throw err;
             }
 
-            logger.error('failed to evaluate flags for %s', this.name, err);
+            logger.error(err, 'failed to evaluate flags for', this.name);
             this.context.canUseMacros = false;
             return await super.getDescription();
         }
@@ -5695,7 +5687,7 @@ class FlagsMemberVariable extends RealVariable {
             return fields?.map(([name, value]) => 
                 new ScalarVariable(name, value, '', this.context, this)) ?? [];
         } catch (err) {
-            logger.error('failed to evaluate fields for %s', this.name, err);
+            logger.error(err, 'failed to evaluate fields for', this.name);
             this.context.canUseMacros = false;
             return [];
         }
@@ -5777,67 +5769,67 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         }
         
         if (config.arrays?.length) {
-            logger.debug('adding %i array special members from config file', config.arrays.length);
+            logger.debug('adding', config.arrays.length, 'arrays from config file');
             try {
                 specialMembers.addArraySpecialMembers(config.arrays);
             } catch (err) {
-                logger.error('could not add custom array special members', err);
+                logger.error(err, 'could not add custom array special members');
             }
         }
 
         if (config.aliases?.length) {
-            logger.debug('adding %i aliases from config file', config.aliases.length);
+            logger.debug('adding', config.aliases.length, 'aliases from config file');
             try {
                 nodeVars.addAliases(config.aliases);
             } catch (err) {
-                logger.error('could not add aliases from configuration', err);
+                logger.error(err, 'could not add aliases from configuration');
             }
         }
 
         if (config.customListTypes?.length) {
-            logger.debug('adding %i custom list types', config.customListTypes.length);
+            logger.debug('adding', config.customListTypes.length, 'custom list types');
             try {
                 specialMembers.addListCustomPtrSpecialMembers(config.customListTypes);
-            } catch (e) {
-                logger.error('error occurred during adding custom List types', e);
+            } catch (err) {
+                logger.error(err, 'error occurred during adding custom List types');
             }
         }
 
         if (config.htab?.length) {
-            logger.debug('adding %i htab types', config.htab.length);
+            logger.debug('adding', config.htab.length, 'htab types');
             try {
                 hashTables.addHTABTypes(config.htab);
-            } catch (e) {
-                logger.error('error occurred during adding custom HTAB types', e);
+            } catch (err) {
+                logger.error(err, 'error occurred during adding custom HTAB types');
             }
         }
 
         if (config.simplehash?.length) {
-            logger.debug('adding %i simplehash types', config.simplehash.length);
+            logger.debug('adding', config.simplehash.length, 'simplehash types');
             try {
                 hashTables.addSimplehashTypes(config.simplehash);
-            } catch (e) {
-                logger.error('error occurred during adding custom simple hash table types', e);
+            } catch (err) {
+                logger.error(err, 'error occurred during adding custom simple hash table types');
             }
         }
         
         if (config.enums?.length) {
-            logger.debug('adding %i enum bitmask types', config.enums.length);
+            logger.debug('adding', config.enums.length, 'enum bitmask types');
             try {
                 specialMembers.addFlagsMembers(config.enums);
-            } catch (e) {
-                logger.error('error occurred during adding enum bitmask types', e);
+            } catch (err) {
+                logger.error(err, 'error occurred during adding enum bitmask types');
             }
         }
 
         if (config.nodetags?.length) {
-            logger.debug('adding %i custom NodeTags', config.nodetags?.length);
+            logger.debug('adding', config.nodetags.length, 'custom NodeTags');
             try {
                 for (const tag of config.nodetags) {
                     nodeVars.nodeTags.add(tag);
                 }
             } catch (err) {
-                logger.error('could not add custom NodeTags', err);
+                logger.error(err, 'could not add custom NodeTags');
             }
         }
     }
@@ -5846,7 +5838,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         const result = await this.getDebug().evaluate('server_version_num', frameId);
         const pgversion = Number(result.result);
         if (!pgVersionIsValid(pgversion)) {
-            logger.warn('"server_version_num" is not valid: %s', result.result);
+            logger.warn('"server_version_num" is not valid, evaluated:', result.result);
             return undefined;
         }
 
@@ -5862,7 +5854,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
             const doc = await vscode.workspace.openTextDocument(path);
             text = doc.getText();
         } catch (err) {
-            logger.error('could not open pg_config.h file %s', path.fsPath, err);
+            logger.error(err, 'could not open pg_config.h file', path.fsPath);
             return;
         }
     
@@ -5892,7 +5884,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         const versionString = text.substring(start, end);
         const version = Number(versionString);
         if (!pgVersionIsValid(version)) {
-            logger.warn('parsed PG_VERSION_NUM "%s" is not valid', versionString);
+            logger.warn('parsed PG_VERSION_NUM "', versionString, '" is not valid');
             return;
         }
         
@@ -5970,7 +5962,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         try {
             pgversion = await this.tryGetServerVersionNumGuc(frameId);
         } catch (err) {
-            logger.error('could not get "server_version_num" GUC', err);
+            logger.error(err, 'could not get "server_version_num" GUC');
         }
 
         if (pgversion) {
@@ -5983,7 +5975,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         try {
             pgversion = await this.tryGetPgVersionNumPgConfig();
         } catch (err) {
-            logger.error('could not parse pg_config.h file for PG_VERSION_NUM', err);
+            logger.error(err, 'could not parse pg_config.h file for PG_VERSION_NUM');
         }
 
         if (pgversion) {
@@ -6009,10 +6001,10 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         const {pgversion, isServer} = await this.getDebugContext(frameId);
 
         if (pgversion) {
-            logger.debug('detected PostgreSQL version: %i', pgversion);
+            logger.info('detected PostgreSQL version:', pgversion);
             data = this.tryGetCache(pgversion);
         } else {
-            logger.info('could not detect PostgreSQL version');
+            logger.warn('could not detect PostgreSQL version');
         }
 
         if (!data) {
@@ -6090,7 +6082,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
              * then user will see error popup and just freeze without
              * understanding where this error comes from.
              */
-            logger.error('error occurred during obtaining children', err);
+            logger.error(err, 'error occurred during obtaining children');
             return;
         }
     }
@@ -6119,15 +6111,15 @@ function isIdentifierChar(char: string) {
 export async function parseNodeTagsFile(file: vscode.Uri) {
     let content;
     try {
-        logger.debug('opening NodeTag file %s', file.fsPath);
+        logger.debug('opening NodeTag file', file.fsPath);
         const document = await vscode.workspace.openTextDocument(file);
         content = document.getText();
     } catch (error) {
-        logger.error('could not open NodeTags file %s', file.fsPath, error);
+        logger.error(error, 'could not open NodeTags file', file.fsPath);
         return;
     }
 
-    logger.debug('parsing contents of NodeTag file %s', file.fsPath);
+    logger.debug('parsing contents of NodeTag file', file.fsPath);
     const nodeTags: string[] = [];
     let prefixIndex = undefined;
     while ((prefixIndex = content.indexOf('T_', prefixIndex)) !== -1) {
@@ -6181,12 +6173,12 @@ export async function dumpNodeVariableToLogCommand(pgvars: PgVariablesViewProvid
 
     const frameId = await debug.getCurrentFrameId();
     if (frameId === undefined) {
-        logger.error('could not get current frame id');
+        logger.warn('could not get current frame id');
         return;
     }
 
     if (!debug.isValidPointerType(variable)) {
-        logger.warn('variable %s is not a valid pointer', variable.name);
+        logger.warn('variable', variable.name, 'is not a valid pointer');
         return;
     }
 
@@ -6239,7 +6231,7 @@ export async function dumpNodeVariableToDocumentCommand(pgvars: PgVariablesViewP
                && 'variable' in args && isDebugVariable(args.variable)) {
         variable = args.variable;
     } else {
-        logger.warn('could not get DebugVariable from given "args" = %o', args);
+        logger.warn('could not get DebugVariable from given "args" =', args);
         return;
     }
 
@@ -6299,7 +6291,7 @@ export async function dumpNodeVariableToDocumentCommand(pgvars: PgVariablesViewP
                              undefined, true);           
     } catch (err: unknown) {
         /* This is not critical error actually, so just log and continue */
-        logger.error('could not dump variable %s to log', variable.name, err);
+        logger.error(err, 'could not dump variable', variable.name, 'to log');
         
         /* continue - this is not critical error for dump logic */
     }
@@ -6328,7 +6320,7 @@ export async function addVariableToWatchCommand(...args: unknown[]) {
     
     const variable = args[0];
     if (!(variable instanceof Variable)) {
-        logger.warn('given argument is not Variable type: %o', variable);
+        logger.warn('given argument is not Variable type:', variable);
         return;
     }
 

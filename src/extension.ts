@@ -420,7 +420,7 @@ function setupPgVariablesView(context: vscode.ExtensionContext,
             try {
                 await searchNodeTagsWorker(config, c);
             } catch (err) {
-                logger.error('could not search for new NodeTags', err);
+                logger.error(err, 'could not search for new NodeTags');
             }
         });
     }
@@ -530,7 +530,7 @@ async function searchNodeTagsWorker(config: Configuration,
         context.nodeVarRegistry.nodeTags.add(tag);
     }
 
-    logger.info('found %i new node tags', newNodeTags.size);
+    logger.info('found', newNodeTags.size, 'new node tags');
     const answer = await vscode.window.showInformationMessage(
         `Found ${newNodeTags.size} new NodeTags. ` +
         `Would you like to add them to configuration file?`,
@@ -550,14 +550,14 @@ function registerCommands(context: vscode.ExtensionContext,
     const registerCommand = <T>(name: string, command: (...args: unknown[]) => T | Thenable<T>) => {
         const disposable = vscode.commands.registerCommand(name, async (...args: unknown[]) => {
             try {
-                logger.debug('executing command %s', name);
+                logger.debug('executing command', name);
                 return await command(...args);
             } catch (err) {
                 if (err instanceof WorkspaceNotOpenedError) {
                     vscode.window.showInformationMessage('Open workspace before executing command');
                 }
 
-                logger.error('failed to execute command %s', name, err);
+                logger.error(err, 'failed to execute command', name);
                 throw err;
             }
         });

@@ -206,7 +206,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
             return;    
         }
 
-        logger.info('patching pg_bsd_indent/args.c to be like %s', version);
+        logger.info('patching pg_bsd_indent/args.c to be like', version);
         const argsFile = utils.joinPath(pgBsdIndentDir, 'args.c');
         const contents = await utils.readFile(argsFile);
         const lines = contents.split('\n');
@@ -264,7 +264,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
             }
 
             /* Try to build it */
-            logger.info('building pg_bsd_indent in %s', pgBsdIndentDir.fsPath);
+            logger.info('building pg_bsd_indent in', pgBsdIndentDir.fsPath);
             await execShell('make', ['-C', pgBsdIndentDir.fsPath],
                             workspace.fsPath);
             return pgBsdIndent;
@@ -315,7 +315,7 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
             }
 
             if (!await utils.fileExists(typedefFile)) {
-                logger.warn('could not find file %s', typedefFile);
+                logger.warn('could not find file', typedefFile);
                 continue;
             }
             
@@ -534,12 +534,12 @@ export class PgindentDocumentFormatterProvider implements vscode.DocumentFormatt
                                          _options: vscode.FormattingOptions,
                                          _token: vscode.CancellationToken) {
         const workspace = getWorkspaceFolder();
-        logger.debug('formatting document: %s', document.uri.fsPath);
+        logger.debug('formatting document', document.uri.fsPath);
         let indented;
         try {
             indented = await this.runPgindent(document, workspace);
         } catch (err) {
-            logger.error('could not to run pgindent', err);
+            logger.error(err, 'could not to run pgindent');
             return [];
         }
 
@@ -575,7 +575,7 @@ export async function showFormatterDiffCommand(formatter: PgindentDocumentFormat
     try {
         parsed = await formatter.indentFileWithTemp(workspace, document);
     } catch (err) {
-        logger.error('failed to format file %s', document.uri.fsPath, err);
+        logger.error(err, 'failed to format file', document.uri.fsPath);
         return;
     }
     
@@ -583,7 +583,7 @@ export async function showFormatterDiffCommand(formatter: PgindentDocumentFormat
     try {
         await vscode.commands.executeCommand('vscode.diff', document.uri, parsed, filename);
     } catch (err) {
-        logger.error(`failed to show diff for document %s`, document.uri.fsPath, err);
+        logger.error(err, 'failed to show diff for document', document.uri.fsPath);
     } finally {
         if (await utils.fileExists(parsed)) {
             await utils.deleteFile(parsed);

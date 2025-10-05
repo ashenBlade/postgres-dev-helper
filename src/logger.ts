@@ -1,12 +1,11 @@
-import { format } from 'util';
 import * as vscode from 'vscode';
 import { ExtensionPrettyName, VsCodeSettings, Features } from './configuration';
 
 interface ILogger {
-    debug: (message: string, args: unknown[]) => void;
-    info: (message: string, args: unknown[]) => void;
-    warn: (message: string, args: unknown[]) => void;
-    error: (message: string, args: unknown[]) => void;
+    debug: (message: string, ...args: unknown[]) => void;
+    info: (message: string, ...args: unknown[]) => void;
+    warn: (message: string, ...args: unknown[]) => void;
+    error: (error: string | Error, message: string, ...args: unknown[]) => void;
 }
 
 /* Start with 2 as in vscode.LogLevel */
@@ -20,26 +19,27 @@ enum LogLevel {
 
 abstract class BaseLogger implements ILogger {
     constructor(protected channel: vscode.OutputChannel) { }
-
-    protected format(msg: string, args: unknown[]) {
-        if (args.length && args[args.length - 1] instanceof Error) {
-            const err = args[args.length - 1] as Error;
-            return `${format(msg, ...args)}\n${err}`;
-        } else {
-            return format(msg, ...args);
-        }
-    }
-
-    abstract debug(message: string, args: unknown[]): void;
-    abstract info(message: string, args: unknown[]): void;
-    abstract warn(message: string, args: unknown[]): void;
-    abstract error(message: string, args: unknown[]): void;
+    abstract debug(message: string, ...args: unknown[]): void;
+    abstract info(message: string, ...args: unknown[]): void;
+    abstract warn(message: string, ...args: unknown[]): void;
+    abstract error(error: string | Error, message: string, ...args: unknown[]): void;
 }
 
 class ObsoleteVsCodeLogger extends BaseLogger implements ILogger {
     constructor(channel: vscode.OutputChannel,
                 public minLogLevel: LogLevel) {
         super(channel);
+    }
+    
+    format(message: string, args: unknown[]) {
+        if (args.length === 0) {
+            return message;
+        }
+        
+        return [
+            message,
+            ...args.map(a => !a ? '(null)' : typeof a === 'object' ? JSON.stringify(a) : a.toString()),
+        ].join(' ');
     }
 
     logGeneric(level: LogLevel, levelStr: string, message: string, args: unknown[]) {
@@ -64,16 +64,16 @@ class ObsoleteVsCodeLogger extends BaseLogger implements ILogger {
         this.channel.appendLine(this.format(message, args));
     }
 
-    debug(message: string, args: unknown[]) {
+    debug(message: string, ...args: unknown[]) {
         this.logGeneric(LogLevel.Debug, 'debug', message, args);
     }
-    info(message: string, args: unknown[]) {
+    info(message: string, ...args: unknown[]) {
         this.logGeneric(LogLevel.Info, 'info', message, args);
     }
-    warn(message: string, args: unknown[]) {
+    warn(message: string, ...args: unknown[]) {
         this.logGeneric(LogLevel.Warn, 'warn', message, args);
     }
-    error(message: string, args: unknown[]) {
+    error(error: string | Error, message: string, ...args: unknown[]) {
         this.logGeneric(LogLevel.Error, 'error', message, args);
     }
 }
@@ -83,30 +83,17 @@ class VsCodeLogger extends BaseLogger implements ILogger {
         super(logOutput);
     }
 
-    canLog(level: vscode.LogLevel): boolean {
-        return this.logOutput.logLevel != vscode.LogLevel.Off && 
-               this.logOutput.logLevel <= level;
+    debug(message: string, ...args: unknown[]) {
+        this.logOutput.debug(message, ...args);
     }
-    
-    logGeneric(level: vscode.LogLevel, handler: (msg: string) => void,
-               fmt: string, args: unknown[]) {
-        if (this.canLog(level)) {
-            /* VS Code LogOutputChannel can not use format strings, so do it manually */
-            handler(super.format(fmt, args));
-        }
+    info(message: string, ...args: unknown[]) {
+        this.logOutput.info(message, ...args);
     }
-
-    debug(message: string, args: unknown[]) {
-        this.logGeneric(vscode.LogLevel.Debug, this.logOutput.debug, message, args);
+    warn(message: string, ...args: unknown[]) {
+        this.logOutput.warn(message, ...args);
     }
-    info(message: string, args: unknown[]) {
-        this.logGeneric(vscode.LogLevel.Info, this.logOutput.info, message, args);
-    }
-    warn(message: string, args: unknown[]) {
-        this.logGeneric(vscode.LogLevel.Warning, this.logOutput.warn, message, args);
-    }
-    error(message: string, args: unknown[]) {
-        this.logGeneric(vscode.LogLevel.Error, this.logOutput.error, message, args);
+    error(error: string | Error, message: string, ...args: unknown[]) {
+        this.logOutput.error(error, message, ...args);
     }
 }
 
@@ -114,7 +101,7 @@ class NullLogger implements ILogger {
     debug(_message: string, ..._args: unknown[]) { }
     info(_message: string, ..._args: unknown[]) { }
     warn(_message: string, ..._args: unknown[]) { }
-    error(_message: string, ..._args: unknown[]) { }
+    error(_error: string | Error, _message: string, ..._args: unknown[]) { }
     focus() { }
 }
 
@@ -122,16 +109,17 @@ export class Log {
     static logger: ILogger = new NullLogger();
 
     static debug(message: string, ...args: unknown[]) {
-        this.logger.debug(message, args);
+        this.logger.debug(message, ...args);
     }
     static info(message: string, ...args: unknown[]) {
-        this.logger.info(message, args);
+        this.logger.info(message, ...args);
     } 
     static warn(message: string, ...args: unknown[]) {
-        this.logger.warn(message, args);
+        this.logger.warn(message, ...args);
     }
-    static error(message: string, ...args: unknown[]) {
-        this.logger.error(message, args);
+    static error(error: unknown, message: string, ...args: unknown[]) {
+        /* For 'error' use 'unknown', because 'catch (err)' is unknown  */
+        this.logger.error(error as string | Error, message, ...args);
     }
 }
 

@@ -11,12 +11,12 @@ async function setExtensionActive(status: boolean) {
 export async function activate(context: vscode.ExtensionContext) {
     initLogger(context);
     try {
-        logger.info('Extension is activating: %s', context.extension.packageJSON?.version);
+        logger.info('Extension is activating: version', context.extension.packageJSON?.version);
         setupExtension(context);
         await setExtensionActive(true);
         logger.info('Extension activated');
     } catch (error) {
-        logger.error('Failed to activate extension', error);
+        logger.error(error, 'Failed to activate extension');
         await setExtensionActive(false);
     }
 }

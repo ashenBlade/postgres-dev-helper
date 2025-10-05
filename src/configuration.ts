@@ -600,7 +600,7 @@ async function readJsonFile(file: vscode.Uri) {
     try {
         text = document.getText();
     } catch (err: unknown) {
-        logger.error('could not read settings file %s', document.uri.fsPath, err);
+        logger.error(err, 'could not read settings file', document.uri.fsPath);
         return;
     }
 
@@ -613,7 +613,7 @@ async function readJsonFile(file: vscode.Uri) {
     try {
         data = JSON.parse(text);
     } catch (err: unknown) {
-        logger.error('could not parse JSON settings file %s', document.uri.fsPath, err);
+        logger.error(err, 'could not parse JSON settings file', document.uri.fsPath);
         return;
     }
     
@@ -626,7 +626,7 @@ async function readConfigurationFile(path: vscode.Uri) {
 }
 
 async function writeConfigFile(config: ConfigurationFile, file: vscode.Uri) {
-    logger.info('writing configuration file %s', file.fsPath);
+    logger.info('writing configuration file', file.fsPath);
     const data = JSON.stringify(config, null, 4);
 
     let vscodeDirPath;
@@ -860,7 +860,7 @@ export function setupConfiguration(context: vscode.ExtensionContext) {
                 e.added.forEach(f => registerFolderWatcher(f.uri));
             }, undefined, context.subscriptions);   
         } else {
-            logger.error('unknown error during registering config file fs watcher', err);
+            logger.error(err, 'unknown error during registering config file fs watcher');
         }
     }
 
@@ -896,11 +896,11 @@ export async function openConfigFileCommand() {
     if (!await utils.fileExists(configFilePath)) {
         const configDirectoryPath = utils.joinPath(configFilePath, '..');
         if (!await utils.directoryExists(configDirectoryPath)) {
-            logger.info('creating .vscode directory %s', configDirectoryPath);
+            logger.info('creating .vscode directory', configDirectoryPath);
             await utils.createDirectory(configDirectoryPath);
         }
 
-        logger.info('creating configuration file %s', configFilePath.fsPath);
+        logger.info('creating configuration file', configFilePath.fsPath);
     }
 
     const doc = await vscode.workspace.openTextDocument(configFilePath);
