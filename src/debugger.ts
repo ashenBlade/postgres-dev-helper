@@ -553,6 +553,11 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
     }
 
     isScalarType(variable: IDebugVariable, type?: string) {
+        const value = this.getValue(variable);
+        if (value.startsWith('0x')) {
+            return false;
+        }
+
         return builtInTypes.has(type ?? variable.type);
     }
 
@@ -897,10 +902,6 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
         return scope.name === 'Local';
     }
 
-    valueRepresentsStructure(value: string) {
-        return value.startsWith('{') && value.endsWith('}');
-    }
-
     async evaluate(expression: string, frameId: number | undefined, context?: string, noReturn?: boolean): Promise<dap.EvaluateResponse> {
         try {
             context ??= 'watch';
@@ -956,6 +957,22 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
 
         return nullRegex.test(variable.value);
     }
+
+    private isPointerValue(value: string) {
+        if (value === '<null>' || value === '<invalid address>') {
+            return true;
+        }
+
+        if (value === '0x0') {
+            return true;
+        }
+        
+        if (value.startsWith('0x')) {
+            return true;
+        }
+        
+        return pointerRegex.test(value);
+    }
     
     isValidPointerType(variable: IDebugVariable | dap.EvaluateResponse): boolean {
         if ('result' in variable) {
@@ -977,6 +994,15 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
     }
 
     isScalarType(variable: IDebugVariable, type?: string) {
+        if ((type ?? variable.type).indexOf('*') !== -1) {
+            return false;
+        }
+        
+        if ((type ?? variable.type).indexOf('[]') !== -1) {
+            /* flexible array member */
+            return false;
+        }
+
         /* 
          * CodeLLDB displays structures in 'description', so we can use
          * this info to figure out, that even if type is not builtin, it
@@ -984,8 +1010,21 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
          * 'valueRepresentsStructure' also covers case, when 'description'
          * is array - it rendered as '{1, 2, 3, ...}'.
          */
-        return super.isScalarType(variable, type) || 
-              !this.valueRepresentsStructure(variable.value);
+        if (super.isScalarType(variable, type)) {
+            return true;
+        }
+
+        const value = this.getValue(variable);
+        
+        if (value.startsWith('{') && value.endsWith('}')) {
+            return false;
+        }
+        
+        if (this.isPointerValue(value)) {
+            return false;
+        }
+        
+        return true;
     }
 
     isValueStruct(variable: IDebugVariable, type?: string): boolean {

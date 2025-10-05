@@ -1225,7 +1225,7 @@ export abstract class Variable {
             type: effectiveType,
             declaredType: debugVariable.type,
         };
-        
+
         /* Value struct or scalar types are not so interesting for us */
         if (   context.debug.isValueStruct(debugVariable, effectiveType)
             || context.debug.isScalarType(debugVariable, effectiveType)) {
@@ -1248,8 +1248,12 @@ export abstract class Variable {
         /*
          * Pointer types can be NULL or contain invalid pointers.
          * cppdbg do not recognize invalid pointers, but CodeLLDB - <invalid pointer>.
+         * 
+         * For such variables use special InvalidVariable, which do not
+         * act like RealVariable, so it prevent some potential errors.
          */
-        if (!context.debug.isValidPointerType(debugVariable)) {
+        if (!(   context.debug.isValidPointerType(debugVariable) 
+              || context.debug.isFixedSizeArray(debugVariable))) {
             /* 
              * We are here if got scalar type or value struct (not pointer).
              * These types are not so interesting for us, so pass here to
@@ -1257,7 +1261,7 @@ export abstract class Variable {
              */
             
             if (   context.debug.isNull(debugVariable)
-                && debugVariable.type.endsWith('List *')) {
+                && effectiveType.endsWith('List *')) {
                 /* 
                  * Empty List is NIL == NULL == '0x0' Also 'endsWith'
                  * covers cases like 'const List *'.
@@ -1275,7 +1279,7 @@ export abstract class Variable {
                 return new ListNodeVariable('List', args);
             }
 
-            if (parent && dbg.isFlexibleArrayMember(debugVariable.type)) {
+            if (parent && dbg.isFlexibleArrayMember(effectiveType)) {
                 /* 
                  * Flexible array members for now recognized as non-valid
                  * pointers/scalars, but we actually can handle them.
@@ -1288,7 +1292,7 @@ export abstract class Variable {
                 }
             }
 
-            return new InvalidPointerType(args);
+            return new InvalidVariable(args);
         }
 
         /* 
@@ -1618,7 +1622,7 @@ class ScalarVariable extends Variable {
     }
 }
 
-class InvalidPointerType extends Variable {
+class InvalidVariable extends Variable {
     constructor(args: RealVariableArgs) {
         super(args.name, args.value, args.type, args.declaredType,
               args.context, args.frameId, args.parent);
@@ -1817,8 +1821,12 @@ export class RealVariable extends Variable {
         if (m instanceof RealVariable) {
             return m;
         }
+        
+        if (m instanceof InvalidVariable) {
+            return;
+        }
 
-        throw new EvaluationError(`member "${member}" is not RealVariable`);
+        throw new EvaluationError(`member "${member}" is neither RealVariable nor InvalidPointer`);
     }
 
     /**
@@ -2469,7 +2477,7 @@ class ExprNodeVariable extends NodeVariable {
             }
 
             const alias = await rte.getRealMember('alias');
-            if (alias.isValidPointer()) {
+            if (alias) {
                 const aliasColnames = await alias.getListMemberElements('colnames');
 
                 if (varattno <= aliasColnames.length) {
@@ -2534,7 +2542,7 @@ class ExprNodeVariable extends NodeVariable {
             }
 
             const eref = await rte.getRealMember('eref');
-            if (eref.isValidPointer()) {
+            if (eref) {
                 const erefColnames = await eref.getListMemberElements('colnames');
                 if (varattno <= erefColnames.length) {
                     const colname = erefColnames[varattno - 1];
