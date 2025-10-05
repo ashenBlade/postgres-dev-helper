@@ -949,7 +949,7 @@ function getFormatterForValueStruct(effectiveType: string, debugVariable: dap.De
     }
 }
 
-function getFormatterForPointerType(effectiveType: string,) {
+function getFormatterForPointerType(effectiveType: string) {
     if (effectiveType === 'bitmapword *' || effectiveType === 'bits8 *') {
         return formatBitmask;
     } else if (effectiveType === 'RelFileLocator *') {
@@ -1008,6 +1008,25 @@ function getIndexFromArrayElementName(name: string) {
     }
 }
 
+function variablePropertyIsExpandable(props: dbg.IVariableProperties) {
+    /* Expand pointer only if it is valid */
+    if (props.isPointer()) {
+        return !(props.pointerIsNull() || props.pointerIsInvalid());
+    }
+    
+    /* Integer or other types do not have children */
+    if (props.isScalar()) {
+        return false;
+    }
+    
+    if (props.isFlexibleArray()) {
+        /* Flexible array is expandable only if it is a ArrayVariable */
+        return false;
+    }
+
+    /* Other types should be fine */
+    return true;
+}
 
 export abstract class Variable {
     /**
@@ -1129,34 +1148,9 @@ export abstract class Variable {
             /* Special members */
             return false;
         }
-
-        /* Pointer to struct */
-        if (this.debug.isValidPointerType(this)) {
-            return true;
-        }
-
-        /* Do not deref NULL */
-        if (this.debug.isNull(this)) {
-            return false;
-        }
-
-        /* Builtin scalar types, like 'int' */
-        if (this.debug.isScalarType(this)) {
-            return false;
-        }
-
-        /* Embedded or top level structs */
-        if (this.debug.isValueStruct(this)) {
-            return true;
-        }
-
-        /* Fixed size array: type[size] */
-        if (this.debug.isFixedSizeArray(this)) {
-            return true;
-        }
-
-        /* Default safe value, i.e. FLA (length unknown) */
-        return false;
+        
+        const props = this.debug.extractVariableProperties(this);
+        return variablePropertyIsExpandable(props);
     }
 
     protected async getDescription() {
@@ -1411,28 +1405,28 @@ export abstract class Variable {
 
         /* TODO: use MemoryContextAllocExtended with NULL returning */
         if (this.context.hasPalloc) {
-            const result = await this.evaluate(`palloc(${size})`);
+            try {
+                return (await this.evaluate(`palloc(${size})`)).result;
+            } catch (err) {
+                /*
+                 * I will not allocate huge amounts of memory - only small *state* structures,
+                 * and expect, that there is always enough memory to allocate it.
+                 *
+                 * So, only invalid situation - this is old version of PostgreSQL,
+                 * so `palloc` implemented as macro and we need to invoke `MemoryContextAlloc`
+                 * directly.
+                 */
+                if (!(err instanceof EvaluationError)) {
+                    throw err;
+                }
 
-            /*
-             * I will not allocate huge amounts of memory - only small *state* structures,
-             * and expect, that there is always enough memory to allocate it.
-             *
-             * So, only invalid situation - this is old version of PostgreSQL,
-             * so `palloc` implemented as macro and we need to invoke `MemoryContextAlloc`
-             * directly.
-             */
-            if (this.debug.isValidPointerType(result)) {
-                return result.result;
+                logger.error(err, 'could not invoke "palloc", switching to MemoryContextAlloc');
+                this.context.hasPalloc = false;
             }
         }
 
         const result = await this.evaluate(`MemoryContextAlloc(CurrentMemoryContext, ${size})`);
-        if (this.debug.isValidPointerType(result)) {
-            this.context.hasPalloc = false;
-            return result.result;
-        }
-
-        throw new EvaluationError(`failed to allocate memory using MemoryContextAlloc: ${result.result}`);
+        return result.result;
     }
     
     async directFunctionCall(func: string, out: string, arg0: string, ...args: string[]) {
@@ -1732,25 +1726,9 @@ export class RealVariable extends Variable {
     }
     
     protected isExpandable(): boolean {
-        if (!this.typeProperties) {
-            return super.isExpandable();
-        }
-        
-        const prop = this.typeProperties;
-        if (prop.isPointer()) {
-            return !(prop.pointerIsNull() || prop.pointerIsInvalid());
-        }
-        
-        if (prop.isScalar()) {
-            return false;
-        }
-        
-        if (prop.isFlexibleArray()) {
-            /* Flexible array is expandable only if it is a ArrayVariable */
-            return false;
-        }
-
-        return true;
+        return this.typeProperties
+            ? variablePropertyIsExpandable(this.typeProperties)
+            : super.isExpandable();
     }
 
     /**
@@ -2013,7 +1991,7 @@ export class RealVariable extends Variable {
             /* Child of pseudo-member */
             if (this.getTypeProperties().isValueStruct()) {
                 const parent = `((${this.parent.type})${this.parent.getPointer()})`;
-                const separator = this.debug.isValidPointerType(this.parent) ? '->' : '.';
+                const separator = dbg.isPointerType(this.parent.type) ? '->' : '.';
                 return `${parent}${separator}${this.name}`;
             } else if (this.getTypeProperties().pointerCanDeref()) {
                 return `(${this.type})${this.getPointer()}`;
@@ -4672,7 +4650,7 @@ class BitmapSetSpecialMember extends NodeVariable {
          * pfree(tmp);
          */
         const e = await this.evaluate(`bms_copy((Bitmapset *)${this.getPointer()})`);
-        if (!this.debug.isValidPointerType(e)) {
+        if (this.debug.isNull(e)) {
             /* NULL means empty */
             return [];
         }
@@ -5303,19 +5281,11 @@ class HTABElementsMember extends Variable {
 
     private async getNextHashEntry(hashSeqStatus: string): Promise<string | undefined> {
         const result = await this.evaluate(`hash_seq_search((HASH_SEQ_STATUS *)${hashSeqStatus})`);
-        if (!result) {
-            throw new EvaluationError('failed to get next hash table entry');
-        }
-
-        if (this.debug.isValidPointerType(result)) {
-            return result.result;
-        }
-
         if (this.debug.isNull(result)) {
             return undefined;
         }
-
-        throw new EvaluationError(`Failed to get next hash table entry: ${result.result}`);
+        
+        return result.result;
     }
 
     async doGetChildren(): Promise<Variable[] | undefined> {
@@ -6276,15 +6246,9 @@ export async function dumpNodeVariableToLogCommand(pgvars: PgVariablesViewProvid
     }
 
     const variable = args.variable as dap.DebugVariable;
-
     const frameId = await debug.getCurrentFrameId();
     if (frameId === undefined) {
         logger.warn('could not get current frame id');
-        return;
-    }
-
-    if (!debug.isValidPointerType(variable)) {
-        logger.warn('variable', variable.name, 'is not a valid pointer');
         return;
     }
 
@@ -6350,11 +6314,6 @@ export async function dumpNodeVariableToDocumentCommand(pgvars: PgVariablesViewP
     const frameId = await debug.getCurrentFrameId();
     if (frameId === undefined) {
         vscode.window.showWarningMessage(`Could not get current stack frame id to invoke functions`);
-        return;
-    }
-
-    if (!debug.isValidPointerType(variable)) {
-        vscode.window.showWarningMessage(`Variable ${variable.value} is not valid pointer`);
         return;
     }
 

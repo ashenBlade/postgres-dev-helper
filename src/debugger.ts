@@ -77,8 +77,6 @@ class TypeProperties implements IVariableProperties {
     }
 }
 
-const pointerRegex = /^0x[0-9abcdef]+$/i;
-const nullRegex = /^0x0+$/i;
 const builtInTypes = new Set([
     /* Standard builtin C types */
     'char', 'short', 'int', 'long', 'double', 'float', '_Bool', 'void',
@@ -108,6 +106,11 @@ const identifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  */
 export function isValidIdentifier(value: string) {
     return identifierRegex.test(value);
+}
+
+export function isPointerType(type: string) {
+    /* Use 'lastIndexOf', because '*' must be present at the end of string */
+    return type.lastIndexOf('*') !== -1;
 }
 
 export function getStructNameFromType(type: string) {
@@ -245,7 +248,14 @@ export function isFlexibleArrayMember(type: string) {
  * @returns true if pointer value is NULL
  */
 export function pointerIsNull(pointer: string) {
-    return pointer === '0x0' || /0x0+/.test(pointer);
+    if (pointer === '0x0') {
+        return true;
+    }
+    if (Number(pointer.substring(2)) === 0) {
+        return true;
+    }
+
+    return false;
 }
 
 export enum DebuggerType {
@@ -301,14 +311,10 @@ export interface IDebuggerFacade {
      */
     isNull: (variable: IDebugVariable | dap.EvaluateResponse) => boolean;
 
-    /**
-     * Check provided pointer value represents valid value.
-     * That is, it can be dereferenced.
-     * 
-     * @param variable Variable to test
-     * @returns Pointer value is valid and not NULL
+    /*
+     * Check provided variable has pointer type.
      */
-    isValidPointerType: (variable: IDebugVariable | dap.EvaluateResponse) => boolean;
+    isPointerType: (variable: IDebugVariable | dap.EvaluateResponse) => boolean;
 
     /**
      * Check that variable represents value struct - structure stored in place,
@@ -653,8 +659,8 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
     abstract evaluate(expression: string, frameId: number | undefined, context?: string): Promise<dap.EvaluateResponse>;
     abstract extractVariableProperties(dv: IDebugVariable): IVariableProperties;
     abstract isNull(variable: IDebugVariable | dap.EvaluateResponse): boolean;
-    abstract isValidPointerType(variable: IDebugVariable | dap.EvaluateResponse): boolean;
     abstract isValueStruct(variable: IDebugVariable, type?: string): boolean;
+    abstract isPointerType(variable: IDebugVariable | dap.EvaluateResponse): boolean;
     abstract extractString(variable: IDebugVariable | dap.EvaluateResponse): string | null;
     abstract extractBool(variable: IDebugVariable | dap.EvaluateResponse): boolean | null;
     abstract extractPtrFromString(variable: IDebugVariable | dap.EvaluateResponse): string | null;
@@ -747,32 +753,6 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
         return this.isNullInternal(this.getValue(variable));
     }
 
-    isValidPointerType(variable: IDebugVariable | dap.EvaluateResponse) {
-        /* Now check that value looks like pointer - otherwise it is not pointer */
-        const pointer = this.getValue(variable);
-        if (!(pointer.startsWith('0x') && pointerRegex.test(pointer))) {
-            return false;
-        }
-        
-        /* Check isNull first, because lots of variables can be NULL */
-        if (this.isNullInternal(pointer)) {
-            return false;
-        }
-
-        /* 
-         * Even if this is pointer it can have garbage. To check this
-         * compare with some definitely impossible pointer value.
-         * This can happen not only for garbage, but also when integer
-         * is assigned to pointer type.
-         */
-        const ptrNumber = Number(pointer);
-        if (!pointerValueLooksCorrect(ptrNumber)) {
-            return false;
-        }
-
-        return true;
-    }
-
     isValueStruct(variable: IDebugVariable, type?: string) {
         /* Value struct (also check for flexible array member) */
         if (!variable.value.length && !(type ?? variable.type).endsWith('[]')) {
@@ -785,6 +765,11 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
         }
 
         return false;
+    }
+    
+    isPointerType(variable: IDebugVariable | dap.EvaluateResponse) {
+        const value = this.getValue(variable);
+        return value.startsWith('0x');
     }
 
     extractVariableProperties(dv: IDebugVariable) {
@@ -988,10 +973,13 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
             return null;
         }
 
+        /* We were requested only to extract pointer - not to check it's validity */
         const ptr = value.substring(0, space);
-        if (!pointerRegex.test(ptr)) {
+        const ptrValue = Number(value.substring(0, space));
+        if (!Number.isInteger(ptrValue)) {
             return null;
         }
+
         return ptr;
     }
 
@@ -1082,7 +1070,7 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
             } else {
                 prop = TypeProperty.FixedSizeArray;
             }
-        } else if ((dv.value.startsWith('{') && dv.value.endsWith('}')) || dv.type.indexOf('*') !== -1) {
+        } else if ((dv.value.startsWith('{') && dv.value.endsWith('}')) || isPointerType(dv.type)) {
             /* 
              * CodeLLDB is smart and shows contents of structures explicitly,
              * but because PostgreSQL has lots of typedefs to pointers
@@ -1114,7 +1102,8 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
             return variable.memoryReference === '0x0';
         }
 
-        return nullRegex.test(variable.value);
+        const number = Number(variable.value);
+        return Number.isInteger(number) && number === 0;
     }
 
     private isPointerValue(value: string) {
@@ -1129,31 +1118,20 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
         if (value.startsWith('0x')) {
             return true;
         }
-        
-        return pointerRegex.test(value);
+
+        return pointerValueLooksCorrect(Number(value));
     }
     
-    isValidPointerType(variable: IDebugVariable | dap.EvaluateResponse): boolean {
-        if ('result' in variable) {
-            return !(variable.result === '<null>' || variable.result === '<invalid address>');
-        }
-
-        if (variable.memoryReference === '0x0') {
-            return false;
-        }
-
+    isPointerType(variable: IDebugVariable | dap.EvaluateResponse) {
         /* 
-         * CodeLLDB is smart, but it is problem for us, because it becomes hard
-         * to detect which type of this type: pointer to struct or builtin basic
-         * type (i.e. 'int *').
-         * So, here I try to be as flexible as I can - this is pointer type
-         * if it contains any pointer in type or it is raw pointer value.
+         * The only thing we can trust - is a variable's type itself.
+         * Returned value from debugger is the same for pointer and value struct.
          */
-        return variable.type.indexOf('*') !== -1 || pointerRegex.test(this.getValue(variable));
+        return isPointerType(variable.type);
     }
 
     isScalarType(variable: IDebugVariable, type?: string) {
-        if ((type ?? variable.type).indexOf('*') !== -1) {
+        if (isPointerType(type ?? variable.type)) {
             return false;
         }
         
@@ -1194,7 +1172,7 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
          */
         type ??= variable.type;
 
-        if (type.indexOf('*') !== -1) {
+        if (isPointerType(type)) {
             return false;
         }
 
