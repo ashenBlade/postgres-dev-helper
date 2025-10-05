@@ -957,6 +957,18 @@ function getNameForArrayElement(index: number) {
     return `[${index}]`;
 }
 
+/**
+ * Reverse function for {@link getNameForArrayElement} which returns
+ * stored index from 'name' of array element.
+ */
+function getIndexFromArrayElementName(name: string) {
+    /* This function must be called only on array elements, so no checks */
+    const index = Number(name.substring(1, name.length - 1));
+    if (Number.isInteger(index)) {
+        return index;
+    }
+}
+
 
 export abstract class Variable {
     /**
@@ -1877,21 +1889,26 @@ export class RealVariable extends Variable {
             }
         } else if (   this.parent instanceof ListElementsMember
                   || this.parent instanceof LinkedListElementsMember) {
-            /*
-             * For arrays we do not know indexes of element, so everything
-             * we can do - is to return pointer (value) of non-scalar element.
-             */
             if (this.debug.isValidPointerType(this)) {
                 return `(${this.type})${this.getPointer()}`;
+            } else {
+                const index = getIndexFromArrayElementName(this.name);
+                if (index !== undefined) {
+                    return `((${this.parent.type})${this.parent.getPointer()})[${index}]`;
+                }
             }
         } else if (this.parent instanceof ArraySpecialMember) {
-            /*
-             * I don't know index of array I'm in, so everything I
-             * can do is to return pointer to myself if it is a
-             * pointer array.
-             */
             if (this.debug.isValidPointerType(this)) {
                 return `(${this.type})${this.getPointer()}`;
+            } else {
+                /*
+                 * We may not store array index in object, because it is already
+                 * stored in name of it.
+                 */
+                const index = getIndexFromArrayElementName(this.name);
+                if (index !== undefined) {
+                    return `((${this.parent.type})${this.parent.getPointer()})[${index}]`;
+                }
             }
         } else if (this.parent instanceof RealVariable) {
             /* Member of real structure */
