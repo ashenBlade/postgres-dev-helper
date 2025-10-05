@@ -880,7 +880,7 @@ async function formatExprMember(v: Variable, member: string) {
     }
 }
 
-function getNodeVariableDescriptionFormatter(nodetag: string) {
+function getFormatterForNodeVariable(nodetag: string) {
     let member;
     switch (nodetag) {
         case 'TargetEntry':
@@ -926,6 +926,41 @@ function getNodeVariableDescriptionFormatter(nodetag: string) {
     if (nodetag === 'CommonTableExpr') {
         return async (v: Variable) => await formatStringMemberGeneric(v, 'ctename');
     }
+}
+
+function getFormatterForValueStruct(effectiveType: string, debugVariable: dap.DebugVariable,
+                                    context: ExecContext) {
+    if (effectiveType === 'bitmapword' || effectiveType === 'bits8') {
+        /* Show bitmapword as bitmask, not integer */
+        return formatBitmask;
+    } else if (   effectiveType === 'XLogRecPtr'
+               && shouldFormatXLogRecPtr(debugVariable, context)) {
+        return formatXLogRecPtr;
+    } else if (effectiveType === 'RelFileLocator') {
+        return formatRelFileLocator;
+    } else if (effectiveType === 'RelFileLocatorBackend') {
+        return formatRelFileLocatorBackend;
+    } else if (effectiveType === 'NameData') {
+        return formatNameData;
+    }
+}
+
+function getFormatterForPointerType(effectiveType: string,) {
+    if (effectiveType === 'bitmapword *' || effectiveType === 'bits8 *') {
+        return formatBitmask;
+    } else if (effectiveType === 'RelFileLocator *') {
+        return formatRelFileLocator;
+    } else if (effectiveType === 'RelFileLocatorBackend *') {
+        return formatRelFileLocatorBackend;
+    } else if (effectiveType === 'NameData *') {
+        return formatNameData;
+    }
+    
+    /*
+     * These types require only reading members, but others 
+     * use special handling, i.e. XLogRecPtr calls 'pg_lsn_out'
+     * which requires getting actual scalar value.
+     */
 }
 
 function isValidMemoryContextTag(tag: string) {
@@ -1200,20 +1235,8 @@ export abstract class Variable {
                     }
                 }
             }
-            
-            if (effectiveType === 'bitmapword' || effectiveType === 'bits8') {
-                /* Show bitmapword as bitmask, not integer */
-                args.formatter = formatBitmask;
-            } else if (   effectiveType === 'XLogRecPtr'
-                       && shouldFormatXLogRecPtr(debugVariable, context)) {
-                args.formatter = formatXLogRecPtr;
-            } else if (effectiveType === 'RelFileLocator') {
-                args.formatter = formatRelFileLocator;
-            } else if (effectiveType === 'RelFileLocatorBackend') {
-                args.formatter = formatRelFileLocatorBackend;
-            } else if (effectiveType === 'NameData') {
-                args.formatter = formatNameData;
-            }
+
+            args.formatter = getFormatterForValueStruct(effectiveType, debugVariable, context);
 
             return new RealVariable(args);
         }
@@ -1311,6 +1334,8 @@ export abstract class Variable {
                 return new SimplehashMember(entry, args);
             }
         }
+        
+        args.formatter = getFormatterForPointerType(effectiveType);
 
         /* At the end - it is simple variable */
         return new RealVariable(args);
@@ -2152,7 +2177,7 @@ export class NodeVariable extends RealVariable {
          * 
          * So, this is the only suitable place for such logic.
          */
-        args.formatter = getNodeVariableDescriptionFormatter(realTag);
+        args.formatter = getFormatterForNodeVariable(realTag);
 
         /* Expressions with it's representation */
         if (context.nodeVarRegistry.exprs.has(realTag)) {
