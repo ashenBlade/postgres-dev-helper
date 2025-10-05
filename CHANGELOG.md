@@ -5,6 +5,27 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.0]
+
+### Added
+
+VS Code setting `Max container length` to limit amount of elements shown in container types.
+Default is `128`.
+
+Support value structs in Arrays when formatting watch expression.
+
+Custom descriptions for types: `RangeTblEntry` shows table name, `RelFileNumber` is shown as `spc/db/file` and some others.
+
+### Changed
+
+Show `Bitmapset` elements without array indexes.
+
+Some internal function optimizations for performance.
+
+### Fixed
+
+Special members for `TupleDesc` were not handled correctly and did not work.
+
 ## [1.15.0]
 
 ### Added
