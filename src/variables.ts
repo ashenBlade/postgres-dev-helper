@@ -715,8 +715,8 @@ async function formatBitmask(v: Variable) {
     return bitmask;
 }
 
-async function getNullableAliasValue(v: RealVariable) {
-    if (v.debug.isNull(v)) {
+async function getNullableAliasValue(v: Variable) {
+    if (v.debug.isNull(v) || !(v instanceof RealVariable)) {
         /* Alias can be NULL and this is ok */
         return null;
     }
@@ -843,7 +843,7 @@ async function formatRelFileLocator(v: Variable) {
 async function formatRelFileLocatorBackend(v: Variable) {
     const rv = v as RealVariable;
     const locator = await rv.getMember('locator');
-    if (locator.type !== 'RelFileLocator') {
+    if (!(locator.type === 'RelFileLocator' && locator instanceof RealVariable)) {
         return;
     }
     
@@ -862,6 +862,10 @@ async function formatNameData(v: Variable) {
      * which must return correct value and cast it.
      */
     const data = await rv.getMember('data');
+    if (!(data instanceof RealVariable)) {
+        return;
+    }
+
     const expression = await data.formatWatchExpression();
     const result = await rv.debug.evaluate(`(char *)${expression}`, rv.frameId);
     return rv.debug.extractString(result);
@@ -1211,7 +1215,7 @@ export abstract class Variable {
     }
 
     static async create(debugVariable: dap.DebugVariable, frameId: number,
-                        context: ExecContext, parent?: Variable): Promise<RealVariable> {
+                        context: ExecContext, parent?: Variable): Promise<Variable> {
         const effectiveType = Variable.getRealType(debugVariable.type, context);
         const args: RealVariableArgs = {
             ...debugVariable,
@@ -1284,7 +1288,7 @@ export abstract class Variable {
                 }
             }
 
-            return new RealVariable(args);
+            return new InvalidPointerType(args);
         }
 
         /* 
@@ -1342,9 +1346,9 @@ export abstract class Variable {
     }
 
     static async getVariables(variablesReference: number, frameId: number,
-                              context: ExecContext, parent?: RealVariable): Promise<RealVariable[]> {
+                              context: ExecContext, parent?: RealVariable): Promise<Variable[]> {
         const debugVariables = await context.debug.getMembers(variablesReference);
-        const variables: RealVariable[] = [];
+        const variables: Variable[] = [];
         for (const dv of debugVariables) {
             const v = await Variable.create(dv, frameId, context, parent);
             if (v) {
@@ -1358,7 +1362,7 @@ export abstract class Variable {
                               frameId: number,
                               context: ExecContext,
                               parent?: Variable) {
-        const variables: RealVariable[] = [];
+        const variables: Variable[] = [];
         for (const dv of debugVariables) {
             const v = await Variable.create(dv, frameId, context, parent);
             if (v) {
@@ -1614,6 +1618,21 @@ class ScalarVariable extends Variable {
     }
 }
 
+class InvalidPointerType extends Variable {
+    constructor(args: RealVariableArgs) {
+        super(args.name, args.value, args.type, args.declaredType,
+              args.context, args.frameId, args.parent);
+    }
+    
+    protected isExpandable(): boolean {
+        return false;
+    }
+    
+    async doGetChildren(): Promise<Variable[] | undefined> {
+        return [];
+    }
+}
+
 type DescriptionFormatter = (variable: Variable) => Promise<string | null | undefined>;
 
 /* Utility structure used to reduce the number of function arguments */
@@ -1714,7 +1733,7 @@ export class RealVariable extends Variable {
     /**
      * Cached *real* members of this variable
      */
-    realMembersCache?: RealVariable[];
+    realMembersCache?: Variable[];
 
     protected async doGetRealMembers() {
         return await Variable.getVariables(this.variablesReference, this.frameId,
@@ -1730,7 +1749,7 @@ export class RealVariable extends Variable {
      *       if someday i decide to override default implementation of one
      *       of these functions (work in both sides)
      */
-    async getRealMembers(): Promise<RealVariable[] | undefined> {
+    async getRealMembers(): Promise<Variable[] | undefined> {
         if (this.realMembersCache !== undefined) {
             return this.realMembersCache;
         }
@@ -4993,6 +5012,9 @@ class ValueVariable extends NodeVariable {
         }
 
         const valMember = await this.getMember('val');        
+        if (!(valMember instanceof RealVariable)) {
+            return '???';
+        }
 
         if (this.realNodeTag === 'Integer') {
             return (await valMember.getMemberValueNumber('ival')).toString();
