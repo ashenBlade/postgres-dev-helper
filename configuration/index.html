@@ -150,8 +150,8 @@
 <p>Default: <code>128</code></p>
 <h2 id="configuration-file">Configuration file</h2>
 <p>Extension has config file with custom settings - <code>.vscode/pgsql_hacker_helper.json</code>.</p>
-<p>You can create file manually or using command <code>PgSQL: Open or create configuration file</code>. Json schema will assist you while editing.</p>
-<p>Extension tracks changes in the file and rereads it, when necessary. Also, you can run <code>PgSQL: Refresh configuration file</code> command.</p>
+<p>You can create file manually or using command <code>PGHH: Open or create configuration file</code>. Json schema will assist you while editing.</p>
+<p>Extension tracks changes in the file and rereads it, when necessary. Also, you can run <code>PGHH: Refresh configuration file</code> command.</p>
 <blockquote>
 <p>NOTE: after debug session have started changes in configuration file will not be reflected.</p>
 </blockquote>
@@ -494,7 +494,7 @@ If debugger can not use macros it will switch to numeric values - that because n
 </code></pre>
 <p>For convenience, if you will try to format file in contrib's directory, extension will try to detect <code>typedefs.list</code> in it without specifying it explicitly in configuration file. I.e. if you are formatting file <code>contrib/my_ext/my_ext.c</code>, then extension will probe <code>contrib/my_ext/typedefs.list</code>.</p>
 <blockquote>
-<p>There is handy command <code>PgSQL: Find custom typedefs.list in repository</code> that will execute shell command to find all <code>*typedefs.list</code> files in repository.</p>
+<p>There is handy command <code>PGHH: Find custom typedefs.list in repository</code> that will execute shell command to find all <code>*typedefs.list</code> files in repository.</p>
 </blockquote>
               
             </div>

@@ -94,6 +94,8 @@
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#other-scripts">Other scripts</a>
     </li>
+    <li class="toctree-l3"><a class="reference internal" href="#tips-tricks">Tips &amp; tricks</a>
+    </li>
         </ul>
     </li>
     </ul>
@@ -148,6 +150,26 @@ For the further extensions you are free to choose that suit you - no restriction
 <h3 id="perl">Perl</h3>
 <p>PostgreSQL has different test types. One of them is TAP-tests which are written in Perl, so you might want to add extension with Perl support.</p>
 <p>Example, <a href="https://marketplace.visualstudio.com/items?itemName=richterger.perl">Perl</a> extension.</p>
+<blockquote>
+<p>If you have chosen extension above, then you should know, that this extension caches parsed <code>*.pl</code> files and stores them in <code>.vscode/perl-lang</code> directory (can be changed in settings).
+Such behavior can interfere with other IDE functions (i.e. file search) or slow down performance, so you should add this folder to excludes.
+Sample configuration can look like this (<code>settings.json</code>):</p>
+<p><code>json
+{
+    // Exclude from search output list
+    "search.exclude": {
+        "**/.vscode/perl-lang": true
+    },
+    // Exclude from tracked FS events
+    "files.watcherExclude": {
+        "**/.vscode/perl-lang": true
+    },
+    // Do not even show this directory in explorer
+    "files.exclude": {
+        "**/.vscode/perl-lang": true
+    }
+}</code></p>
+</blockquote>
 <h3 id="markdown">Markdown</h3>
 <p>This is utility extension that will help create markdown files.
 They are popular because many documentation or README are written using Markdown syntax.</p>
@@ -391,6 +413,12 @@ And number of threads is prompted interactively using quick-pick - you can see e
 <li>Managing database instance</li>
 <li>Cleaning files</li>
 </ul>
+<h3 id="tips-tricks">Tips &amp; tricks</h3>
+<p>To run task you must run command in pallette: <code>Tasks: Run task</code> and then enter command label which you want to execute.
+As tasks are executed often you may want to speed up this process.</p>
+<p>You can bind a shortcut to open task name prompt immediately.
+I.e. you can bind <code>Alt + T</code> or other combination.</p>
+<p><img alt="Shortcut to execute Tasks: Run Task" src="../img/vscode_setup/run_task_shortcut.png" /></p>
               
             </div>
           </div><footer>

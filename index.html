@@ -42,6 +42,18 @@
               <ul class="current">
                 <li class="toctree-l1 current"><a class="reference internal current" href="#">Home</a>
     <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#features">Features</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#postgresql-variables-exploring">PostgreSQL Variables exploring</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#formatting">Formatting</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#postgresqlconf-syntax-support">postgresql.conf syntax support</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#extension-bootstrapping">Extension bootstrapping</a>
+    </li>
+        </ul>
+    </li>
     <li class="toctree-l2"><a class="reference internal" href="#table-of-contents">Table of contents</a>
     </li>
     </ul>
@@ -93,7 +105,37 @@
             <div class="section" itemprop="articleBody">
               
                 <h1 id="postgresql-hacker-helper">PostgreSQL Hacker Helper</h1>
+<p><img alt="Logo" src="img/logo.png" /></p>
 <p>This is a VS Code extension to assist PostgreSQL Hackers - source code developers.</p>
+<h2 id="features">Features</h2>
+<p>Extension integrates with VS Code and provides several different functionalities.</p>
+<h3 id="postgresql-variables-exploring">PostgreSQL Variables exploring</h3>
+<p>During debug session separate view <code>PG Variables</code> shows contents of variables with special handling of PostgreSQL related variables:</p>
+<ul>
+<li>View <code>Node *</code> variables with real type according to <code>NodeTag</code></li>
+<li>Get the contents of container types: <code>List *</code>, <code>HTAB *</code>, <code>Bitmapset *</code></li>
+<li>Known array variables are rendered as normal arrays</li>
+<li>Render <code>Expr</code> nodes by the original expression</li>
+<li>Show integer enums as enum values, not integers</li>
+<li>Render some scalar types according to their semantics:<ul>
+<li><code>bitmapword</code></li>
+<li><code>XLogRecPtr</code></li>
+<li><code>RelFileLocator</code></li>
+</ul>
+</li>
+</ul>
+<p><img alt="Variables view" src="img/overview.gif" /></p>
+<p>You can define your own custom types, i.e. your own array variable using <a href="configuration/">configuration file</a>.</p>
+<h3 id="formatting">Formatting</h3>
+<p>For C files you can use custom formatter which uses <code>pgindent</code> for formatting.</p>
+<p>The extension will download and built any required files if needed - you do not have to do anything.</p>
+<p><img alt="Example formatting" src="img/formatter-work.gif" /></p>
+<h3 id="postgresqlconf-syntax-support"><code>postgresql.conf</code> syntax support</h3>
+<p>PostgreSQL configuration file custom syntax is supported.
+This is an add-on to the standard configuration file syntax with support for units (i.e. <code>kB</code> or <code>s</code>) and highlighting of quoted values.</p>
+<p><img alt="Syntax example" src="img/pgconf_syntax.png" /></p>
+<h3 id="extension-bootstrapping">Extension bootstrapping</h3>
+<p>For fast extension creation you can use command <code>Bootstrap extension</code> that will create all templated files, so you do not have to create ones.</p>
 <h2 id="table-of-contents">Table of contents</h2>
 <ul>
 <li><a href="configuration/">Configuration</a></li>
@@ -157,5 +199,5 @@
 
 <!--
 MkDocs version : 1.6.1
-Build Date UTC : 2025-10-02 18:19:32.817564+00:00
+Build Date UTC : 2025-10-05 16:20:01.580072+00:00
 -->
