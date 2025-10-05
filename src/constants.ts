@@ -1,4 +1,4 @@
-import { ArraySpecialMemberInfo, BitmaskMemberInfo,
+import { ArrayVariableInfo, BitmaskMemberInfo,
          HtabEntryInfo,
          ListPtrSpecialMemberInfo,
          SimplehashEntryInfo,
@@ -1386,13 +1386,7 @@ export function getDefaultAliases(): [string, string][] {
     ] as [string, string][];
 }
 
-export interface ArraySpecialMember {
-    typeName: string;
-    memberName: string;
-    lengthExpr: string
-}
-
-export function getArraySpecialMembers(): ArraySpecialMemberInfo[] {
+export function getArrays(): ArrayVariableInfo[] {
     const _ = (typeName: string, memberName: string, lengthExpression: string) => ({
         typeName,
         memberName,

@@ -5,7 +5,7 @@
     "description": "Configuration for PostgreSQL Hacker Helper VS Code extension",
     "type": "object",
     "definitions": {
-        "arraySpecialMember": {
+        "array": {
             "type": "object",
             "required": [
                 "typeName",
@@ -194,7 +194,7 @@
             "type": "array",
             "description": "Special members that represent arrays - separate fields for array and it's length",
             "items": {
-                "$ref": "#/definitions/arraySpecialMember"
+                "$ref": "#/definitions/array"
             }
         },
         "aliases": {

@@ -75,7 +75,7 @@ export class NodeVarRegistry {
     }
 }
 
-export interface ArraySpecialMemberInfo {
+export interface ArrayVariableInfo {
     /* Parent type containing pointer to array */
     typeName: string;
     /* Name of member which stores array */
@@ -138,7 +138,7 @@ export class SpecialMemberRegistry {
     /**
      * Double map: Type name -> (Member Name -> Info Object).
      */
-    arraySpecialMembers = new Map<string, Map<string, ArraySpecialMemberInfo>>();
+    arrays = new Map<string, Map<string, ArrayVariableInfo>>();
 
     /**
      * Double map: Member/variable name -> (Struct/Function name -> Info object).
@@ -156,11 +156,11 @@ export class SpecialMemberRegistry {
      */
     bitmasks = new Map<string, Map<string, BitmaskMemberInfo>>();
 
-    addArraySpecialMembers(elements: ArraySpecialMemberInfo[]) {
+    addArrays(elements: ArrayVariableInfo[]) {
         for (const element of elements) {
-            const typeMap = this.arraySpecialMembers.get(element.typeName);
+            const typeMap = this.arrays.get(element.typeName);
             if (typeMap === undefined) {
-                this.arraySpecialMembers.set(element.typeName, new Map([
+                this.arrays.set(element.typeName, new Map([
                     [element.memberName, element],
                 ]));
             } else {
@@ -192,9 +192,9 @@ export class SpecialMemberRegistry {
         }
     }
 
-    getArraySpecialMember(parentType: string, memberName: string) {
+    getArray(parentType: string, memberName: string) {
         const parentTypeName = dbg.getStructNameFromType(parentType);
-        const membersMap = this.arraySpecialMembers.get(parentTypeName);
+        const membersMap = this.arrays.get(parentTypeName);
         if (membersMap === undefined) {
             return;
         }
@@ -1243,9 +1243,9 @@ export abstract class Variable {
                 if (parent) {
                     /* FLA can be expanded as array */
                     const specialMember = context.specialMemberRegistry
-                        .getArraySpecialMember(parent.type, debugVariable.name);
+                        .getArray(parent.type, debugVariable.name);
                     if (specialMember) {
-                        return new ArraySpecialMember(specialMember, args);
+                        return new ArrayVariable(specialMember, args);
                     }
                 }
     
@@ -1310,9 +1310,9 @@ export abstract class Variable {
          */
         if (parent) {
             const specialMember = context.specialMemberRegistry
-                .getArraySpecialMember(parent.type, debugVariable.name);
+                .getArray(parent.type, debugVariable.name);
             if (specialMember) {
-                return new ArraySpecialMember(specialMember, args);
+                return new ArrayVariable(specialMember, args);
             }
         }
 
@@ -1746,7 +1746,7 @@ export class RealVariable extends Variable {
         }
         
         if (prop.isFlexibleArray()) {
-            /* Flexible array is expandable only if it is a ArraySpecialMember */
+            /* Flexible array is expandable only if it is a ArrayVariable */
             return false;
         }
 
@@ -1976,7 +1976,7 @@ export class RealVariable extends Variable {
                     return `((${this.parent.type})${this.parent.getPointer()})[${index}]`;
                 }
             }
-        } else if (this.parent instanceof ArraySpecialMember) {
+        } else if (this.parent instanceof ArrayVariable) {
             if (this.getTypeProperties().pointerCanDeref()) {
                 return `(${this.type})${this.getPointer()}`;
             } else {
@@ -4385,16 +4385,16 @@ export class ListNodeVariable extends NodeVariable {
 }
 
 
-class ArraySpecialMember extends RealVariable {
+class ArrayVariable extends RealVariable {
     /**
      * Expression to evaluate to obtain array length.
      * Appended to target struct from right.
      * First element is length member name, but after
      * can be correction expressions i.e. '+ 1'.
      */
-    info: ArraySpecialMemberInfo;
+    info: ArrayVariableInfo;
 
-    constructor(info: ArraySpecialMemberInfo, args: RealVariableArgs) {
+    constructor(info: ArrayVariableInfo, args: RealVariableArgs) {
         super(args);
         this.info = info;
     }
@@ -4873,7 +4873,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                 if (members && index < members.length) {
                     return members[index];
                 }
-            } else if (field instanceof ArraySpecialMember) {
+            } else if (field instanceof ArrayVariable) {
                 const members = await field.getChildren();
                 if (members && index < members.length) {
                     return members[index];
@@ -5877,7 +5877,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         if (config.arrays?.length) {
             logger.debug('adding', config.arrays.length, 'arrays from config file');
             try {
-                specialMembers.addArraySpecialMembers(config.arrays);
+                specialMembers.addArrays(config.arrays);
             } catch (err) {
                 logger.error(err, 'could not add custom array special members');
             }
@@ -5999,7 +5999,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
 
     async createExecContext(pgversion: number | undefined): Promise<ExecContextData> {
         const specialMembers = new SpecialMemberRegistry();
-        specialMembers.addArraySpecialMembers(constants.getArraySpecialMembers());
+        specialMembers.addArrays(constants.getArrays());
         specialMembers.addListCustomPtrSpecialMembers(constants.getKnownCustomListPtrs());
         
         const hashTables = new HashTableTypes();

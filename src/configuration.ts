@@ -9,7 +9,7 @@ import { WorkspaceNotOpenedError } from './error';
 
 export interface VariablesConfiguration {
     /* Array special members */
-    arrays?: vars.ArraySpecialMemberInfo[];
+    arrays?: vars.ArrayVariableInfo[];
     /* Information about type aliases */
     aliases?: vars.AliasInfo[];
     /* Custom List types */
@@ -30,7 +30,7 @@ export interface FormatterConfiguration {
 
 /* Schema of configuration file */
 interface ConfigurationFile {
-    arrays: vars.ArraySpecialMemberInfo[] | undefined;
+    arrays: vars.ArrayVariableInfo[] | undefined;
     aliases: vars.AliasInfo[] | undefined;
     customListTypes: vars.ListPtrSpecialMemberInfo[] | undefined;
     htab: vars.HtabEntryInfo[] | undefined;
@@ -68,7 +68,7 @@ function normalizeFuncName(name: string) {
 };
 
 function parseConfiguration(contents: unknown): ConfigurationFile | undefined {
-    const parseArrayMember = (obj: unknown): vars.ArraySpecialMemberInfo | undefined => {
+    const parseArrayMember = (obj: unknown): vars.ArrayVariableInfo | undefined => {
         /* 
          * {
          *     "typeName": "parentType",
