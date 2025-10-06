@@ -40,22 +40,6 @@ Extension creates separate view in debug section - `PG Variables`. It contains p
   - `NameData` - string value directly
 - Enum values, which defined using preprocessor (`#define`) are shown as enum values, not integers.
 
-### Configuration file
-
-Extension has configuration file - `.vscode/pgsql_hacker_helper.json`.
-Main purpose is to allow to define container elements custom types, i.e. when you are developing a contrib.
-
-It allows adding information about:
-
-- Custom array types (with dynamic length evaluation using provided expressions)
-- Pointer types in `List *`, which are not Node-derived
-- HashTable entry types for both `HTAB` and `simplehash`
-- Custom `typedefs.list` files for formatter
-
-Also there is VS Code settings with generic behavior customization.
-
-For more info check [configuration file documentation](./docs/configuration.md).
-
 ### Formatting
 
 Extension uses `pgindent` for formatting C code. It integrates with VS Code extension and available with `Format Document` or `Ctrl + Shift + I` shortcut (or another key binding if overridden). Or you can just specify formatter manually using `Format Document With...` - select `PostgreSQL Hacker Helper` in pick up box.
@@ -99,6 +83,33 @@ Also, for there is autocompletion for configuration parameters also with default
 ![Syntax example](./img/pgconf_syntax.png)
 
 This syntax must be enabled for `postgresql[.auto].conf` files, but you can specify it using 'Change Language Mode' -> 'PostgreSQL configuration'
+
+## Configuration
+
+Extension has configuration file - `.vscode/pgsql_hacker_helper.json`.
+Main purpose is to allow to define container elements custom types, i.e. when you are developing a contrib.
+
+It allows adding information about:
+
+- Custom array types (with dynamic length evaluation using provided expressions)
+- Pointer types in `List *`, which are not Node-derived
+- HashTable entry types for both `HTAB` and `simplehash`
+- Custom `typedefs.list` files for formatter
+
+Also there is VS Code settings with generic behavior customization.
+
+For more info check [configuration file documentation](./docs/configuration.md).
+
+## Documentation
+
+Documentation is available locally in [`docs` directory](./docs/).
+
+Also, there is [Read the docs](https://ashenBlade.github.io/postgres-dev-helper) site with:
+
+- PostgreSQL and VS Code setup
+- Useful development scripts
+- Configuration file usage example
+- Usage examples, i.e. contrib development example
 
 ## Compatibility
 
