@@ -2,7 +2,44 @@ import * as vscode from 'vscode';
 import * as dap from "./dap";
 import { Features } from './configuration';
 import { PgVariablesViewProvider } from './variables';
-import {EvaluationError} from './error';
+import { PghhError } from './error';
+
+/**
+ * Evaluation of some expression resulted in some error
+ */
+export class EvaluationError extends PghhError {
+    constructor(obj: string | Error) {
+        if (obj instanceof Error) {
+            super(obj.message);
+            this.stack = obj.stack;
+        } else {
+            super(obj);
+        }
+        
+        this.name = 'EvaluationError';
+    }
+}
+
+/**
+ * DAP request was send, but debugger can not handle it.
+ * 
+ * You must note that this error is used even if we provided debugger
+ * outdated descriptors (variablesReference/stackFrameId), because
+ * this error must be handled only at the top-level, not ordinal Variable
+ * logic (it must handle only EvaluationError).
+ */
+export class DebuggerNotAvailableError extends PghhError {
+    constructor(obj: string | Error) {
+        if (obj instanceof Error) {
+            super(obj.message);
+            this.stack = obj.stack;
+        } else {
+            super(obj);
+        }
+        
+        this.name = 'DebuggerNotAvailableError';
+    }
+}
 
 /* Simple representation of a variable obtained from debugger */
 export interface IDebugVariable {
@@ -283,7 +320,7 @@ export interface IDebuggerFacade {
      *                  otherwise some debuggers will throw error in such cases
      *                  like CodeLLDB. Default - 'false'.
      * @returns Result of evaluation
-     * @throws @see {@link error.EvaluationError} if evaluation failed
+     * @throws @see {@link EvaluationError} if evaluation failed
      */
     evaluate: (expression: string, frameId: number | undefined,
         context?: string, noReturn?: boolean) => Promise<dap.EvaluateResponse>;
@@ -454,6 +491,92 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
 
         return threadId;
     }
+    
+    /* 
+     * Debugger specific filter for errors because debugger
+     * can not handle requests. It is not available in short.
+     */
+    abstract isDebuggerNotAvailableError(message: string): boolean;
+    protected handleDebuggerError(error: Error) {
+        /* 
+         * This is VS Code error thrown if we attempted to send
+         * DAP request when no process is running.
+         */
+        if (error.message.lastIndexOf('process is running') !== -1) {
+            throw new DebuggerNotAvailableError(error.message);
+        }
+
+        /* 
+         * Each DAP adapter has it's own error messages when it
+         * failed to handle request.
+         */
+        if (this.isDebuggerNotAvailableError(error.message)) {
+            throw new DebuggerNotAvailableError(error.message);
+        }
+    }
+    
+    async evaluate(expression: string, frameId: number | undefined, context?: string) {
+        try {
+            context ??= 'watch';
+            const response: dap.EvaluateResponse = await this.getSession().customRequest('evaluate', {
+                expression,
+                context,
+                frameId,
+            } as dap.EvaluateArguments);
+    
+            return response;
+        } catch (error) {
+            if (error instanceof Error) {
+                this.handleDebuggerError(error);
+            }
+            
+            throw error;
+        }
+    }
+
+    async getMembers(variablesReference: number): Promise<dap.DebugVariable[]> {
+        try {
+            const response: dap.VariablesResponse = await this.getSession()
+                .customRequest('variables', {
+                    variablesReference,
+                } as dap.VariablesArguments);
+            return response.variables;
+        } catch (error) {
+            if (error instanceof Error) {
+                this.handleDebuggerError(error);
+            }
+            
+            throw error;
+        }
+    }
+
+    async getVariables(frameId: number): Promise<dap.DebugVariable[]> {
+        try {
+            const scopes = await this.getScopes(frameId);
+            if (scopes === undefined) {
+                return [];
+            }
+    
+            const variables: dap.DebugVariable[] = [];
+    
+            /* 
+             * Show only Locals - not Registers. Also do not
+             * use 'presentationHint' - it might be undefined
+             * in old versions of VS Code.
+             */
+            for (const scope of scopes.filter(this.shouldShowScope)) {
+                const members = await this.getMembers(scope.variablesReference);
+                variables.push(...members);
+            }
+            return variables;
+        } catch (error) {
+            if (error instanceof Error) {
+                this.handleDebuggerError(error);
+            }
+            
+            throw error;
+        }
+    }
 
     async getArrayVariables(array: string, length: number,
                             frameId: number | undefined) {
@@ -571,34 +694,6 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
         } as dap.StackTraceArguments) as dap.StackTraceResponse;
     }
 
-    async getMembers(variablesReference: number): Promise<dap.DebugVariable[]> {
-        const response: dap.VariablesResponse = await this.getSession()
-            .customRequest('variables', {
-                variablesReference,
-            } as dap.VariablesArguments);
-        return response.variables;
-    }
-
-    async getVariables(frameId: number): Promise<dap.DebugVariable[]> {
-        const scopes = await this.getScopes(frameId);
-        if (scopes === undefined) {
-            return [];
-        }
-
-        const variables: dap.DebugVariable[] = [];
-
-        /* 
-         * Show only Locals - not Registers. Also do not
-         * use 'presentationHint' - it might be undefined
-         * in old versions of VS Code.
-         */
-        for (const scope of scopes.filter(this.shouldShowScope)) {
-            const members = await this.getMembers(scope.variablesReference);
-            variables.push(...members);
-        }
-        return variables;
-    }
-
     async getTopStackFrameId(threadId: number): Promise<number | undefined> {
         const response: dap.StackTraceResponse = await this.getStackTrace(threadId, 1);
         return response.stackFrames?.[0]?.id;
@@ -656,7 +751,6 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
     abstract readonly type: DebuggerType;
     abstract maybeCalcFrameIndex(frameId: number): number | undefined;
     abstract shouldShowScope(scope: dap.Scope): boolean;
-    abstract evaluate(expression: string, frameId: number | undefined, context?: string): Promise<dap.EvaluateResponse>;
     abstract extractVariableProperties(dv: IDebugVariable): IVariableProperties;
     abstract isNull(variable: IDebugVariable | dap.EvaluateResponse): boolean;
     abstract isValueStruct(variable: IDebugVariable, type?: string): boolean;
@@ -702,14 +796,14 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
     switchToManualArrayExpansion() {
         this.getArrayVariables = super.getArrayVariables;
     }
-    
+
+    isDebuggerNotAvailableError(message: string) {
+        /* 'Cannot evaluate expression on the specified stack frame' */
+        return message.startsWith('Cannot evaluate expression');
+    }
+
     async evaluate(expression: string, frameId: number | undefined, context?: string) {
-        context ??= 'watch';
-        const response: dap.EvaluateResponse = await this.getSession().customRequest('evaluate', {
-            expression,
-            context,
-            frameId,
-        } as dap.EvaluateArguments);
+        const response = await super.evaluate(expression, frameId, context);
 
         if (this.isFailedVar(response)) {
             throw new EvaluationError(response.result);
@@ -718,15 +812,7 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
         return response;
     }
 
-    async getMembers(variablesReference: number): Promise<dap.DebugVariable[]> {
-        const response: dap.VariablesResponse = await this.getSession()
-            .customRequest('variables', {
-                variablesReference,
-            } as dap.VariablesArguments);
-        return response.variables;
-    }
-
-    isFailedVar(response: dap.EvaluateResponse): boolean {
+    isFailedVar(response: dap.EvaluateResponse) {
         /* 
          * gdb/mi has many error types for different operations.
          * In common - when error occurs 'result' has message in form
@@ -744,7 +830,25 @@ export class CppDbgDebuggerFacade extends GenericDebuggerFacade {
          */
         return response.result.startsWith('-var-create');
     }
-    
+
+    async getMembers(variablesReference: number) {
+        const response = await super.getMembers(variablesReference);
+        if (!response?.length) {
+            /* 
+             * When debugger is not available and we requested members, then
+             * cppdbg will not throw error, but it will return empty array.
+             * This may seem bad, because we can not distinguish between
+             * member-less object and error, but in real life this is actually
+             * not a problem as this method will be invoked only in
+             * variables view ('getChildren()') because we will not use such
+             * structure.
+             * Even if we will throw Error everything ok, because in that case
+             * nothing will be displayed, just like for member-less array.
+             */
+            throw new DebuggerNotAvailableError(`No members obtained from variablesReference: ${variablesReference}`);
+        }
+        return response;
+    }
     private isNullInternal(value: string) {
         return value === '0x0';
     }
@@ -1008,10 +1112,56 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
         return scope.name === 'Local';
     }
 
+    isDebuggerNotAvailableError(message: string) {
+        /*
+         * CodeLLDB error messages have format:
+         * 
+         *    Internal debugger error: DESCRIPTION
+         * 
+         * where DESCRIPTION is actual error. It can be anything, but
+         * we do not check this and treat all such errors that debugger
+         * is not available. One example of such message is:
+         * 
+         *    Internal debugger error: Invalid variable reference: 1242
+         * 
+         * or
+         * 
+         *    Internal debugger error: Invalid stack frame: 1001
+         */
+        return message.startsWith('Internal debugger error');
+    }
+    
+    handleCodeLLDBDebuggerError(error: unknown) {
+        /* DebuggerNotAvailableError may be already thrown by base class */
+        if (!(error && error instanceof Error)) {
+            return;
+        }
+
+        if (error.name === 'CodeExpectedError' && !(error instanceof DebuggerNotAvailableError)) {
+            throw new EvaluationError(error.message);
+        }
+    }
+    
+    async getVariables(frameId: number): Promise<dap.DebugVariable[]> {
+        try {
+            return await super.getVariables(frameId);
+        } catch (err) {
+            this.handleCodeLLDBDebuggerError(err);
+            throw err;
+        }
+    }
+    
+    async getMembers(variablesReference: number) {
+        try {
+            return await super.getMembers(variablesReference);
+        } catch (err) {
+            this.handleCodeLLDBDebuggerError(err);
+            throw err;
+        }
+    }
+
     async evaluate(expression: string, frameId: number | undefined, context?: string, noReturn?: boolean): Promise<dap.EvaluateResponse> {
         try {
-            context ??= 'watch';
-
             /* 
              * CodeLLDB has many expression evaluators: simple, python and native.
              * https://github.com/vadimcn/codelldb/blob/master/MANUAL.md#expressions
@@ -1020,28 +1170,26 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
              * so add '/nat' for each expression for sure.
              */
             expression = `/nat ${expression}`;
-            return await this.getSession().customRequest('evaluate', {
-                expression,
-                context,
-                frameId,
-            } as dap.EvaluateArguments);
+            return await super.evaluate(expression, frameId, context);
         } catch (err) {
-            if (err instanceof Error) {
-                if (noReturn && err.message === 'unknown error') {
-                    /* 
-                     * CodeLLDB don't like 'void' returning expressions and
-                     * throws such strange errors, but call actually succeeds
-                     */
-                    return {
-                        memoryReference: '',
-                        result: '',
-                        type: '',
-                        variablesReference: -1,
-                    };
-                }
-
-                throw new EvaluationError(err.message);
+            if (!(err instanceof Error)) {
+                throw err;
             }
+
+            if (noReturn && err.message === 'unknown error') {
+                /* 
+                 * CodeLLDB don't like 'void' returning expressions and
+                 * throws such strange errors, but call actually succeeds
+                 */
+                return {
+                    memoryReference: '',
+                    result: '',
+                    type: '',
+                    variablesReference: -1,
+                };
+            }
+
+            this.handleCodeLLDBDebuggerError(err);
 
             throw err;
         }

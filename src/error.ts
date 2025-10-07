@@ -5,11 +5,6 @@
 export class PghhError extends Error { }
 
 /**
- * Error occurred during expression evaluation
- */
-export class EvaluationError extends PghhError { }
-
-/**
  * Error occurring when some precondition/assumption is violated,
  */
 export class AssumptionError extends PghhError {}

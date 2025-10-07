@@ -2,8 +2,10 @@ import * as vscode from 'vscode';
 import * as dap from "./dap";
 import * as constants from './constants';
 import * as dbg from './debugger';
+import { EvaluationError, DebuggerNotAvailableError } from './debugger';
 import { Log as logger } from './logger';
-import { PghhError, EvaluationError, unnullify } from './error';
+import { PghhError, 
+         unnullify } from './error';
 import { Configuration,
          getWorkspaceFolder,
          getWorkspacePgSrcFile, VsCodeSettings } from './configuration';
@@ -630,29 +632,32 @@ function getMaxContainerLength() {
 const invalidFrameId = -1;
 
 /**
- * Check that caught exception can be safely ignored
- * and not shown to user.
- * This is applied in end-point functions like 'getTreeItem'
- * or 'getChildren'.
+ * Check that caught exception can be safely ignored and not shown to user.
  *
- * @param error Error object caught using 'try'
+ * NOTE: return type annotation is 'error is EvaluationError' so it
+ *       automatically will be casted to Error if we want further processing.
  */
-function isExpectedError(error: unknown) {
-    /*
-     * Calls to debugger with some evaluations might be time consumptive
-     * and user will perform step before we end up computation.
-     * In such case, we will get exception with messages like:
-     * - "Cannot evaluate expression on the specified stack frame."
-     * - "Unable to perform this action because the process is running."
-     *
-     * I do not know whether these messages are translated, so
-     * just checking 'error.message' does not look like a solid solution.
-     * In the end, we just catch all VS Code exceptions (they have
-     * 'CodeExpectedError' in name, at least exceptions with messages
-     * above).
+function isEvaluationError(error: unknown): error is EvaluationError {
+    /* 
+     * When we are evaluating expressions or perform other DAP requests,
+     * we may encounter different errors. We can identify 2 types of errors:
+     * 
+     * 1. Error in expression (source code related)
+     * 2. Debugger error
+     * 
+     * For 1 we have 'EvaluationError' which is caught and some custom
+     * handler is invoked. This is normal situation, because of major
+     * version interface mismatch or some types represented differently.
+     * 
+     * But 2 type we can not handle, because error caused by external reasons.
+     * The most illustrative example is that user clicks F10 (step) too
+     * fast, so we do not have time to update the variables view and therefore,
+     * in DAP request outdated identifiers are passed.
+     * 
+     * For the latter we allow the Error to propagate to the top-most caller
+     * function which will then just log the error and return some placeholder.
      */
-    return    error instanceof PghhError
-           || (error instanceof Error && error?.name === 'CodeExpectedError');
+    return !!error && error instanceof EvaluationError;
 }
 
 /* Custom description formatter functions */
@@ -730,7 +735,11 @@ async function rangeTblEntryDescriptionFormatter(v: Variable) {
     
     try {
         alias = await getNullableAliasValue(await nv.getMember('alias'));
-    } catch {
+    } catch (err) {
+        if (!isEvaluationError(err)) {
+            throw err;
+        }
+        
         /* 'alias' is non-NULL only if alias is specified by user */
     }
 
@@ -743,7 +752,11 @@ async function rangeTblEntryDescriptionFormatter(v: Variable) {
         /* Return 'undefined' instead of 'null' to fit function signature */
         return await getNullableAliasValue(await nv.getMember('eref')) ?? undefined;
     } catch (err) {
-        logger.error(err, 'could not get string value of "eref" and "alias"');
+        if (isEvaluationError(err)) {
+            logger.error(err, 'could not get string value of "eref" and "alias"');
+        } else {
+            throw err;
+        }
     }
 }
 
@@ -1134,12 +1147,12 @@ export abstract class Variable {
 
             return children;
         } catch (error: unknown) {
-            logger.error(error, 'failed to get children for', this.name);
-            if (isExpectedError(error)) {
-                return;
-            } else {
+            if (!isEvaluationError(error)) {
                 throw error;
             }
+
+            logger.error(error, 'could not get children for', this.name);
+            return;
         }
     }
 
@@ -1176,9 +1189,9 @@ export abstract class Variable {
                     : vscode.TreeItemCollapsibleState.None,
             };
         } catch (error: unknown) {
-            logger.error(error, 'failed get TreeItem for', this.name);
+            if (isEvaluationError(error)) {
+                logger.error(error, 'failed get TreeItem for', this.name);
 
-            if (isExpectedError(error)) {
                 /* Placeholder */
                 return {};
             } else {
@@ -1416,7 +1429,7 @@ export abstract class Variable {
                  * so `palloc` implemented as macro and we need to invoke `MemoryContextAlloc`
                  * directly.
                  */
-                if (!(err instanceof EvaluationError)) {
+                if (!isEvaluationError(err)) {
                     throw err;
                 }
 
@@ -1525,7 +1538,7 @@ export abstract class Variable {
                             : ((NodeTag) ${T_Invalid})`;
                 result = await this.evaluate(checkExpr);
             } catch (err) {
-                if (!(err instanceof EvaluationError)) {
+                if (!isEvaluationError(err)) {
                     throw err;
                 }
 
@@ -1782,6 +1795,10 @@ export class RealVariable extends Variable {
                     return description;
                 }
             } catch (err) {
+                if (!isEvaluationError(err)) {
+                    throw err;
+                }
+
                 logger.error(err, 'could not invoke custom formatter');
             }
         }
@@ -2174,8 +2191,12 @@ export class NodeVariable extends RealVariable {
         try {
             response = await context.debug.evaluate(expr, frameId);
         } catch (err) {
-            logger.error(err, 'could not get NodeTag for', expr);
-            return;
+            if (isEvaluationError(err)) {
+                logger.error(err, 'could not get NodeTag for', expr);
+                return;
+            }
+            
+            throw err;
         }
 
         if (!response.result.startsWith('T_')) {
@@ -2411,7 +2432,8 @@ class ExprNodeVariable extends NodeVariable {
             try {
                 return await variable.getReprInternal();
             } catch (err) {
-                if (err instanceof EvaluationError) {
+                if (isEvaluationError(err)) {
+                    logger.error(err, 'could not get repr for node', variable.realNodeTag);
                     return this.getExprPlaceholder(variable);
                 }
 
@@ -2520,7 +2542,7 @@ class ExprNodeVariable extends NodeVariable {
                             return attname;
                         }
                     } catch (err) {
-                        if (!(err instanceof EvaluationError)) {
+                        if (!isEvaluationError(err)) {
                             throw err;
                         }
 
@@ -2671,7 +2693,7 @@ class ExprNodeVariable extends NodeVariable {
                 try {
                     await this.evaluateVoid(`getTypeOutputInfo(((Const *)${this.getPointer()})->consttype, ((${tupOutputType})${tupOutput}), ((${tupIsVarLenaType})${tupIsVarlena}))`);
                 } catch (err) {
-                    if (!(err instanceof EvaluationError)) {
+                    if (!isEvaluationError(err)) {
                         throw err;
                     }
     
@@ -2691,7 +2713,7 @@ class ExprNodeVariable extends NodeVariable {
                 try {
                     await this.evaluateVoid(`getTypeOutputInfo(((Const *)${this.getPointer()})->consttype, ((${tupOutputType})${tupOutput}), ((${tupIOParamType})${tupIOParam}), ((${tupIsVarLenaType})${tupIsVarlena}))`);
                 } catch (err) {
-                    if (!(err instanceof EvaluationError)) {
+                    if (!isEvaluationError(err)) {
                         throw err;
                     }
 
@@ -2727,7 +2749,7 @@ class ExprNodeVariable extends NodeVariable {
                 await this.pfree(ptr);
                 repr = str;
             } catch (e) {
-                if (!(e instanceof EvaluationError)) {
+                if (!isEvaluationError(e)) {
                     throw e;
                 }
 
@@ -3064,7 +3086,7 @@ class ExprNodeVariable extends NodeVariable {
             const filterRepr = await this.getMemberRepr('aggfilter');
             repr += ` FILTER (${filterRepr})`;
         } catch (e) {
-            if (!(e instanceof EvaluationError)) {
+            if (!isEvaluationError(e)) {
                 throw e;
             }
         }
@@ -3079,7 +3101,7 @@ class ExprNodeVariable extends NodeVariable {
         try {
             lowerIndices = await this.getListMemberElements('reflowerindexpr');
         } catch (e) {
-            if (!(e instanceof EvaluationError)) {
+            if (!isEvaluationError(e)) {
                 throw e;
             }
         }
@@ -3120,12 +3142,11 @@ class ExprNodeVariable extends NodeVariable {
                     try {
                         values.push(await entry.getStringRepr() ?? 'NULL');
                     } catch (e) {
-                        if (e instanceof EvaluationError) {
-                            logger.error(e, 'error during getting string value from ValueVariable');
-                            values.push('???');
-                        } else {
+                        if (!isEvaluationError(e)) {
                             throw e;
                         }
+
+                        values.push('???');
                     }
                 } else if (entry instanceof ExprNodeVariable) {
                     values.push(await entry.getReprInternal());
@@ -3146,22 +3167,22 @@ class ExprNodeVariable extends NodeVariable {
                     namedArgs = await this.getListMemberElementsReprs('named_args');
                     argNames = await getArgNameListOfStrings();
                 } catch (e) {
-                    if (e instanceof EvaluationError) {
-                        namedArgs = null;
-                        argNames = null;
-                    } else {
+                    if (!isEvaluationError(e)) {
                         throw e;
                     }
+
+                    namedArgs = null;
+                    argNames = null;
                 }
                 let args: string[] | null;
                 try {
                     args = await this.getListMemberElementsReprs('args');
                 } catch (e) {
-                    if (e instanceof EvaluationError) {
-                        args = null;
-                    } else {
+                    if (!isEvaluationError(e)) {
                         throw e;
                     }
+
+                    args = null;
                 }
                 const name = await this.getMemberValueCharString('name');
                 let repr = `XMLELEMENT(name ${name ?? 'NULL'}`;
@@ -3188,12 +3209,12 @@ class ExprNodeVariable extends NodeVariable {
                     namedArgs = await this.getListMemberElementsReprs('named_args');
                     argNames = await getArgNameListOfStrings();
                 } catch (e) {
-                    if (e instanceof EvaluationError) {
-                        namedArgs = null;
-                        argNames = null;
-                    } else {
+                    if (!isEvaluationError(e)) {
                         throw e;
                     }
+
+                    namedArgs = null;
+                    argNames = null;
                 }
                 let repr = 'XMLFOREST(';
                 if (namedArgs && argNames && namedArgs.length === argNames.length) {
@@ -3213,11 +3234,10 @@ class ExprNodeVariable extends NodeVariable {
                 try {
                     args = await this.getListMemberElementsReprs('args');
                 } catch (e) {
-                    if (e instanceof EvaluationError) {
-                        args = null;
-                    } else {
+                    if (!isEvaluationError(e)) {
                         throw e;
                     }
+                    args = null;
                 }
 
                 let repr = 'XMLCONCAT(';
@@ -3704,7 +3724,7 @@ class ExprNodeVariable extends NodeVariable {
                  */
             }
         } catch (error) {
-            if (!(error instanceof EvaluationError)) {
+            if (!isEvaluationError(error)) {
                 throw error;
             }
 
@@ -4290,8 +4310,8 @@ export class ListNodeVariable extends NodeVariable {
             await this.castToList();
         }
 
-        const m = await this.doGetRealMembers();
-        if (!m) {
+        const m = await this.getRealMembers();
+        if (!m?.length) {
             return m;
         }
 
@@ -4422,7 +4442,7 @@ class ArrayVariable extends RealVariable {
             const evalResult = await this.evaluate(lengthExpr);
             length = Number(evalResult.result);
         } catch (err) {
-            if (!(err instanceof EvaluationError)) {
+            if (!isEvaluationError(err)) {
                 throw err;
             }
 
@@ -4463,7 +4483,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                 const response = await this.evaluate(expression);
                 return this.debug.extractBool(response) ?? false;
             } catch (err) {
-                if (!(err instanceof EvaluationError)) {
+                if (!isEvaluationError(err)) {
                     throw err;
                 }
 
@@ -4613,7 +4633,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                     return;
                 }
             } catch (err) {
-                if (!(err instanceof EvaluationError)) {
+                if (!isEvaluationError(err)) {
                     throw err;
                 }
 
@@ -4813,7 +4833,7 @@ class BitmapSetSpecialMember extends NodeVariable {
                         try {
                             member = await variable.getMember(p);
                         } catch (e) {
-                            if (!(e instanceof EvaluationError)) {
+                            if (!isEvaluationError(e)) {
                                 throw e;
                             }
 
@@ -4974,11 +4994,11 @@ class ValueVariable extends NodeVariable {
                 /* Success */
                 return;
             } catch (err: unknown) {
-                if (err instanceof EvaluationError) {
-                    logger.error(err, 'could not cast type "', this.type, '" to tag', this.realNodeTag);
+                if (!isEvaluationError(err)) {
+                    throw err;
                 }
 
-                /* continue */
+                logger.error(err, 'could not cast type "', this.type, '" to tag', this.realNodeTag);
             }
         }
 
@@ -4992,9 +5012,11 @@ class ValueVariable extends NodeVariable {
             /* On success update flag indicating we have 'Value' structure */
             this.context.hasValueStruct = true;
         } catch (err) {
-            if (err instanceof EvaluationError) {
-                logger.error(err, 'could not cast type "', this.type, '" to tag "Value"');
+            if (!isEvaluationError(err)) {
+                throw err;
             }
+
+            logger.error(err, 'could not cast type "', this.type, '" to tag "Value"');
         }
     }
 
@@ -5227,7 +5249,7 @@ class HTABElementsMember extends Variable {
             await this.evaluateVoid(expr);
             return memory;
         } catch (err) {
-            if (!(err instanceof EvaluationError)) {
+            if (!isEvaluationError(err)) {
                 throw err;
             }
 
@@ -5245,17 +5267,16 @@ class HTABElementsMember extends Variable {
         try {
             await this.evaluateVoid(expr);
         } catch (err) {
+            if (!isEvaluationError(err)) {
+                throw err;
+            }
             /* 
              * Of course we can fail for the second time, so free allocated
              * memory, but note that thrown error can be caused by 'Step'
              * command which disables commands execution.
              */
-            if (err instanceof EvaluationError) {
-                await this.pfree(memory);
-                logger.error(err, 'failed to invoke hash_seq_init');
-            }
-
-            throw err;
+            logger.error(err, 'failed to invoke hash_seq_init');
+            await this.pfree(memory);
         }
 
         return memory;
@@ -5269,7 +5290,7 @@ class HTABElementsMember extends Variable {
         try {
             await this.evaluateVoid(`hash_seq_term((HASH_SEQ_STATUS *)${hashSeqStatus})`);
         } catch (err) {
-            if (!(err instanceof EvaluationError)) {
+            if (!isEvaluationError(err)) {
                 throw err;
             }
             
@@ -5302,7 +5323,7 @@ class HTABElementsMember extends Variable {
             try {
                 result = await this.evaluate(`(${this.entryType})${entry}`);
             } catch (err) {
-                if (!(err instanceof EvaluationError)) {
+                if (!isEvaluationError) {
                     throw err;
                 }
 
@@ -5322,10 +5343,12 @@ class HTABElementsMember extends Variable {
                     memoryReference: result.memoryReference,
                 }, this.frameId, this.context, this);
             } catch (error) {
-                if (error instanceof EvaluationError) {
-                    await this.finalizeHashSeqStatus(hashSeqStatus);
-                    await this.pfree(hashSeqStatus);
+                if (!isEvaluationError(error)) {
+                    throw error;
                 }
+
+                await this.finalizeHashSeqStatus(hashSeqStatus);
+                await this.pfree(hashSeqStatus);
 
                 throw error;
             }
@@ -5476,7 +5499,7 @@ class SimplehashElementsMember extends Variable {
         try {
             iteratorPtr = await this.palloc(`sizeof(${iteratorType})`);
         } catch (error) {
-            if (error instanceof EvaluationError) {
+            if (isEvaluationError(error)) {
                 this.removeFromContext();
                 return undefined;
             }
@@ -5491,7 +5514,7 @@ class SimplehashElementsMember extends Variable {
         try {
             await this.evaluateVoid(expr);
         } catch (err) {
-            if (!(err instanceof EvaluationError)) {
+            if (!isEvaluationError(err)) {
                 throw err;
             }
 
@@ -5508,7 +5531,7 @@ class SimplehashElementsMember extends Variable {
         try {
             result = await this.evaluate(iterExpression);
         } catch (err) {
-            if (!(err instanceof EvaluationError)) {
+            if (!isEvaluationError(err)) {
                 throw err;
             }
 
@@ -5528,7 +5551,7 @@ class SimplehashElementsMember extends Variable {
                 memoryReference: result.memoryReference,
             }, this.frameId, this.context, this);
         } catch (err) {
-            if (!(err instanceof EvaluationError)) {
+            if (!isEvaluationError(err)) {
                 throw err;
             }
 
@@ -5666,7 +5689,7 @@ class FlagsMemberVariable extends RealVariable {
             try {
                 return await this.collectFlagValuesInternal(flagStrategy);
             } catch (err) {
-                if (!(err instanceof EvaluationError)) {
+                if (!isEvaluationError(err)) {
                     throw err;
                 }
                 
@@ -5717,7 +5740,7 @@ class FlagsMemberVariable extends RealVariable {
             try {
                 return await this.collectFieldValuesInternal(flagStrategy);
             } catch (err) {
-                if (!(err instanceof EvaluationError)) {
+                if (!isEvaluationError(err)) {
                     throw err;
                 }
 
@@ -5737,7 +5760,7 @@ class FlagsMemberVariable extends RealVariable {
         try {
             flagValues = await this.collectFlagValues();
         } catch (err) {
-            if (!(err instanceof EvaluationError)) {
+            if (!isEvaluationError(err)) {
                 throw err;
             }
 
@@ -5763,6 +5786,10 @@ class FlagsMemberVariable extends RealVariable {
             return fields?.map(([name, value]) => 
                 new ScalarVariable(name, value, '', this.context, this)) ?? [];
         } catch (err) {
+            if (!isEvaluationError(err)) {
+                throw err;
+            }
+
             logger.error(err, 'failed to evaluate fields for', this.name);
             this.context.canUseMacros = false;
             return [];
@@ -6038,6 +6065,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
         try {
             pgversion = await this.tryGetServerVersionNumGuc(frameId);
         } catch (err) {
+            /* Do not check EvaluationError - fallback to parsing pg_config.h */
             logger.error(err, 'could not get "server_version_num" GUC');
         }
 
@@ -6148,8 +6176,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
              * 
              * In such cases we return empty array, so view will be cleared.
              */
-            if (err.message.indexOf('No debugger available') !== -1 ||
-                err.message.indexOf('process is running') !== -1) {
+            if (err instanceof DebuggerNotAvailableError) {
                 return;
             }
 
@@ -6158,7 +6185,7 @@ export class PgVariablesViewProvider implements vscode.TreeDataProvider<Variable
              * then user will see error popup and just freeze without
              * understanding where this error comes from.
              */
-            logger.error(err, 'error occurred during obtaining children');
+            logger.error(err, 'error occurred during obtaining members');
             return;
         }
     }
@@ -6355,7 +6382,10 @@ export async function dumpNodeVariableToDocumentCommand(pgvars: PgVariablesViewP
         await debug.evaluate(`pfree((const void *) ${savedNodeToStringPtr})`, frameId,
                              undefined, true);           
     } catch (err: unknown) {
-        /* This is not critical error actually, so just log and continue */
+        if (!isEvaluationError(err)) {
+            throw err;
+        }
+
         logger.error(err, 'could not dump variable', variable.name, 'to log');
         
         /* continue - this is not critical error for dump logic */
