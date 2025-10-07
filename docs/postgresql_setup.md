@@ -1,10 +1,8 @@
 # PostgreSQL setup
 
-## Building from source code
-
 PostgreSQL build is 2 staged: run `configure` script and then `make`.
 
-### `configure`
+## `configure`
 
 PostgreSQL uses autoconf to setup special `pg_config.h` header file. It contains lots of macros describing target environment, compiler capabilities, etc...
 
@@ -33,7 +31,7 @@ What we used:
 
 > Prefer using `-g3` level if you are using PostgreSQL Hacker Helper extension, because it allows to use macro definitions and other features that can significantly improve debug experience.
 
-### `make`
+## `make`
 
 The next step is actual building the sources. This is done much easier - just run `make`.
 
