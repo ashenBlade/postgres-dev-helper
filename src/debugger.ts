@@ -1132,14 +1132,21 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
     }
     
     handleCodeLLDBDebuggerError(error: unknown) {
-        /* DebuggerNotAvailableError may be already thrown by base class */
         if (!(error && error instanceof Error)) {
             return;
         }
-
-        if (error.name === 'CodeExpectedError' && !(error instanceof DebuggerNotAvailableError)) {
-            throw new EvaluationError(error.message);
+        
+        /* DebuggerNotAvailableError may be already thrown by super class */
+        if (error instanceof DebuggerNotAvailableError) {
+            return;
         }
+
+        /*
+         * Earlier there was an error.name === 'CodeExpectedError' check,
+         * but for now extension supports vscode up to 1.80, which just
+         * throws base Error without any custom name.
+         */
+        throw new EvaluationError(error.message);
     }
     
     async getVariables(frameId: number): Promise<dap.DebugVariable[]> {
