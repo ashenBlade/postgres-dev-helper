@@ -167,7 +167,9 @@ patch -p1 -i "$PATCH_FILE"
             CFLAGS="-O0 -gdwarf-5 $CFLAGS" \
             CPPFLAGS="-O0 -gdwarf-5 $CPPFLAGS"
 
-# Setup special file with 
+# Setup special file with environment
+# NOTE: keep format in sync with that one in 'misc/scripts'
+#       because it is also used by dev scripts
 ENV_PATH="${PWD}/env.sh"
 cat <<EOF >"$ENV_PATH"
 export PGINSTDIR="$INSTALL_PATH"
@@ -214,3 +216,8 @@ cp "$PATCHES_DIR/pgsql_hacker_helper.json" \
 
 cp "$PATCHES_DIR/custom.typedefs.list" "$SRC_PATH"
 } 2>&1 | tee "$LOGFILE"
+
+# Copy dev scripts
+cp "$EXT_ROOT_DIR/misc/vscode/tasks.json" "$SRC_PATH/.vscode"
+cp "$EXT_ROOT_DIR/misc/scripts" "$SRC_PATH/" -r
+cp "$SRC_PATH/env.sh" "$SRC_PATH/scripts/env.sh"
