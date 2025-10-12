@@ -5,6 +5,12 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.1]
+
+### Changed
+
+Internal special error, thrown when we can no longer send requests to debugger, i.e. because variables view was not updated, so we tried to use outdated handles (`variablesReference`).
+
 ## [1.16.0]
 
 ### Added
