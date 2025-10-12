@@ -69,7 +69,7 @@ jobs:
     - name: Setup environment
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential wget gdb lldb libpq5
+        sudo apt-get install -y build-essential wget gdb lldb libpq5 libreadline-dev
         echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
     - name: Restore PostgreSQL
       id: restore-postgresql

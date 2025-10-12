@@ -150,7 +150,6 @@ patch -p1 -i "$PATCH_FILE"
             --enable-debug \
             --enable-cassert \
             --without-openssl \
-            --without-readline \
             --without-python \
             --without-tcl \
             --without-pam \
