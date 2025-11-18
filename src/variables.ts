@@ -1468,6 +1468,81 @@ export abstract class Variable {
         return result;
     }
     
+    private async legacyOidOutputFunctionCall(funcOid: string | number, datum: string) {
+        /*
+         * Older systems do not have OidOutputFunctionCall(), so use
+         * FunctionCall1() instead.
+         */
+
+        /* Call function */
+        const result = await this.functionCall(funcOid, '(char *)', datum);
+
+        /* 
+         * Now process the result.
+         * Note that function can return NULL and it's up to caller check
+         * if this is correct value.
+         */
+        if (this.debug.isNull(result)) {
+            return null;
+        }
+
+        /* Free allocated string */
+        const ptr = this.debug.extractPtrFromString(result);
+        
+        /* 
+         * Function (funcOid) can return either NULL or a valid string.
+         * NULL checked previously, so now if we fail to extract value, then
+         * it is not valid string output.
+         */
+        if (ptr === null) {
+            throw new EvaluationError(`could not extract pointer from result: ${result.result}`);
+        }
+
+        await this.pfree(ptr);        
+        const str = this.debug.extractString(result);
+        if (str === null) {
+            throw new EvaluationError(`could not extract string from result: ${result.result}`);
+        }
+
+        return str;
+    }
+    
+    async oidOutputFunctionCall(funcOid: string | number, datum: string) {
+        this.checkCanAlloc();
+
+        if (this.context.hasOidOutputFunctionCall) {
+            try {
+                const result = await this.evaluate(`OidOutputFunctionCall(${funcOid}, ${datum})`);
+                if (this.debug.isNull(result))  {
+                    return null;
+                }
+
+                const ptr = this.debug.extractPtrFromString(result);
+                if (!ptr) {
+                    throw new EvaluationError(`could not extract pointer from result: ${result.result}`);
+                }
+
+                await this.pfree(ptr);
+                const str = this.debug.extractString(result);
+                if (!str) {
+                    throw new EvaluationError(`could not extract string from result: ${result.result}`);
+                }
+                return str;
+            } catch (err) {
+                if (!isEvaluationError(err)) {
+                    throw err;
+                }
+                
+                logger.error(err, 'could not invoke OidOutputFunctionCall - switching to legacy code');
+                const result = await this.legacyOidOutputFunctionCall(funcOid, datum);
+                this.context.hasOidOutputFunctionCall = false;
+                return result;
+            }
+        }
+        
+        return await this.legacyOidOutputFunctionCall(funcOid, datum);
+    }
+    
     private haveSysCatCacheBreakpoint() {
         return !!vscode.debug.breakpoints.find(b => {
             if (!b.enabled) {
@@ -2605,42 +2680,6 @@ class ExprNodeVariable extends NodeVariable {
             return oid;
         };
 
-        const evalStrWithPtr = async (expr: string) => {
-            const result = await this.debug.evaluate(expr, this.frameId);
-            const str = this.debug.extractString(result);
-            if (str === null) {
-                throw new EvaluationError(`failed to get string from expr: ${expr}`);
-            }
-
-            const ptr = this.debug.extractPtrFromString(result);
-            if (ptr === null) {
-                throw new EvaluationError(`failed to get pointer from expr: ${expr}`);
-            }
-            return [str, ptr];
-        };
-
-        const legacyOidOutputFunctionCall = async (funcOid: number) => {
-            /*
-             * Older systems do not have OidOutputFunctionCall(), so use
-             * FunctionCall1() instead.
-             */
-            /* Call function */
-            const result = await this.functionCall(funcOid, '(char *)', `((Const *)${this.getPointer()})->constvalue)`);            
-
-            /* Free allocated string */
-            const ptr = this.debug.extractPtrFromString(result);
-            if (ptr === null) {
-                throw new EvaluationError(`failed to extract pointer from result: "${result.result}"`);
-            }
-            await this.pfree(ptr);
-            
-            const str = this.debug.extractString(result);
-            if (str === null) {
-                throw new EvaluationError(`failed to extract string from result: "${result.result}"`);
-            }
-            return str;
-        };
-
         if (await this.getMemberValueBool('constisnull')) {
             return 'NULL';
         }
@@ -2744,32 +2783,22 @@ class ExprNodeVariable extends NodeVariable {
         }
 
         const funcOid = await evalOid(`*((Oid *)${tupOutput})`);
-        let repr;
-        
-
-        if (this.context.hasOidOutputFunctionCall) {
-            try {
-                const [str, ptr] = await evalStrWithPtr(`OidOutputFunctionCall(${funcOid}, ((Const *)${this.getPointer()})->constvalue)`);
-                await this.pfree(ptr);
-                repr = str;
-            } catch (e) {
-                if (!isEvaluationError(e)) {
-                    throw e;
-                }
-
-                repr = await legacyOidOutputFunctionCall(funcOid);
-                this.context.hasOidOutputFunctionCall = false;
-            }
-        } else {
-            repr = await legacyOidOutputFunctionCall(funcOid);
-        }
+        const constvalue = `((Const *)${this.getPointer()})->constvalue`;
+        const repr = await this.oidOutputFunctionCall(funcOid, constvalue);
 
         await this.pfree(tupOutput);
         await this.pfree(tupIsVarlena);
-        if (tupIOParam)
-        {await this.pfree(tupIOParam);}
+        if (tupIOParam) {
+            await this.pfree(tupIOParam);
+        }
 
-        return repr;
+        /* 
+         * We must not get NULL here, because even if string is empty it
+         * still be rendered as empty string, not NULL. This should be
+         * considered as error, but follow Postel's law - "be liberal
+         * in what you accept".
+         */
+        return repr ?? 'NULL';
     }
 
     private async formatOpExpr() {
@@ -5639,7 +5668,7 @@ class TupleTableSlotAttributesVariable extends Variable {
         const datums = await this.debug.getArrayVariables(expr, nvalid, this.frameId);
         return datums.map(dv => this.debug.extractBool(dv));
     }
-    
+
     async getAttribute(tupdesc: RealVariable, i: number) {
         const expr = `TupleDescAttr((TupleDesc)${tupdesc.getPointer()}, ${i})`;
         try {
@@ -5727,29 +5756,20 @@ class TupleTableSlotAttributesVariable extends Variable {
             let type;
             if (typeInfo) {
                 const {typoutput, typname} = typeInfo;
-                type = typname ?? '';
 
+                type = typname;
                 if (isnull) {
                     value = 'NULL';
-                } else {
-                    const result = await this.evaluate(`OidOutputFunctionCall(${typoutput}, ${datums[i]})`);
-                    value = this.debug.extractString(result) ?? '???';
-
-                    const ptr = this.debug.extractPtrFromString(result);
-                    if (ptr === null) {
-                        logger.warn('OidOutputFunctionCall returned valid string, but failed to extract pointer from', result.result);
-                    } else {
-                        await this.pfree(ptr);
-                    }
+                } else if (typoutput) {
+                    value = await this.oidOutputFunctionCall(typoutput, datums[i]);
                 }
-            } else {
-                type = '';
-                if (isnull) {
-                    value = 'NULL';
-                } else {
-                    value = '???';
-                }
+            } else if (isnull) {
+                value = 'NULL';
             }
+            
+            /* fallback with default values */
+            value ??= '???';
+            type ??= '';
 
             /* value: type */
             attrs.push(new ScalarVariable(value, type, '', this.context, this));
