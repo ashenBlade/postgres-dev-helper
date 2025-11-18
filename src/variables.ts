@@ -2244,6 +2244,10 @@ export class NodeVariable extends RealVariable {
             realTag === 'BitString') {
             return new ValueVariable(realTag, args);
         }
+        
+        if (realTag === 'TupleTableSlot') {
+            return new TupleTableSlotVariable(args);
+        }
 
         return new NodeVariable(realTag, args);
     }
@@ -5601,6 +5605,175 @@ class SimplehashElementsMember extends Variable {
 
         await this.pfree(iterator);
         return variables;
+    }
+}
+
+/* 
+ * Represents values of attributes in TupleTableSlot with tupoutput applied.
+ */
+class TupleTableSlotAttributesVariable extends Variable {
+    /* TupleTableSlot variable which we are rendering */
+    slot: TupleTableSlotVariable;
+    constructor(slot: TupleTableSlotVariable) {
+        super('$attributes$', '', '', '', slot.context, slot.frameId, slot);
+        this.slot = slot;
+    }
+    
+    isExpandable() {
+        return true;
+    }
+
+    async getTupleDesc() {
+        const tupdesc = await this.slot.getMember('tts_tupleDescriptor');
+        return tupdesc as RealVariable;
+    }
+    
+    async getDatums(nvalid: number) {
+        const expr = `((TupleTableSlot *)${this.slot.getPointer()})->tts_values`;
+        const datums = await this.debug.getArrayVariables(expr, nvalid, this.frameId);
+        return datums.map(dv => dv.value);
+    }
+
+    async getNulls(nvalid: number) {
+        const expr = `((TupleTableSlot *)${this.slot.getPointer()})->tts_isnull`;
+        const datums = await this.debug.getArrayVariables(expr, nvalid, this.frameId);
+        return datums.map(dv => this.debug.extractBool(dv));
+    }
+    
+    async getAttribute(tupdesc: RealVariable, i: number) {
+        const expr = `TupleDescAttr((TupleDesc)${tupdesc.getPointer()}, ${i})`;
+        try {
+            const result = await this.evaluate(expr);
+            /*
+             * Pass simple pointer, because Variable.create is too heavy for
+             * such short operation. Anyway we know what we want to get (name
+             * of member).
+             */
+            return result.memoryReference;
+        } catch (err) {
+            if (!(isEvaluationError(err) && this.debug.type == dbg.DebuggerType.CodeLLDB)) {
+                throw err;
+            }
+        }
+
+        /* 
+         * TupleDescAttr declared 'static inline', so CodeLLDB complains
+         * with 'is ambiguous' error.  All we have to do is just to retry.
+         */
+        const result = await this.evaluate(expr);
+        return result.memoryReference;
+    }
+    
+    async getTypeInfo(formpgattribute: string, needoutput: boolean) {
+        let result = await this.evaluate(`((Form_pg_attribute)${formpgattribute})->atttypid`);
+        const atttyp = Number(result.result);
+        if (!oidIsValid(atttyp)) {
+            return;
+        }
+
+        /* 
+         * Now we must get typoutput Oid to get output representation of value.
+         * But know it is not safe to use 'getTypeOutputInfo', because if
+         * it's value is not valid Oid, then it throws ERROR, which is not
+         * good here.  So we must search syscache directly.
+         */
+        const typeoid = this.debug.formatEnumValue('SysCacheIdentifier', 'TYPEOID');
+        result = await this.evaluateSysCache(`SearchSysCache1(${typeoid}, (Datum)${atttyp})`);
+        if (this.debug.isNull(result)) {
+            return;
+        }
+
+        const syscacheTuple = result.memoryReference;
+
+        const typeform = await this.evaluate(`GETSTRUCT((const HeapTupleData *)${syscacheTuple})`);
+        result = await this.evaluate(`(char *)((Form_pg_type)${typeform.memoryReference})->typname.data`);
+        const typname = this.debug.extractString(result);
+
+        /* such early filter saves some us */
+        let typoutput: number | undefined;
+        if (needoutput) {
+            const typoutputResult = await this.evaluate(`((Form_pg_type)${typeform.memoryReference})->typoutput`);
+            typoutput = Number(typoutputResult.result);
+            if (!oidIsValid(typoutput)) {
+                typoutput = undefined;
+            }
+        }
+
+        await this.evaluateVoid(`ReleaseSysCache((HeapTuple)${syscacheTuple})`);
+        return {
+            typoutput,
+            typname,
+        };
+    }
+    
+    async doGetChildren() {
+        const nvalid = await this.slot.getMemberValueNumber('tts_nvalid');
+        if (nvalid == 0) {
+            return [];
+        }
+        
+        const tupdesc = await this.getTupleDesc();
+        const datums = await this.getDatums(nvalid);
+        const nulls = await this.getNulls(nvalid);
+
+        const attrs = [];
+        for (let i = 0; i < nvalid; ++i) {
+            const isnull = nulls[i];
+            
+            const attr = await this.getAttribute(tupdesc, i);
+            const typeInfo = await this.getTypeInfo(attr, !isnull);
+
+            let value;
+            let type;
+            if (typeInfo) {
+                const {typoutput, typname} = typeInfo;
+                type = typname ?? '';
+
+                if (isnull) {
+                    value = 'NULL';
+                } else {
+                    const result = await this.evaluate(`OidOutputFunctionCall(${typoutput}, ${datums[i]})`);
+                    value = this.debug.extractString(result) ?? '???';
+
+                    const ptr = this.debug.extractPtrFromString(result);
+                    if (ptr === null) {
+                        logger.warn('OidOutputFunctionCall returned valid string, but failed to extract pointer from', result.result);
+                    } else {
+                        await this.pfree(ptr);
+                    }
+                }
+            } else {
+                type = '';
+                if (isnull) {
+                    value = 'NULL';
+                } else {
+                    value = '???';
+                }
+            }
+
+            /* value: type */
+            attrs.push(new ScalarVariable(value, type, '', this.context, this));
+        }
+        
+        return attrs;
+    }
+}
+
+class TupleTableSlotVariable extends NodeVariable {
+    constructor(args: RealVariableArgs) {
+        super('TupleTableSlot', args); 
+    }
+
+    async doGetChildren() {
+        const children = await super.doGetChildren();
+        if (!children?.length) {
+            return children;
+        }
+
+        return [
+            ...children,
+            new TupleTableSlotAttributesVariable(this),
+        ];
     }
 }
 
