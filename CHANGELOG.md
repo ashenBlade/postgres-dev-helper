@@ -5,6 +5,20 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.0]
+
+### Added
+
+Show values of attributes in TupleTableSlot. They are shown in `$attributes$` member and only `tts_nvalid` count.
+
+### Changed
+
+Do not perform any memory allocations and syscache usage if we are inside Bump memory context. Otherwise `pfree` will throw an ERROR.
+
+### Fix
+
+Added missing `await` for `checkCanAlloc`.
+
 ## [1.16.1]
 
 ### Changed

@@ -18,7 +18,8 @@ Extension provides assistance with postgres variables:
 - View `Node *` variables with real type according to `NodeTag`
 - Get the contents of container types: `List *`, `HTAB *`, `Bitmapset *`
 - Render `Expr` nodes by the original expression
-- Show integer enums as enum values, not integers
+- Display integer enums as enum values, not integers
+- Show attribute values for `TupleTableSlot`
 
 Extension creates separate view in debug section - `PG Variables`. It contains postgres variables - extended with knowledge of source code.
 
@@ -39,6 +40,7 @@ Extension creates separate view in debug section - `PG Variables`. It contains p
   - `RangeTblEntry` - `alias` or `eref` value
   - `NameData` - string value directly
 - Enum values, which defined using preprocessor (`#define`) are shown as enum values, not integers.
+- `TupleTableSlot` attribute values are shown. Values are rendered using type's out functions.
 
 ### Formatting
 
