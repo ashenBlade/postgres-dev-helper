@@ -150,26 +150,24 @@ For the further extensions you are free to choose that suit you - no restriction
 <h3 id="perl">Perl</h3>
 <p>PostgreSQL has different test types. One of them is TAP-tests which are written in Perl, so you might want to add extension with Perl support.</p>
 <p>Example, <a href="https://marketplace.visualstudio.com/items?itemName=richterger.perl">Perl</a> extension.</p>
-<blockquote>
 <p>If you have chosen extension above, then you should know, that this extension caches parsed <code>*.pl</code> files and stores them in <code>.vscode/perl-lang</code> directory (can be changed in settings).
 Such behavior can interfere with other IDE functions (i.e. file search) or slow down performance, so you should add this folder to excludes.
 Sample configuration can look like this (<code>settings.json</code>):</p>
-<p><code>json
-{
+<pre><code class="language-json">{
     // Exclude from search output list
-    "search.exclude": {
-        "**/.vscode/perl-lang": true
+    &quot;search.exclude&quot;: {
+        &quot;**/.vscode/perl-lang&quot;: true
     },
     // Exclude from tracked FS events
-    "files.watcherExclude": {
-        "**/.vscode/perl-lang": true
+    &quot;files.watcherExclude&quot;: {
+        &quot;**/.vscode/perl-lang&quot;: true
     },
     // Do not even show this directory in explorer
-    "files.exclude": {
-        "**/.vscode/perl-lang": true
+    &quot;files.exclude&quot;: {
+        &quot;**/.vscode/perl-lang&quot;: true
     }
-}</code></p>
-</blockquote>
+}
+</code></pre>
 <h3 id="markdown">Markdown</h3>
 <p>This is utility extension that will help create markdown files.
 They are popular because many documentation or README are written using Markdown syntax.</p>
@@ -291,7 +289,7 @@ It have 2 benefits against manual specifying:</p>
     &quot;version&quot;: &quot;0.2.0&quot;,
     &quot;configurations&quot;: [
         {
-            &quot;name&quot;: &quot;pg_ctl&quot;,
+            &quot;name&quot;: &quot;CoreDump&quot;,
             &quot;type&quot;: &quot;cppdbg&quot;,
             &quot;request&quot;: &quot;launch&quot;,
             &quot;program&quot;: &quot;${workspaceFolder}/src/backend/postgres&quot;,

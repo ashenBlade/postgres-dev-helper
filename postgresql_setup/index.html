@@ -50,13 +50,9 @@
               <ul class="current">
                 <li class="toctree-l1 current"><a class="reference internal current" href="#">PostgreSQL setup</a>
     <ul class="current">
-    <li class="toctree-l2"><a class="reference internal" href="#building-from-source-code">Building from source code</a>
-        <ul>
-    <li class="toctree-l3"><a class="reference internal" href="#configure">configure</a>
+    <li class="toctree-l2"><a class="reference internal" href="#configure">configure</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#make">make</a>
-    </li>
-        </ul>
+    <li class="toctree-l2"><a class="reference internal" href="#make">make</a>
     </li>
     </ul>
                 </li>
@@ -99,9 +95,8 @@
             <div class="section" itemprop="articleBody">
               
                 <h1 id="postgresql-setup">PostgreSQL setup</h1>
-<h2 id="building-from-source-code">Building from source code</h2>
 <p>PostgreSQL build is 2 staged: run <code>configure</code> script and then <code>make</code>.</p>
-<h3 id="configure"><code>configure</code></h3>
+<h2 id="configure"><code>configure</code></h2>
 <p>PostgreSQL uses autoconf to setup special <code>pg_config.h</code> header file. It contains lots of macros describing target environment, compiler capabilities, etc...</p>
 <p>To create this file you first run <code>./configure</code> script and pass various flags.
 The set of flags differs between versions, but for development we can outline required:</p>
@@ -128,7 +123,7 @@ The set of flags differs between versions, but for development we can outline re
 <blockquote>
 <p>Prefer using <code>-g3</code> level if you are using PostgreSQL Hacker Helper extension, because it allows to use macro definitions and other features that can significantly improve debug experience.</p>
 </blockquote>
-<h3 id="make"><code>make</code></h3>
+<h2 id="make"><code>make</code></h2>
 <p>The next step is actual building the sources. This is done much easier - just run <code>make</code>.</p>
 <p>To speed up compilation you can provide number of parallel threads by <code>-j [THREADS]</code> flag (or omit to use all available - <code>make -j</code>).</p>
 <p>When the building is done run <code>make install</code>, so all binaries will be installed in <code>build</code> directory (directory that we specified as <code>configure</code> step).</p>
