@@ -21,7 +21,8 @@ During debug session separate view `PG Variables` shows contents of variables wi
     - `bitmapword`
     - `XLogRecPtr`
     - `RelFileLocator`
-  
+- Show attribute values of `TupleTableSlot`
+
 ![Variables view](./img/overview.gif)
 
 You can define your own custom types, i.e. your own array variable using [configuration file](./configuration.md).

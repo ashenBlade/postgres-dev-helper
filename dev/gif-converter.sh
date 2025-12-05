@@ -4,8 +4,6 @@
 # This uses FFMPEG with palette generation (for more
 # beautiful picture)
 
-# Exit on first error + Echo all commands
-
 function print_help {
     echo "Usage: $0 VIDEO_FILE [OUTPUT_FILE]
 
@@ -22,6 +20,7 @@ if [[ "$1" == "--help" || $1 == "-h" ]]; then
     exit 0
 fi
 
+# Exit on first error + Echo all commands
 set -ex
 VIDEO_FILE="$1"
 

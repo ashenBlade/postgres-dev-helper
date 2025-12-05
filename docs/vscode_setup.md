@@ -32,26 +32,26 @@ PostgreSQL has different test types. One of them is TAP-tests which are written 
 
 Example, [Perl](https://marketplace.visualstudio.com/items?itemName=richterger.perl) extension.
 
-> If you have chosen extension above, then you should know, that this extension caches parsed `*.pl` files and stores them in `.vscode/perl-lang` directory (can be changed in settings).
-> Such behavior can interfere with other IDE functions (i.e. file search) or slow down performance, so you should add this folder to excludes.
-> Sample configuration can look like this (`settings.json`):
->
-> ```json
-> {
->     // Exclude from search output list
->     "search.exclude": {
->         "**/.vscode/perl-lang": true
->     },
->     // Exclude from tracked FS events
->     "files.watcherExclude": {
->         "**/.vscode/perl-lang": true
->     },
->     // Do not even show this directory in explorer
->     "files.exclude": {
->         "**/.vscode/perl-lang": true
->     }
-> }
-> ```
+If you have chosen extension above, then you should know, that this extension caches parsed `*.pl` files and stores them in `.vscode/perl-lang` directory (can be changed in settings).
+Such behavior can interfere with other IDE functions (i.e. file search) or slow down performance, so you should add this folder to excludes.
+Sample configuration can look like this (`settings.json`):
+
+```json
+{
+    // Exclude from search output list
+    "search.exclude": {
+        "**/.vscode/perl-lang": true
+    },
+    // Exclude from tracked FS events
+    "files.watcherExclude": {
+        "**/.vscode/perl-lang": true
+    },
+    // Do not even show this directory in explorer
+    "files.exclude": {
+        "**/.vscode/perl-lang": true
+    }
+}
+```
 
 ### Markdown
 
@@ -206,7 +206,7 @@ C/C++ extension has special configuration for debugging CoreDump:
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "pg_ctl",
+            "name": "CoreDump",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/src/backend/postgres",
