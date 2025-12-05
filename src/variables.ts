@@ -1035,8 +1035,17 @@ function isValidMemoryContextTag(tag: string) {
         case 'T_AllocSetContext':
         case 'T_SlabContext':       /* 10 */
         case 'T_GenerationContext': /* 11 */
-        case 'T_BumpContext':       /* 17 */
             return true;
+        case 'T_BumpContext':       /* 17 */
+            /* 
+             * If we are going to perform memory allocations then we are
+             * going to free allocated memory accordingly.
+             * But Bump context does not allow pfree/repalloc/etc... operations.
+             * 
+             * We can create our own memory context to perform allocations here,
+             * but it will be hard to maintain.
+             */
+            return false;
     }
 
     /* This is T_Invalid or something else */
@@ -5870,6 +5879,8 @@ class TupleTableSlotAttributesVariable extends Variable {
     }
     
     async doGetChildren() {
+        await this.checkCanAlloc();
+        
         const nvalid = await this.slot.getMemberValueNumber('tts_nvalid');
         if (nvalid == 0) {
             return [];
