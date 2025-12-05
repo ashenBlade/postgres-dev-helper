@@ -5336,29 +5336,7 @@ class HTABElementsMember extends Variable {
             if (!isEvaluationError(err)) {
                 throw err;
             }
-
-            if (err.message.indexOf('ambiguous') === -1) {
-                throw err;
-            }
-        }
-
-
-        /* 
-         * In CodeLLDB first invocation of 'hash_seq_init' always fails
-         * with error like 'reference to HASH_SEQ_STATUS is ambiguous',
-         * but subsequent calls succeed.
-         */
-        try {
-            await this.evaluateVoid(expr);
-        } catch (err) {
-            if (!isEvaluationError(err)) {
-                throw err;
-            }
-            /* 
-             * Of course we can fail for the second time, so free allocated
-             * memory, but note that thrown error can be caused by 'Step'
-             * command which disables commands execution.
-             */
+            
             logger.error(err, 'failed to invoke hash_seq_init');
             await this.pfree(memory);
         }
@@ -5734,21 +5712,6 @@ class TupleTableSlotAttributesVariable extends Variable {
             } catch (err) {
                 if (!isEvaluationError(err)) {
                     throw err;
-                }
-            }
-    
-            /* 
-             * TupleDescAttr declared 'static inline', so CodeLLDB complains
-             * with 'is ambiguous' error.  All we have to do is just to retry.
-             */
-            if (this.debug.type == dbg.DebuggerType.CodeLLDB) {
-                try {
-                    const result = await this.evaluate(expr);
-                    return result.memoryReference;
-                } catch (err) {
-                    if (!isEvaluationError(err)) {
-                        throw err;
-                    }
                 }
             }
 

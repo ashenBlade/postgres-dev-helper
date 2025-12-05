@@ -1167,27 +1167,66 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
         }
     }
 
+    isAmbiguousError(err: Error) {
+        /*
+         * Error message is '... (reference|call) to XXX is ambiguous ...',
+         * but check only 'is ambiguous' since first part varies and
+         * perform another check for first part will be too expensive.
+         */
+        return err.message.indexOf('is ambiguous') !== -1;
+    }
+    
+    isVoidReturnError(err: Error) {
+        return err.message === 'unknown error';
+    }
+
     async evaluate(expression: string, frameId: number | undefined, context?: string, noReturn?: boolean): Promise<dap.EvaluateResponse> {
-        /* TODO: handle 'is ambiguous' error - make another attempt */
+        /* 
+         * CodeLLDB has many expression evaluators: simple, python and native.
+         * https://github.com/vadimcn/codelldb/blob/master/MANUAL.md#expressions
+         * 
+         * Default is 'simple' (changed in settings), but we use only native,
+         * so add '/nat' for each expression for sure.
+         */
+        expression = `/nat ${expression}`;
+
         try {
-            /* 
-             * CodeLLDB has many expression evaluators: simple, python and native.
-             * https://github.com/vadimcn/codelldb/blob/master/MANUAL.md#expressions
-             * 
-             * Default is 'simple' (changed in settings), but we use only native,
-             * so add '/nat' for each expression for sure.
-             */
-            expression = `/nat ${expression}`;
+            try {
+                return await super.evaluate(expression, frameId, context);
+            } catch (err) {
+                if (!(err instanceof Error)) {
+                    throw err;
+                }
+    
+                /* 
+                 * CodeLLDB do not like 'static inline' functions and some other
+                 * symbols which are defined multiple times. But even though it
+                 * complains about it only for the first time and all subsequent
+                 * calls succeed.
+                 * 
+                 * Earlier this retry was in caller code, but too many parts now
+                 * leak this knowledge, so it should be a better idea to handle
+                 * it here.
+                 */
+                if (!this.isAmbiguousError(err)) {
+                    throw err;
+                }
+            }
+            
             return await super.evaluate(expression, frameId, context);
         } catch (err) {
             if (!(err instanceof Error)) {
                 throw err;
             }
 
-            if (noReturn && err.message === 'unknown error') {
+            if (noReturn && this.isVoidReturnError(err)) {
                 /* 
                  * CodeLLDB don't like 'void' returning expressions and
-                 * throws such strange errors, but call actually succeeds
+                 * throws such strange errors, but call actually succeeds.
+                 * 
+                 * Below we have retry logic, but it exists only for 'ambiguous'
+                 * error, not for this one. I think we can get whole bunch of
+                 * errors
                  */
                 return {
                     memoryReference: '',
@@ -1198,7 +1237,6 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
             }
 
             this.handleCodeLLDBDebuggerError(err);
-
             throw err;
         }
     }
