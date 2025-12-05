@@ -532,6 +532,32 @@ export class ExecContext {
     hasOidOutputFunctionCall = true;
     
     /**
+     * TupleDescAttr implemented as function, not macro
+     * 
+     * In PG up to 18 we could get Form_pg_attribute using 'attrs' member,
+     * but after that version 'compact_attrs' is stored without our required
+     * information and Form_pg_attribute stored after it, so separate function
+     * is created
+     */
+    hasTupleDescAttrFunction = true;
+    
+    /**
+     * GETSTRUCT implemented as function, not macro
+     * 
+     * It is used to get plain C structs from HeapTuple when working with
+     * system catalog.
+     */
+    hasGetStructFunction = true;
+    
+    /**
+     * SearchSysCacheX implemented as function, not macro
+     * 
+     * In versions up to 10 there was single SearchSysCache with 5 arguments
+     * and other numbered variations were macros with 0 as argument if omitted.
+     */
+    hasSearchSysCacheFunction = true;
+    
+    /**
      * Which executable we are debugging: 'postgres' or frontend utility
      */
     executableType: ExecutableType;
@@ -611,6 +637,22 @@ export class ExecContext {
         if (version <  8_01_00) {
             this.hasOidOutputFunctionCall = false;
         }
+
+        if (version < 18_00_00) {
+            this.hasTupleDescAttrFunction = false;
+            this.hasGetStructFunction = false;
+        }
+
+        if (version < 11_00_00) {
+            this.hasSearchSysCacheFunction = false;
+        }
+    }
+    
+    /**
+     * Check that PostgreSQL version satisfies given minimal version
+     */
+    pgVersionAtLeast(min: number) {
+        return this.pgversion && min <= this.pgversion;
     }
 }
 
@@ -5127,7 +5169,7 @@ class ValueVariable extends NodeVariable {
         } else {
             repr = await this.getStringReprDistinct() ?? 'NULL';
         }
-        
+
         this.cachedStringRepr = repr;
         return repr;
     }
@@ -5647,7 +5689,7 @@ class TupleTableSlotAttributesVariable extends Variable {
         super('$attributes$', '', '', '', slot.context, slot.frameId, slot);
         this.slot = slot;
     }
-    
+
     isExpandable() {
         return true;
     }
@@ -5656,7 +5698,7 @@ class TupleTableSlotAttributesVariable extends Variable {
         const tupdesc = await this.slot.getMember('tts_tupleDescriptor');
         return tupdesc as RealVariable;
     }
-    
+
     async getDatums(nvalid: number) {
         const expr = `((TupleTableSlot *)${this.slot.getPointer()})->tts_values`;
         const datums = await this.debug.getArrayVariables(expr, nvalid, this.frameId);
@@ -5670,31 +5712,124 @@ class TupleTableSlotAttributesVariable extends Variable {
     }
 
     async getAttribute(tupdesc: RealVariable, i: number) {
-        const expr = `TupleDescAttr((TupleDesc)${tupdesc.getPointer()}, ${i})`;
-        try {
-            const result = await this.evaluate(expr);
-            /*
-             * Pass simple pointer, because Variable.create is too heavy for
-             * such short operation. Anyway we know what we want to get (name
-             * of member).
-             */
-            return result.memoryReference;
-        } catch (err) {
-            if (!(isEvaluationError(err) && this.debug.type == dbg.DebuggerType.CodeLLDB)) {
-                throw err;
+        if (this.context.hasTupleDescAttrFunction) {
+            const expr = `TupleDescAttr((TupleDesc)${tupdesc.getPointer()}, ${i})`;
+            try {
+                const result = await this.evaluate(expr);
+                /*
+                 * Pass simple pointer, because Variable.create is too heavy for
+                 * such short operation. Anyway we know what we want to get (name
+                 * of member).
+                 */
+                return result.memoryReference;
+            } catch (err) {
+                if (!isEvaluationError(err)) {
+                    throw err;
+                }
             }
+    
+            /* 
+             * TupleDescAttr declared 'static inline', so CodeLLDB complains
+             * with 'is ambiguous' error.  All we have to do is just to retry.
+             */
+            if (this.debug.type == dbg.DebuggerType.CodeLLDB) {
+                try {
+                    const result = await this.evaluate(expr);
+                    return result.memoryReference;
+                } catch (err) {
+                    if (!isEvaluationError(err)) {
+                        throw err;
+                    }
+                }
+            }
+
+            this.context.hasTupleDescAttrFunction = false;
+
+            /*
+             * We can get here even if we DO have TupleDescAttr function, but
+             * some unknown error occurred. It means that after setting this
+             * feature flag we will break this codepath, because there will be
+             * no 'attrs' - only 'compact_attrs'.
+             * 
+             * For now I avoid adding too compex checking here, because I know
+             * that I will not test it and definetely will not be able to write
+             * auto test for it, but complexity will increase which hurts
+             * maintainability. Anyway we can just restart debugger.
+             */
         }
 
-        /* 
-         * TupleDescAttr declared 'static inline', so CodeLLDB complains
-         * with 'is ambiguous' error.  All we have to do is just to retry.
-         */
+        /* Older versions store Form_pg_attribute pointers itself, not structures */
+        let expr;
+        if (this.context.pgVersionAtLeast(110000)) {
+            expr = `&((TupleDesc)${tupdesc.getPointer()})->attrs[${i}]`;
+        } else {
+            expr = `((TupleDesc)${tupdesc.getPointer()})->attrs[${i}]`;
+        }
+
         const result = await this.evaluate(expr);
         return result.memoryReference;
     }
     
+    async getStruct(ptr: string) {
+        const heaptupptr = `((const HeapTupleData *)${ptr})`;
+        if (this.context.hasGetStructFunction) {
+            try {
+                const expr = `GETSTRUCT(${heaptupptr})`;
+                const typeform = await this.evaluate(expr);
+                return typeform.memoryReference;
+            } catch (err) {
+                if (!isEvaluationError(err)) {
+                    throw err;
+                }
+            }
+            
+            this.context.hasGetStructFunction = false;
+        }
+        
+        const expr = `((char *)(${heaptupptr}->t_data) + ${heaptupptr}->t_data->t_hoff)`;
+        const form = await this.evaluate(expr);
+        return form.memoryReference;
+    }
+    
+    async searchSysCache1(cacheId: string, key: number) {
+        const typeoid = this.debug.formatEnumValue('SysCacheIdentifier', cacheId);
+
+        if (this.context.hasSearchSysCacheFunction) {
+            try {
+                const expr = `SearchSysCache1(${typeoid}, (Datum)${key})`;
+                const result = await this.evaluateSysCache(expr);
+                if (this.debug.isNull(result)) {
+                    return;
+                }
+                return result.memoryReference;
+            } catch (err) {
+                if (!isEvaluationError(err)) {
+                    throw err;
+                }
+            }
+            
+            this.context.hasSearchSysCacheFunction = false;
+        }
+        
+        const expr = `SearchSysCache(${typeoid}, (Datum)${key}, 0, 0, 0)`;
+        const result = await this.evaluateSysCache(expr);
+        if (this.debug.isNull(result)) {
+            return;
+        }
+        return result.memoryReference;
+    }
+
+    /* 
+     * Search output function information for given type.
+     * 
+     * 'needoutput' is set to 'true' if we also should search for output
+     * function, otherwise it returned 'undefined'. This is done because
+     * we can get all type information in 1 call, but if value is 'NULL', then
+     * output is 'NULL'.
+     */
     async getTypeInfo(formpgattribute: string, needoutput: boolean) {
-        let result = await this.evaluate(`((Form_pg_attribute)${formpgattribute})->atttypid`);
+        let expr = `((Form_pg_attribute)${formpgattribute})->atttypid`;
+        let result = await this.evaluate(expr);
         const atttyp = Number(result.result);
         if (!oidIsValid(atttyp)) {
             return;
@@ -5706,22 +5841,21 @@ class TupleTableSlotAttributesVariable extends Variable {
          * it's value is not valid Oid, then it throws ERROR, which is not
          * good here.  So we must search syscache directly.
          */
-        const typeoid = this.debug.formatEnumValue('SysCacheIdentifier', 'TYPEOID');
-        result = await this.evaluateSysCache(`SearchSysCache1(${typeoid}, (Datum)${atttyp})`);
-        if (this.debug.isNull(result)) {
+        const syscacheTuple = await this.searchSysCache1('TYPEOID', atttyp);
+        if (!syscacheTuple) {
             return;
         }
 
-        const syscacheTuple = result.memoryReference;
-
-        const typeform = await this.evaluate(`GETSTRUCT((const HeapTupleData *)${syscacheTuple})`);
-        result = await this.evaluate(`(char *)((Form_pg_type)${typeform.memoryReference})->typname.data`);
+        const typeform = await this.getStruct(syscacheTuple);
+        expr = `(char *)((Form_pg_type)${typeform})->typname.data`;
+        result = await this.evaluate(expr);
         const typname = this.debug.extractString(result);
 
         /* such early filter saves some us */
         let typoutput: number | undefined;
         if (needoutput) {
-            const typoutputResult = await this.evaluate(`((Form_pg_type)${typeform.memoryReference})->typoutput`);
+            expr = `((Form_pg_type)${typeform})->typoutput`;
+            const typoutputResult = await this.evaluate(expr);
             typoutput = Number(typoutputResult.result);
             if (!oidIsValid(typoutput)) {
                 typoutput = undefined;
@@ -5740,7 +5874,7 @@ class TupleTableSlotAttributesVariable extends Variable {
         if (nvalid == 0) {
             return [];
         }
-        
+
         const tupdesc = await this.getTupleDesc();
         const datums = await this.getDatums(nvalid);
         const nulls = await this.getNulls(nvalid);
@@ -5748,7 +5882,7 @@ class TupleTableSlotAttributesVariable extends Variable {
         const attrs = [];
         for (let i = 0; i < nvalid; ++i) {
             const isnull = nulls[i];
-            
+
             const attr = await this.getAttribute(tupdesc, i);
             const typeInfo = await this.getTypeInfo(attr, !isnull);
 
@@ -5761,17 +5895,19 @@ class TupleTableSlotAttributesVariable extends Variable {
                 if (isnull) {
                     value = 'NULL';
                 } else if (typoutput) {
+                    /* getTypeInfo must check that typoutput is valid */
+                    console.assert(oidIsValid(typoutput));
                     value = await this.oidOutputFunctionCall(typoutput, datums[i]);
                 }
             } else if (isnull) {
                 value = 'NULL';
             }
-            
+
             /* fallback with default values */
             value ??= '???';
             type ??= '';
 
-            /* value: type */
+            /* 'value: type' */
             attrs.push(new ScalarVariable(value, type, '', this.context, this));
         }
         

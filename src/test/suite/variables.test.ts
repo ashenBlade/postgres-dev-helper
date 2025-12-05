@@ -237,9 +237,7 @@ suite('Variables', async function () {
 
     const getVar = (name: string, vars?: vars.Variable[]) => {
         const v = (vars ?? variables)?.find(v => v.name === name);
-        if (!v) {
-            throw new Error(`failed to get variable ${name}`);
-        }
+        assert.ok(v, `member ${name} does not exist`);
         return v;
     };
 
@@ -260,10 +258,6 @@ suite('Variables', async function () {
         const items: VarTreeItemPair[] = [];
         for (const v of children) {
             const item = await v.getTreeItem();
-            if (!item) {
-                assert.fail(`could not get TreeItem for ${v.name}`);
-            }
-
             items.push({
                 var: v,
                 item: new TreeItemWrapper(item),
@@ -551,6 +545,22 @@ suite('Variables', async function () {
                          '$expr$ member does not contain valid expression');
         });
     });
+    
+    suite('Special variables', async () => {
+        test('TableTupleSlot', async () => {
+            const validateSlot = async (name: string, values: string[]) => {
+                const v = getVar(name);
+                const attrs = await expand(await getMemberOf(v, '$attributes$'));
+                assert.equal(attrs.length, values.length,
+                             'unexpected number of attributes in tts');
+                const actual = attrs.map(a => a.item.getName());
+                assert.deepStrictEqual(actual, values, 'Values in tts must match');
+            };
+            
+            await validateSlot('tts_all', ['1', 'hello', '[2,10)']);
+            await validateSlot('tts_null', ['NULL', 'world', '[2,10)']);
+        });
+    });
 
     suite('Config file', async () => {
         /* List with Non-Node pointer array elements */
@@ -619,6 +629,14 @@ suite('Variables', async function () {
 
         /* User defined aliases */
         test('Alias', async () => {
+            /*
+             * NOTE: this test depends on RestrictInfo expr render and if
+             *       the latter fails, then this will too. It would be a
+             *       better idea to use another variable/type, but anyway
+             *       it will also require us to add special handling for
+             *       underlying type (which is also handled by other tests)
+             *       and thus we will also fail.
+             */
             const exprRegexp = predicateRegex;
             const exprReprVar = await getMemberOf(getVar('expr_alias'), '$expr$');
             assert.match(exprReprVar.item.description, exprRegexp,

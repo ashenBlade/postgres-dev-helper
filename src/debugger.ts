@@ -1168,6 +1168,7 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
     }
 
     async evaluate(expression: string, frameId: number | undefined, context?: string, noReturn?: boolean): Promise<dap.EvaluateResponse> {
+        /* TODO: handle 'is ambiguous' error - make another attempt */
         try {
             /* 
              * CodeLLDB has many expression evaluators: simple, python and native.

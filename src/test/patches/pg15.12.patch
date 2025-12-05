@@ -36,12 +36,17 @@ new file mode 100644
 index 00000000000..76f2903e179
 --- /dev/null
 +++ b/src/backend/optimizer/plan/vscodehelper.c
-@@ -0,0 +1,288 @@
+@@ -0,0 +1,382 @@
 +#include "postgres.h"
 +
++#include "access/tupdesc.h"
++#include "access/htup_details.h"
++#include "executor/tuptable.h"
 +#include "nodes/bitmapset.h"
 +#include "nodes/pathnodes.h"
++#include "utils/builtins.h"
 +#include "utils/hsearch.h"
++#include "utils/rangetypes.h"
 +
 +extern void vscode_test_helper(PlannerInfo *root);
 +extern void vscode_test_helper_unused(void *pointer);
@@ -229,6 +234,83 @@ index 00000000000..76f2903e179
 +	testhash_iterate(hash, &iterator);
 +}
 +
++typedef void (*func_ptr)(void *);
++
++static TupleTableSlot *
++create_tuple_table_slot(void)
++{
++	TupleDesc tupdesc;
++
++	/* (int, text, int4range) */
++	tupdesc = CreateTemplateTupleDesc(3);
++	TupleDescInitEntry(tupdesc, 1, "number", INT4OID, -1, 0);
++	TupleDescInitEntry(tupdesc, 2, "string", TEXTOID, -1, 0);
++	TupleDescInitEntry(tupdesc, 3, "range", INT4RANGEOID, -1, 0);
++
++	return MakeTupleTableSlot(tupdesc, &TTSOpsMinimalTuple);
++}
++
++static void
++fill_tuple_table_slot(TupleTableSlot *slot, int32 value, bool isnull_value,
++					  const char *text, bool isnull_text,
++					  int32 rangestart, int32 rangeend, bool isnull_range)
++{
++	MinimalTuple mintup;
++	Datum	values[3];
++	bool	isnull[3];
++	
++	memset(isnull, false, sizeof(isnull));
++	memset(values, 0, sizeof(values));
++
++	isnull[0] = isnull_value;
++	isnull[1] = isnull_text;
++	isnull[2] = isnull_range;
++	
++	if (!isnull_value)
++	{
++		values[0] = Int32GetDatum(value);
++	}
++	if (!isnull_text)
++	{
++		values[1] = PointerGetDatum(cstring_to_text(text));
++	}
++	if (!isnull_range)
++	{
++		FmgrInfo fmgr;
++		Oid makerangeoid;
++		Const node;
++
++		makerangeoid = fmgr_internal_function("range_constructor2");
++		fmgr_info(makerangeoid, &fmgr);
++		
++		/* setup return type, so range_constructor2 can use it */
++		node.xpr.type = T_Const;
++		node.consttype = INT4RANGEOID;
++		fmgr_info_set_expr((Node *)&node, &fmgr);
++		
++		values[2] = FunctionCall2(&fmgr,
++								  Int32GetDatum(rangestart),
++								  Int32GetDatum(rangeend));
++	}
++
++	mintup = heap_form_minimal_tuple(slot->tts_tupleDescriptor, values, isnull);
++	ExecStoreMinimalTuple(mintup, slot, false);
++}
++
++static TupleTableSlot *
++create_tts(int32 value, bool isnull_value,
++		   const char *text, bool isnull_text,
++		   int32 rangestart, int32 rangeend, bool isnull_range)
++{
++	TupleTableSlot *slot;
++	
++	slot = create_tuple_table_slot();
++	fill_tuple_table_slot(slot, value, isnull_value, text, isnull_text,
++						  rangestart, rangeend, isnull_range);
++	slot_getallattrs(slot);
++	return slot;					
++}
++
 +void
 +vscode_test_helper(PlannerInfo *root)
 +{
@@ -260,6 +342,12 @@ index 00000000000..76f2903e179
 +	List *int_list;
 +	RestrictInfo *rinfo;
 +	EquivalenceClass *eclass;
++	
++	/* other special variables */
++	TupleTableSlot *tts_all;
++	TupleTableSlot *tts_null;
++    
++    void (*some_ptr)(void *) = &vscode_test_helper_unused;
 +
 +	/* Protect against arbitrary query */
 +	if (!(   list_length(root->parse->rtable) == 3
@@ -298,6 +386,9 @@ index 00000000000..76f2903e179
 +		structure_pointer_array[j]->value = j + 1;
 +		flexible_array_member->array[j] = j + 1;
 +	}
++	
++	tts_all = create_tts(1, false, "hello", false, 2, 10, false);
++	tts_null = create_tts(0, true, "world", false, 2, 10, false);
 +
 +	UNUSED(bms);
 +	UNUSED(node);
@@ -322,6 +413,9 @@ index 00000000000..76f2903e179
 +	UNUSED(flexible_array_member);
 +	UNUSED(custom_list);
 +	UNUSED(custom_list_variable);
++	UNUSED(tts_all);
++	UNUSED(tts_null);
++	UNUSED(some_ptr);
 +
 +	return;
 +}
