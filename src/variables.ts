@@ -1566,7 +1566,7 @@ export abstract class Variable {
     }
     
     async oidOutputFunctionCall(funcOid: string | number, datum: string) {
-        this.checkCanAlloc();
+        await this.checkCanAlloc();
 
         if (this.context.hasOidOutputFunctionCall) {
             try {
