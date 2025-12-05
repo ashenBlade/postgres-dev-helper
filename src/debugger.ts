@@ -309,7 +309,6 @@ export interface IDebuggerFacade {
      */
     readonly type: DebuggerType;
 
-    /* TODO: specific expression when debugger is unavailable - not 'stopped' mode */
     /**
      * Evaluate generic C code expression
      * 
