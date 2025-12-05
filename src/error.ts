@@ -22,3 +22,13 @@ export class WorkspaceNotOpenedError extends PghhError {
         super('No workspace opened');
     }
 }
+
+/**
+ * Error occurring when argument passed to function is invalid or does
+ * not satisfy some conditions.
+ */
+export class ArgumentInvalidError extends PghhError {
+    constructor(actual: unknown, expected: unknown) {
+        super(`Given argument ${actual} is invalid, expected ${expected}`);
+    }
+}

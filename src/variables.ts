@@ -4,7 +4,7 @@ import * as constants from './constants';
 import * as dbg from './debugger';
 import { EvaluationError, DebuggerNotAvailableError } from './debugger';
 import { Log as logger } from './logger';
-import { PghhError, 
+import { ArgumentInvalidError, PghhError, 
          unnullify } from './error';
 import { Configuration,
          getWorkspaceFolder,
@@ -1601,6 +1601,46 @@ export abstract class Variable {
         return await this.legacyOidOutputFunctionCall(funcOid, datum);
     }
     
+    /**
+     * Invoke SearchSysCache1 with fallback to legacy implementation
+     * 
+     * Unlike other implementations this accepts only 1 key, because for now
+     * we do not need other count.
+     */
+    async searchSysCache1(cacheId: string, key: number) {
+        await this.checkCanUseSysCache();
+
+        if (!oidIsValid(key)) {
+            throw new ArgumentInvalidError(key, 'valid Oid is a positive integer');
+        }
+
+        const typeoid = this.debug.formatEnumValue('SysCacheIdentifier', cacheId);
+
+        if (this.context.hasSearchSysCacheFunction) {
+            try {
+                const expr = `SearchSysCache1(${typeoid}, (Datum)${key})`;
+                const result = await this.evaluateSysCache(expr);
+                if (this.debug.isNull(result)) {
+                    return;
+                }
+                return result.memoryReference;
+            } catch (err) {
+                if (!isEvaluationError(err)) {
+                    throw err;
+                }
+            }
+            
+            this.context.hasSearchSysCacheFunction = false;
+        }
+        
+        const expr = `SearchSysCache(${typeoid}, (Datum)${key}, 0, 0, 0)`;
+        const result = await this.evaluateSysCache(expr);
+        if (this.debug.isNull(result)) {
+            return;
+        }
+        return result.memoryReference;
+    }
+    
     private haveSysCatCacheBreakpoint() {
         return !!vscode.debug.breakpoints.find(b => {
             if (!b.enabled) {
@@ -1623,14 +1663,19 @@ export abstract class Variable {
             ??= !this.haveSysCatCacheBreakpoint();
     }
 
-    /* 
-     * Call evaluate with safety checks for sys/cat cache usage.
-     */
-    async evaluateSysCache(expr: string) {
+    private async checkCanUseSysCache() {
         if (!this.isSafeToUseSysCache()) {
             throw new EvaluationError('Not safe to use SysCache');
         }
 
+        await this.checkCanAlloc();
+    }
+
+    /* 
+     * Call evaluate with safety checks for sys/cat cache usage.
+     */
+    async evaluateSysCache(expr: string) {
+        await this.checkCanUseSysCache();
         return await this.evaluate(expr);
     }
 
@@ -2167,7 +2212,17 @@ export class RealVariable extends Variable {
  * years (and I do not think will be changed in near future).
  */
 const InvalidOid = 0;
-const oidIsValid = (oid: number) => Number.isInteger(oid) && oid !== InvalidOid;
+
+/* 
+ * This check is not the same as in vanilla code. Specifically there is check
+ * that given number is Integer (JS type) and check that Oid is positive.
+ * 
+ * The last check was not in original OidIsValid macro, but Oid defined as unsigned,
+ * so any negative number will be invalid and even if some debugger will perform
+ * casting for us (and in the end complete successfully) we should treat it as
+ * an error in OUR code.
+ */
+const oidIsValid = (oid: number) => Number.isInteger(oid) && oid > InvalidOid;
 
 const InvalidAttrNumber = 0;
 
@@ -5768,34 +5823,6 @@ class TupleTableSlotAttributesVariable extends Variable {
         const expr = `((char *)(${heaptupptr}->t_data) + ${heaptupptr}->t_data->t_hoff)`;
         const form = await this.evaluate(expr);
         return form.memoryReference;
-    }
-    
-    async searchSysCache1(cacheId: string, key: number) {
-        const typeoid = this.debug.formatEnumValue('SysCacheIdentifier', cacheId);
-
-        if (this.context.hasSearchSysCacheFunction) {
-            try {
-                const expr = `SearchSysCache1(${typeoid}, (Datum)${key})`;
-                const result = await this.evaluateSysCache(expr);
-                if (this.debug.isNull(result)) {
-                    return;
-                }
-                return result.memoryReference;
-            } catch (err) {
-                if (!isEvaluationError(err)) {
-                    throw err;
-                }
-            }
-            
-            this.context.hasSearchSysCacheFunction = false;
-        }
-        
-        const expr = `SearchSysCache(${typeoid}, (Datum)${key}, 0, 0, 0)`;
-        const result = await this.evaluateSysCache(expr);
-        if (this.debug.isNull(result)) {
-            return;
-        }
-        return result.memoryReference;
     }
 
     /* 
