@@ -1467,19 +1467,19 @@ export abstract class Variable {
     async palloc(size: string) {
         await this.checkCanAlloc();
 
-        /* TODO: use MemoryContextAllocExtended with NULL returning */
         if (this.context.hasPalloc) {
             try {
+                /* 
+                 * Once there was an idea to use MemoryContextAllocExtended
+                 * passing MCXT_NO_OOM, but actually, this is not very helpful:
+                 * our allocations are too small (I am sure no allocations
+                 * greater than 1kB bytes will be done) and more over, when
+                 * using the former function we should be aware if we are in
+                 * backend or frontend, so introducing this function usage here
+                 * will just add more headaches than profit.
+                 */
                 return (await this.evaluate(`palloc(${size})`)).result;
             } catch (err) {
-                /*
-                 * I will not allocate huge amounts of memory - only small *state* structures,
-                 * and expect, that there is always enough memory to allocate it.
-                 *
-                 * So, only invalid situation - this is old version of PostgreSQL,
-                 * so `palloc` implemented as macro and we need to invoke `MemoryContextAlloc`
-                 * directly.
-                 */
                 if (!isEvaluationError(err)) {
                     throw err;
                 }
@@ -1489,6 +1489,13 @@ export abstract class Variable {
             }
         }
 
+        /* 
+         * We failed to invoke 'palloc' above. This can happen in the only
+         * situation - we are in old PG version (where palloc is a macro)
+         * executing backend logic (for our supported version 'palloc' on
+         * frontend is implemented as function). So we can assume that
+         * MemoryContextAlloc DOES exist.
+         */
         const result = await this.evaluate(`MemoryContextAlloc(CurrentMemoryContext, ${size})`);
         return result.result;
     }
