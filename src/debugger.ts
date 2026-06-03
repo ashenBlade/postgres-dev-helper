@@ -132,7 +132,9 @@ const builtInTypes = new Set([
     /* src/include/nodes/nodes.h */
     'Cost', 'Selectivity', 'Cardinality', 'ParseLoc', 'NodeTag',
 ]);
+
 const identifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+const structNameRegex = /^([a-zA-Z_][a-zA-Z0-9_]*::)*[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 /**
  * Check that given string represents valid C identifier.
@@ -143,6 +145,15 @@ const identifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  */
 export function isValidIdentifier(value: string) {
     return identifierRegex.test(value);
+}
+
+/**
+ * Check that given string represents valid struct name.
+ * This is different from @function isValidIdentifier in way it handles C++ class
+ * names with namespaces, i.e. 'myns::StructName'.
+ */
+export function isValidStructName(value: string) {
+    return structNameRegex.test(value);
 }
 
 export function isPointerType(type: string) {

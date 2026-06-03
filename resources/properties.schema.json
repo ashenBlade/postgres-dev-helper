@@ -16,7 +16,7 @@
                 "typeName": {
                     "type": "string",
                     "description": "Name of type value of variable. Must be valid C identifier without qualifiers like 'struct' or 'const'",
-                    "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+                    "pattern": "^([a-zA-Z_][a-zA-Z0-9_]*::)*[a-zA-Z_][a-zA-Z0-9_]*$"
                 },
                 "memberName": {
                     "type": "string",

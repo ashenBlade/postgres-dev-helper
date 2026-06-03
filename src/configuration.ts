@@ -95,7 +95,7 @@ function parseConfiguration(contents: unknown): ConfigurationFile | undefined {
             typeName = typeName.trim();
 
             /* NodeTag used also as type name, so it must be valid identifier */
-            if (!dbg.isValidIdentifier(typeName)) {
+            if (!dbg.isValidStructName(typeName)) {
                 vscode.window.showErrorMessage(`typeName must be valid identifier. given: ${typeName}`);
                 return;
             }
