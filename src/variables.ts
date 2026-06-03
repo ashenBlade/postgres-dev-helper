@@ -6581,7 +6581,13 @@ export async function parseNodeTagsFile(file: vscode.Uri) {
         }
 
         const tag = content.substring(prefixIndex + 2, endOfIdent);
-        nodeTags.push(tag);
+        if (tag.length > 0) {
+            /*
+             * I have encountered case, then empty string was added after parsing,
+             * but I am too lazy to debug this, so just add empty string check.
+             */
+            nodeTags.push(tag);
+        }
         prefixIndex = endOfIdent + 1;
     }
     
