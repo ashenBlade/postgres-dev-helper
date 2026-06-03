@@ -2,7 +2,7 @@
     "name": "postgresql-hacker-helper",
     "displayName": "PostgreSQL Hacker Helper",
     "description": "Extension to assist Postgres hackers - source code developers",
-    "version": "1.17.0",
+    "version": "1.17.1",
     "engines": {
         "vscode": "^1.67.0"
     },
@@ -11,7 +11,9 @@
         "Formatters",
         "Other"
     ],
-    "extensionKind": ["workspace"],
+    "extensionKind": [
+        "workspace"
+    ],
     "icon": "img/logo.png",
     "activationEvents": [
         "workspaceContains:/.vscode/pgsql_hacker_helper.json",
