@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as dap from "./dap";
 import { Features } from './configuration';
-import { PgVariablesViewProvider } from './variables';
+import { PgVariablesViewProvider } from './varview';
 import { PghhError } from './error';
 
 /**
@@ -19,6 +19,36 @@ export class EvaluationError extends PghhError {
         this.name = 'EvaluationError';
     }
 }
+
+/**
+ * Check that caught exception can be safely ignored and not shown to user.
+ *
+ * NOTE: return type annotation is 'error is EvaluationError' so it
+ *       automatically will be casted to Error if we want further processing.
+ */
+export function isEvaluationError(error: unknown): error is EvaluationError {
+    /* 
+     * When we are evaluating expressions or perform other DAP requests,
+     * we may encounter different errors. We can identify 2 types of errors:
+     * 
+     * 1. Error in expression (source code related)
+     * 2. Debugger error
+     * 
+     * For 1 we have 'EvaluationError' which is caught and some custom
+     * handler is invoked. This is normal situation, because of major
+     * version interface mismatch or some types represented differently.
+     * 
+     * But 2 type we can not handle, because error caused by external reasons.
+     * The most illustrative example is that user clicks F10 (step) too
+     * fast, so we do not have time to update the variables view and therefore,
+     * in DAP request outdated identifiers are passed.
+     * 
+     * For the latter we allow the Error to propagate to the top-most caller
+     * function which will then just log the error and return some placeholder.
+     */
+    return !!error && error instanceof EvaluationError;
+}
+
 
 /**
  * DAP request was send, but debugger can not handle it.
@@ -525,7 +555,7 @@ export abstract class GenericDebuggerFacade implements IDebuggerFacade, vscode.D
         }
     }
     
-    async evaluate(expression: string, frameId: number | undefined, context?: string) {
+    async evaluate(expression: string, frameId: number | undefined, context?: string, _?: boolean) {
         try {
             context ??= 'watch';
             const response: dap.EvaluateResponse = await this.getSession().customRequest('evaluate', {

@@ -19,8 +19,9 @@ import { PgindentDocumentFormatterProvider,
 import * as formatter from './formatter';
 import { Log as logger } from './logger';
 import { WorkspaceNotOpenedError } from './error';
+import { addVariableToWatchCommand, DebuggingContext, dumpNodeVariableToDocumentCommand, dumpNodeVariableToLogCommand, PgVariablesViewProvider } from './varview';
 
-function createDebuggerFacade(type: string, provider: vars.PgVariablesViewProvider): dbg.GenericDebuggerFacade | undefined {
+function createDebuggerFacade(type: string): dbg.GenericDebuggerFacade | undefined {
     let debug;
     switch (type) {
         case 'cppdbg':
@@ -32,14 +33,6 @@ function createDebuggerFacade(type: string, provider: vars.PgVariablesViewProvid
         case 'lldb':
             debug = new dbg.CodeLLDBDebuggerFacade();
             break;
-        default:
-            return;
-    }
-    if (Features.debugFocusEnabled()) {
-        vscode.debug.onDidChangeActiveStackItem(() => provider.refresh(),
-                                                undefined, debug.registrations);
-    } else {
-        debug.switchToEventBasedRefresh();
     }
 
     return debug;
@@ -352,31 +345,53 @@ async function bootstrapExtensionCommand() {
 
 export function createPgVariablesView(context: vscode.ExtensionContext,
                                       config: Configuration) {
-    const nodesView = new vars.PgVariablesViewProvider(config);
+    const debugContext = new DebuggingContext();
+    const varsViews = new PgVariablesViewProvider(config, debugContext);
     const treeDisposable = vscode.window.registerTreeDataProvider(
-        `${ExtensionId}.node-tree-view`, nodesView);
+        /* TODO: pg-variables-view */
+        `${ExtensionId}.node-tree-view`, varsViews);
     context.subscriptions.push(
         treeDisposable,
-        nodesView,
+        varsViews,
         
         vscode.debug.onDidStartDebugSession(s => {
-            if (nodesView.isInDebug()) {
+            if (debugContext.debug !== undefined) {
                 return;
             }
-            
-            const debug = createDebuggerFacade(s.type, nodesView);
+
+            const debug = createDebuggerFacade(s.type);
             if (!debug) {
                 return;
             }
 
-            nodesView.startDebugging(debug);
+            
+            if (Features.debugFocusEnabled()) {
+                vscode.debug.onDidChangeActiveStackItem(() => {
+                    /* reset per-step context */
+                    debugContext.exec?.step.reset();
+
+                    /* refresh views */
+                    varsViews.refresh();
+                }, undefined, debug.registrations);
+            } else {
+                debug.switchToEventBasedRefresh();
+            }
+
+            debugContext.debug = debug;
+            debugContext.exec = undefined;
         }),
         vscode.debug.onDidTerminateDebugSession(_ => {
-            nodesView.stopDebugging();
+            /* teardown debug context */
+            debugContext.debug?.dispose();
+            debugContext.debug = undefined;
+            debugContext.exec = undefined;
+
+            /* clean views */
+            varsViews.refresh();
         }),
     );
 
-    return nodesView;
+    return varsViews;
 }
 
 export function setupExtension(context: vscode.ExtensionContext) {    
@@ -544,7 +559,7 @@ async function searchNodeTagsWorker(config: Configuration,
 }
 
 function registerCommands(context: vscode.ExtensionContext,
-                          pgvars: vars.PgVariablesViewProvider,
+                          pgvars: PgVariablesViewProvider,
                           fmt: PgindentDocumentFormatterProvider,
                           config: Configuration) {
     const registerCommand = <T>(name: string, command: (...args: unknown[]) => T | Thenable<T>) => {
@@ -577,12 +592,12 @@ function registerCommands(context: vscode.ExtensionContext,
 
     /* Variables */
     registerCommand(Commands.DumpNodeToLog, 
-                    async (...args: unknown[]) => await vars.dumpNodeVariableToLogCommand(pgvars, ...args));
+                    async (...args: unknown[]) => await dumpNodeVariableToLogCommand(pgvars, ...args));
     registerCommand(Commands.DumpNodeToDoc, 
-                    async (...args: unknown[]) => await vars.dumpNodeVariableToDocumentCommand(pgvars, ...args));
+                    async (...args: unknown[]) => await dumpNodeVariableToDocumentCommand(pgvars, ...args));
     registerCommand(Commands.RefreshVariables,
-                    () => vars.refreshVariablesCommand(pgvars));
-    registerCommand(Commands.AddToWatchView, vars.addVariableToWatchCommand);
+                    () => pgvars.refresh());
+    registerCommand(Commands.AddToWatchView, addVariableToWatchCommand);
 
     /* Miscellaneous */
     registerCommand(Commands.BootstrapExtension, bootstrapExtensionCommand);

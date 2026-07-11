@@ -778,7 +778,7 @@ export function getKnownCustomListPtrs(): ListPtrSpecialMemberInfo[] {
         _('char', 'ConstructTupleDescriptor', 'indexColNames'),
         _('char', 'index_create', 'indexColNames'),
 
-        /* srck/backend/catalog/namespace.c */
+        /* src/backend/catalog/namespace.c */
         _('char', 'MatchNamedCall', 'argnames'),
         _('char', 'preprocessNamespacePath', 'namelist'),
         _('char', 'FuncnameGetCandidates', 'argnames'),
