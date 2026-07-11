@@ -65,7 +65,7 @@ function isSpace(char: string) {
 /* 
  * Base class for all ViewProvider classes containing infrastructure code
  */
-abstract class BasePgViewProvider<T> implements vscode.TreeDataProvider<T>, vscode.Disposable {
+export abstract class BasePgViewProvider<T> implements vscode.TreeDataProvider<T>, vscode.Disposable {
     /* 
      * Extension configuration.
      */
@@ -89,16 +89,37 @@ abstract class BasePgViewProvider<T> implements vscode.TreeDataProvider<T>, vsco
     private _onDidChangeTreeData = new vscode.EventEmitter<void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
     refresh(): void {
+        this.clean();
+        this._onDidChangeTreeData.fire();
+    }
+
+    /*
+     * Version of refresh used when only 1 entry was changed, so we do not
+     * have to evaluate every other expression
+     */
+    refreshNoClean() {
         this._onDidChangeTreeData.fire();
     }
 
     private _onDidDebugStart = new vscode.EventEmitter<ExecContext>();
     readonly onDidDebugStart = this._onDidDebugStart.event;
 
+    /* Get top level variables during debug session */
     abstract getTopLevelChildren(frameId: number, exec: ExecContext): vscode.ProviderResult<T[]>;
+    /* Get children of specific child during debug session */
     abstract getChildrenOf(element: T, exec: ExecContext): vscode.ProviderResult<T[]>;
+    /*
+     * Get some "filler" entries when not in debug session'.
+     *
+     * Now used to get entries in watch view, because we should show them even
+     * without debug.
+     */
+    abstract getNonDebugChildren(): vscode.ProviderResult<T[]>;
     abstract getTreeItem(element: T): Promise<vscode.TreeItem>;
     abstract getParent(element: T): vscode.ProviderResult<T>;
+
+    /* invoked when debug session is over and we should clean view */
+    abstract clean(): void;
 
     async getChildrenGuts(element?: T) {
         if (element) {
@@ -108,12 +129,12 @@ abstract class BasePgViewProvider<T> implements vscode.TreeDataProvider<T>, vsco
 
         const debug = this.context.debug;
         if (debug == undefined) {
-            return null;
+            return this.getNonDebugChildren();
         }
 
         const frameId = await debug.getCurrentFrameId();
         if (frameId == undefined) {
-            return;
+            return this.getNonDebugChildren();
         }
 
         if (!this.context.exec) {
@@ -147,7 +168,9 @@ abstract class BasePgViewProvider<T> implements vscode.TreeDataProvider<T>, vsco
              * In such cases we return empty array, so view will be cleared.
              */
             if (err instanceof dbg.DebuggerNotAvailableError) {
-                return;
+                /* debugger is unavailable, so nothing we can show */
+                this.clean();
+                return this.getNonDebugChildren();
             }
 
             /* 
@@ -162,7 +185,7 @@ abstract class BasePgViewProvider<T> implements vscode.TreeDataProvider<T>, vsco
 
     async getExecContext(frameId: number, debug: dbg.GenericDebuggerFacade) {
         const {pgversion, isServer} = await this.getDebugContext(frameId);
-        
+
         let data: ExecContextData | undefined;
         if (pgversion) {
             logger.info('detected PostgreSQL version:', pgversion);
@@ -184,9 +207,9 @@ abstract class BasePgViewProvider<T> implements vscode.TreeDataProvider<T>, vsco
         const context = new ExecContext(debug, data, pgversion, exeType);
         if (pgversion) {
             context.adjustProperties(pgversion);
-            this._onDidDebugStart.fire(context);
         }
 
+        this._onDidDebugStart.fire(context);
         return context;
     }
 
@@ -445,6 +468,7 @@ export class PgVariablesViewProvider extends BasePgViewProvider<Variable> {
         }
 
         const root = new VariablesRoot(variables, exec);
+        
         variables.forEach(v => v.parent = root);
         return variables;
 
@@ -457,12 +481,21 @@ export class PgVariablesViewProvider extends BasePgViewProvider<Variable> {
     override getParent(element: Variable) {
         return element.parent;
     }
+
+    override clean() {
+        /* no actions required - on refresh we will clean everything */
+    }
+
+    override getNonDebugChildren() {
+        /* We show only real variables */
+        return undefined;
+    }
 }
 
 
-export async function dumpNodeVariableToLogCommand(pgvars: PgVariablesViewProvider,
+export async function dumpNodeVariableToLogCommand(view: PgVariablesViewProvider,
                                                    ...args: unknown[]) {
-    if (!pgvars.context) {
+    if (!view.context.exec) {
         return;
     }
 
@@ -472,7 +505,7 @@ export async function dumpNodeVariableToLogCommand(pgvars: PgVariablesViewProvid
         return;
     }
 
-    const debug = pgvars.context.debug;
+    const debug = view.context.debug;
     if (!debug) {
         logger.warn('context.debug is undefined, but debug session is active');
         return;
@@ -590,7 +623,7 @@ export async function dumpNodeVariableToDocumentCommand(pgvars: PgVariablesViewP
         await debug.evaluate(`pfree((const void *) ${ptr})`, frameId,
                              undefined, true);
         await debug.evaluate(`pfree((const void *) ${savedNodeToStringPtr})`, frameId,
-                             undefined, true);           
+                             undefined, true);
     } catch (err: unknown) {
         if (!dbg.isEvaluationError(err)) {
             throw err;
@@ -637,3 +670,232 @@ export async function addVariableToWatchCommand(...args: unknown[]) {
     });
 }
 
+class WatchEntry {
+    /* 
+     * User-defined expression for entry
+     */
+    expression: string;
+    /* 
+     * Variable representing evaluation result (if any)
+     */
+    variable?: Variable;
+
+    constructor(expression: string) {
+        this.expression = expression;
+    }
+
+    async getVariable(exec: ExecContext, frameId: number) {
+        if (!this.variable) {
+            const response = await exec.debug.evaluate(this.expression, frameId);
+            const debugVar = {
+                name: this.expression,
+                type: response.type,
+                value: response.result,
+                variablesReference: response.variablesReference,
+                memoryReference: response.memoryReference,
+            } as DebugVariable;
+            this.variable = await Variable.create(debugVar, frameId, exec);
+        }
+
+        return this.variable;
+    }
+}
+
+export class PgWatchViewProvider extends BasePgViewProvider<WatchEntry | Variable> {
+    /* Entries of this view */
+    entries: WatchEntry[] = [];
+
+    /* Cached frame id from last getTopLevelChildren invocation */
+    frameId?: number;
+
+    override async getTreeItem(element: WatchEntry | Variable) {
+        if (element instanceof Variable) {
+            return await element.getTreeItem();
+        }
+
+        const item = {
+            collapsibleState: vscode.TreeItemCollapsibleState.None,
+            label: element.expression,
+        } as vscode.TreeItem;
+
+        if (!(this.context.exec && this.frameId !== undefined)) {
+            /* not in debug session */
+            return item;
+        }
+
+        try {
+            const v = await element.getVariable(this.context.exec, this.frameId);
+            const vitem = await v.getTreeItem();
+
+            /* watch entry must behave like the variable it represents */
+            item.description = vitem.description;
+            item.collapsibleState = vitem.collapsibleState;
+        } catch (e) {
+            logger.error(e, 'could not get variable for expression %s', element.expression);
+        }
+
+        return item;
+    }
+
+    override async getTopLevelChildren(frameId: number, __: ExecContext) {
+        /* save frame id for future use */
+        this.frameId = frameId;
+        return this.entries;
+    }
+
+    override async getChildrenOf(element: WatchEntry | Variable, exec: ExecContext) {
+        if (element instanceof Variable) {
+            return await element.getChildren();
+        }
+
+        if (!this.frameId) {
+            return;
+        }
+
+        const v = await element.getVariable(exec, this.frameId);
+        return v.getChildren();
+    }
+
+    override getParent(element: WatchEntry | Variable) {
+        if (element instanceof WatchEntry) {
+            /* WatchEntry is top level */
+            return undefined;
+        }
+
+        if (element.parent) {
+            return element.parent;
+        }
+
+        /* 
+         * For direct children of WatchEntry we have to iterate over all entries
+         * and compare pointers, because we do not store Variable.parent for
+         * WatchEntry
+         */
+        for (const entry of this.entries) {
+            if (entry.variable == element) {
+                return entry;
+                
+            }
+        }
+
+        /* found nothing */
+        return undefined;
+    }
+
+    override clean() {
+        this.entries.forEach(entry => entry.variable = undefined);
+    }
+
+    override getNonDebugChildren() {
+        return this.entries;
+    }
+
+    async addExpression(expression: string) {
+        this.entries.push(new WatchEntry(expression));
+    }
+
+    async removeEntry(entry: WatchEntry) {
+        const idx = this.entries.findIndex((v) => v == entry);
+        if (idx >= 0) {
+            this.entries.splice(idx, 1);
+        }
+    }
+}
+
+export async function addVariableToPgWatch(watchView: PgWatchViewProvider, ...args: unknown[]) {
+    let expr: string | null | undefined;
+
+    const arg = args[0];
+    if (!arg) {
+        return;
+    }
+
+    if (arg instanceof Variable) {
+        /* Variable came from PG VARIABLES */
+        expr = await arg.getUserWatchExpression();
+    } else if (arg && typeof arg == 'object' && 'variable' in arg && arg.variable &&
+                      typeof arg.variable === 'object' && 'evaluateName' in arg.variable &&
+                      typeof arg.variable.evaluateName === 'string') {
+        /* Variable from VARIABLES */
+        expr = arg.variable.evaluateName;
+
+        /* 
+         * CodeLLDB in native expression mode returns '/nat' prefixed expressions.
+         * Debugger handler will automatically add this prefix, but we should
+         * show expressions to user without it to be more convenient.
+         */
+        if (watchView.context.debug?.type == dbg.DebuggerType.CodeLLDB) {
+            if (expr.startsWith('/nat')) {
+                expr = expr.substring(5);
+            }
+        }
+    }
+
+    if (expr) {
+        watchView.addExpression(expr);
+
+        /* force update view to show results */
+        watchView.refresh();
+    }
+}
+
+export async function removePgWatchEntry(watchView: PgWatchViewProvider, ...args: unknown[]) {
+    const arg = args[0];
+    if (!(arg instanceof WatchEntry)) {
+        /* this is not entry */
+        return;
+    }
+
+    watchView.removeEntry(arg);
+    watchView.refreshNoClean();
+}
+
+export async function editPgWatchEntry(watchView: PgWatchViewProvider, ...args: unknown[]) {
+    const arg = args[0];
+    if (!(arg instanceof WatchEntry)) {
+        /* this is not entry */
+        return;
+    }
+
+    let newExpr = await vscode.window.showInputBox({
+        value: arg.expression,
+        title: 'Edit watch expression',
+    });
+
+    if (!newExpr) {
+        return;
+    }
+
+    newExpr = newExpr.trim();
+    if (newExpr.length === 0) {
+        return;
+    }
+
+    arg.expression = newExpr;
+    arg.variable = undefined;
+
+    watchView.refreshNoClean();
+}
+
+export async function addPgWatchEntry(watchView: PgWatchViewProvider) {
+    let newExpr = await vscode.window.showInputBox({
+        title: 'Enter expression',
+    });
+
+    if (!newExpr) {
+        return;
+    }
+
+    newExpr = newExpr.trim();
+    if (newExpr.length === 0) {
+        return;
+    }
+
+    watchView.addExpression(newExpr);
+    watchView.refreshNoClean();
+}
+
+export async function removeAllPgWatchEntries(watchView: PgWatchViewProvider) {
+    watchView.entries = [];
+    watchView.refresh();
+}

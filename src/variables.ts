@@ -1190,7 +1190,7 @@ export abstract class Variable {
     protected async getDescription() {
         return this.value;
     }
-    
+
     protected getLabel() {
         return !this.declaredType?.length
             ? this.name
@@ -2094,14 +2094,10 @@ export class RealVariable extends Variable {
     }
 
     async formatWatchExpression(): Promise<string | null> {
-        if (!this.parent) {
-            /* should not happen */
-            return null;
-        }
-
         const cast = this.type === this.declaredType
             ? ''
             : `(${this.type})`;
+
         if (this.parent instanceof VariablesRoot) {
             /* Top level variable needs to be just printed */
             if (this.getTypeProperties().isValueStruct()) {
@@ -2152,7 +2148,7 @@ export class RealVariable extends Variable {
                 const parentExpr = `((${this.parent.type})${this.parent.getPointer()})`;
                 return `${cast}${parentExpr}->${this.name}`;
             }
-        } else {
+        } else if (this.parent) {
             /* Child of pseudo-member */
             if (this.getTypeProperties().isValueStruct()) {
                 const parent = `((${this.parent.type})${this.parent.getPointer()})`;

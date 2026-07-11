@@ -874,10 +874,16 @@ export function setupConfiguration(context: vscode.ExtensionContext) {
 export class Commands {
     static DumpNodeToLog = `${ExtensionId}.dumpNodeToLog`;
     static DumpNodeToDoc = `${ExtensionId}.dumpNodeToDoc`;
+    static DebugVariableToPgWatch = `${ExtensionId}.addVariableToPgWatch`;
     static OpenConfigFile = `${ExtensionId}.openConfigurationFile`;
     static RefreshConfigFile = `${ExtensionId}.refreshConfigFile`;
     static FormatterDiffView = `${ExtensionId}.formatterShowDiff`;
     static RefreshVariables = `${ExtensionId}.refreshPostgresVariablesView`;
+    static RefreshWatch = `${ExtensionId}.refreshPostgresWatchView`;
+    static RemovePgWatchEntry = `${ExtensionId}.removePgWatchEntry`;
+    static EditPgWatchEntry = `${ExtensionId}.editPgWatchEntry`;
+    static AddPgWatchEntry = `${ExtensionId}.addPgWatchEntry`;
+    static RemoveAllPgWatchEntries = `${ExtensionId}.removeAllPgWatchEntries`;
     static BootstrapExtension = `${ExtensionId}.bootstrapExtension`;
     static AddToWatchView = `${ExtensionId}.addVariableToWatch`;
     static GetVariables = `${ExtensionId}.getVariables`;

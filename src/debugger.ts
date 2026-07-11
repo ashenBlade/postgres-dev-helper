@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as dap from "./dap";
 import { Features } from './configuration';
-import { PgVariablesViewProvider } from './varview';
 import { PghhError } from './error';
 
 /**
@@ -1226,9 +1225,13 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
          * https://github.com/vadimcn/codelldb/blob/master/MANUAL.md#expressions
          * 
          * Default is 'simple' (changed in settings), but we use only native,
-         * so add '/nat' for each expression for sure.
+         * so add '/nat'. But if user set "expression": "native" in settings,
+         * then all extension's expressions will be prefixed with '/nat', so
+         * add this prefix only if omitted.
          */
-        expression = `/nat ${expression}`;
+        if (!expression.startsWith('/nat')) {
+            expression = `/nat ${expression}`;
+        }
 
         try {
             try {
@@ -1237,7 +1240,7 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
                 if (!(err instanceof Error)) {
                     throw err;
                 }
-    
+
                 /* 
                  * CodeLLDB do not like 'static inline' functions and some other
                  * symbols which are defined multiple times. But even though it
@@ -1532,54 +1535,5 @@ export class CodeLLDBDebuggerFacade extends GenericDebuggerFacade {
     formatEnumValue(name: string, value: string) {
         /* CodeLLDB requires to qualify enum values just like in C++ */
         return `${name}::${value}`;
-    }
-}
-
-export function setupDebugger(context: vscode.ExtensionContext, 
-                              variablesView: PgVariablesViewProvider) {
-    if (!Features.debugFocusEnabled()) {
-        /* 
-         * Prior to VS Code version 1.90 there is no debugFocus API - 
-         * we can not track current stack frame. It is very convenient,
-         * because single event refreshes state and also we keep track
-         * of stack frame selected in debugger view.
-         * 
-         * For older versions we use event based implementation -
-         * subscribe to debugger events and filter out needed:
-         * continue execution, stopped (breakpoint), terminated etc...
-         * 
-         * NOTE: We can not track current stack frame, so this feature is
-         *       not available for users.
-         */
-
-        const disposable = vscode.debug.registerDebugAdapterTrackerFactory('*', {
-            createDebugAdapterTracker(_: vscode.DebugSession) {
-                return {
-                    onDidSendMessage(message: dap.ProtocolMessage) {
-                        if (message.type === 'response') {
-                            if (message.command === 'continue') {
-                                /* `Continue' command - clear */
-                                variablesView.refresh();
-                            }
-    
-                            return;
-                        }
-    
-                        if (message.type === 'event') {
-                            if (message.event === 'stopped' || message.event === 'terminated') {
-                                /* Hit breakpoint - show variables */
-                                variablesView.refresh();
-                            }
-                        }
-                    },
-    
-                    onWillStopSession() {
-                        /* Debug session terminates - clear */
-                        variablesView.refresh();
-                    },
-                };
-            },
-        });
-        context.subscriptions.push(disposable);
     }
 }

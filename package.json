@@ -56,6 +56,40 @@
                 "category": "PGHH"
             },
             {
+                "command": "postgresql-hacker-helper.addVariableToPgWatch",
+                "title": "Add variable to PG Watch",
+                "shortTitle": "Add to PG Watch",
+                "category": "PGHH"
+            },
+            {
+                "command": "postgresql-hacker-helper.removePgWatchEntry",
+                "title": "Remove expression from PG Watch",
+                "shortTitle": "Remove PG Watch expression",
+                "category": "PGHH",
+                "icon": "$(remove)"
+            },
+            {
+                "command": "postgresql-hacker-helper.editPgWatchEntry",
+                "title": "Edit expression in PG Watch",
+                "shortTitle": "Edit PG Watch expression",
+                "category": "PGHH",
+                "icon": "$(edit)"
+            },
+            {
+                "command": "postgresql-hacker-helper.addPgWatchEntry",
+                "title": "Add expression to PG Watch",
+                "shortTitle": "Add PG Watch expression",
+                "category": "PGHH",
+                "icon": "$(add)"
+            },
+            {
+                "command": "postgresql-hacker-helper.removeAllPgWatchEntries",
+                "title": "Remove all PG Watch expressions",
+                "shortTitle": "Remove all PG Watch expressions",
+                "category": "PGHH",
+                "icon": "$(close-all)"
+            },
+            {
                 "command": "postgresql-hacker-helper.openConfigurationFile",
                 "title": "Open or create configuration file (JSON)",
                 "shortTitle": "Open configuration file",
@@ -63,8 +97,15 @@
             },
             {
                 "command": "postgresql-hacker-helper.refreshPostgresVariablesView",
-                "title": "Refresh Postgres variables view",
-                "shortTitle": "Refresh variables view",
+                "title": "Refresh PG Variables view",
+                "shortTitle": "Refresh PG Variables view",
+                "category": "PGHH",
+                "icon": "$(refresh)"
+            },
+            {
+                "command": "postgresql-hacker-helper.refreshPostgresWatchView",
+                "title": "Refresh PG Watch view",
+                "shortTitle": "Refresh PG Watch view",
                 "category": "PGHH",
                 "icon": "$(refresh)"
             },
@@ -120,13 +161,38 @@
                 {
                     "command": "postgresql-hacker-helper.dumpNodeToDoc",
                     "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated"
+                },
+                {
+                    "command": "postgresql-hacker-helper.addVariableToPgWatch",
+                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated"
                 }
             ],
             "view/title": [
                 {
                     "command": "postgresql-hacker-helper.refreshPostgresVariablesView",
                     "group": "navigation",
-                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated"
+                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated && view == postgresql-hacker-helper.node-tree-view"
+                },
+                {
+                    "command": "postgresql-hacker-helper.refreshPostgresWatchView",
+                    "group": "navigation",
+                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated && view == postgresql-hacker-helper.pg-watch-view"
+                },
+                {
+                    "command": "postgresql-hacker-helper.addPgWatchEntry",
+                    "when": "postgresql-hacker-helper:activated && view == postgresql-hacker-helper.pg-watch-view",
+                    "group": "navigation"
+                },
+                {
+                    "command": "postgresql-hacker-helper.removeAllPgWatchEntries",
+                    "when": "postgresql-hacker-helper:activated && view == postgresql-hacker-helper.pg-watch-view",
+                    "group": "navigation"
+                }
+            ],
+            "view/item": [
+                {
+                    "command": "postgresql-hacker-helper.editPgWatchEntry",
+                    "when": "postgresql-hacker-helper:activated && view == postgresql-hacker-helper.pg-watch-view"
                 }
             ],
             "view/item/context": [
@@ -136,7 +202,19 @@
                 },
                 {
                     "command": "postgresql-hacker-helper.dumpNodeToDoc",
-                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated"
+                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated && view == postgresql-hacker-helper.node-tree-view"
+                },
+                {
+                    "command": "postgresql-hacker-helper.addVariableToPgWatch",
+                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated && view == postgresql-hacker-helper.node-tree-view"
+                },
+                {
+                    "command": "postgresql-hacker-helper.removePgWatchEntry",
+                    "when": "postgresql-hacker-helper:activated && view == postgresql-hacker-helper.pg-watch-view"
+                },
+                {
+                    "command": "postgresql-hacker-helper.editPgWatchEntry",
+                    "when": "postgresql-hacker-helper:activated && view == postgresql-hacker-helper.pg-watch-view"
                 }
             ],
             "commandPalette": [
@@ -164,6 +242,11 @@
                     "command": "postgresql-hacker-helper.refreshPostgresVariablesView",
                     "group": "navigation",
                     "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated"
+                },
+                {
+                    "command": "postgresql-hacker-helper.refreshPostgresWatchView",
+                    "group": "navigation",
+                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated"
                 }
             ]
         },
@@ -175,6 +258,14 @@
                     "type": "tree",
                     "visibility": "visible",
                     "when": "inDebugMode && postgresql-hacker-helper:activated",
+                    "icon": "./img/logo.png"
+                },
+                {
+                    "id": "postgresql-hacker-helper.pg-watch-view",
+                    "name": "pg watch",
+                    "type": "tree",
+                    "visibility": "visible",
+                    "when": "postgresql-hacker-helper:activated",
                     "icon": "./img/logo.png"
                 }
             ]

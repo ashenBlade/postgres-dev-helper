@@ -123,6 +123,11 @@ export interface DebugVariable {
      * capability `supportsMemoryReferences` is true.
      */
     memoryReference?: string;
+
+    /**
+     * Expression string that can be used to evaluate this variable in debugger.
+     */
+    evaluateName?: string;
 }
 
 export interface VariablesResponse {

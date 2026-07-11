@@ -63,6 +63,18 @@ function getDebugConfiguration(env: TestEnv, pid: number) {
             type: 'cppdbg',
             processId: pid,
             program: '${workspaceFolder}/src/backend/postgres',
+            setupCommands: [
+                {
+                    "description": "Disable debuginfod",
+                    "text": "-gdb-set debuginfod enabled off",
+                    "ignoreFailures": true,
+                },
+                {
+                    "description": "Disable debuginfod",
+                    "text": "-gdb-set debuginfod urls",
+                    "ignoreFailures": true,
+                },
+            ],
         };
     } else {
         config = {

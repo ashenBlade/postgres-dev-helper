@@ -19,7 +19,8 @@ import { PgindentDocumentFormatterProvider,
 import * as formatter from './formatter';
 import { Log as logger } from './logger';
 import { WorkspaceNotOpenedError } from './error';
-import { addVariableToWatchCommand, DebuggingContext, dumpNodeVariableToDocumentCommand, dumpNodeVariableToLogCommand, PgVariablesViewProvider } from './varview';
+import { addPgWatchEntry, addVariableToPgWatch, addVariableToWatchCommand, DebuggingContext, dumpNodeVariableToDocumentCommand, dumpNodeVariableToLogCommand, editPgWatchEntry, PgVariablesViewProvider, PgWatchViewProvider, removeAllPgWatchEntries, removePgWatchEntry } from './view';
+import * as dap from './dap';
 
 function createDebuggerFacade(type: string): dbg.GenericDebuggerFacade | undefined {
     let debug;
@@ -200,6 +201,7 @@ async function bootstrapExtensionCommand() {
     ]);
 
     if (flags.c) {
+        /* TODO: remove #ifdef */
         await bootstrapFile(`${name}.c`, [
             '#include "postgres.h"',
             '#include "fmgr.h"',
@@ -343,17 +345,22 @@ async function bootstrapExtensionCommand() {
     await vscode.window.showTextDocument(td);
 }
 
-export function createPgVariablesView(context: vscode.ExtensionContext,
-                                      config: Configuration) {
+export function createPgViews(context: vscode.ExtensionContext, config: Configuration): [PgVariablesViewProvider, PgWatchViewProvider] {
     const debugContext = new DebuggingContext();
-    const varsViews = new PgVariablesViewProvider(config, debugContext);
-    const treeDisposable = vscode.window.registerTreeDataProvider(
+    const varsView = new PgVariablesViewProvider(config, debugContext);
+    const watchView = new PgWatchViewProvider(config, debugContext);
+
+    const d1 = vscode.window.registerTreeDataProvider(
         /* TODO: pg-variables-view */
-        `${ExtensionId}.node-tree-view`, varsViews);
+        `${ExtensionId}.node-tree-view`, varsView);
+    const d2 = vscode.window.registerTreeDataProvider(
+        `${ExtensionId}.pg-watch-view`, watchView);
     context.subscriptions.push(
-        treeDisposable,
-        varsViews,
-        
+        d1,
+        d2,
+        varsView,
+        watchView,
+
         vscode.debug.onDidStartDebugSession(s => {
             if (debugContext.debug !== undefined) {
                 return;
@@ -364,14 +371,15 @@ export function createPgVariablesView(context: vscode.ExtensionContext,
                 return;
             }
 
-            
             if (Features.debugFocusEnabled()) {
                 vscode.debug.onDidChangeActiveStackItem(() => {
                     /* reset per-step context */
                     debugContext.exec?.step.reset();
 
                     /* refresh views */
-                    varsViews.refresh();
+                    watchView.clean();
+                    varsView.refresh();
+                    watchView.refresh();
                 }, undefined, debug.registrations);
             } else {
                 debug.switchToEventBasedRefresh();
@@ -387,11 +395,60 @@ export function createPgVariablesView(context: vscode.ExtensionContext,
             debugContext.exec = undefined;
 
             /* clean views */
-            varsViews.refresh();
+            varsView.refresh();
+            watchView.refresh();
         }),
     );
 
-    return varsViews;
+    if (!Features.debugFocusEnabled()) {
+        /* 
+         * Prior to VS Code version 1.90 there is no debugFocus API - 
+         * we can not track current stack frame. It is very convenient,
+         * because single event refreshes state and also we keep track
+         * of stack frame selected in debugger view.
+         * 
+         * For older versions we use event based implementation -
+         * subscribe to debugger events and filter out needed:
+         * continue execution, stopped (breakpoint), terminated etc...
+         * 
+         * NOTE: We can not track current stack frame, so this feature is
+         *       not available for users.
+         */
+        const disposable = vscode.debug.registerDebugAdapterTrackerFactory('*', {
+            createDebugAdapterTracker(_: vscode.DebugSession) {
+                return {
+                    onDidSendMessage(message: dap.ProtocolMessage) {
+                        if (message.type === 'response') {
+                            if (message.command === 'continue') {
+                                /* `Continue' command - clear */
+                                varsView.refresh();
+                                watchView.refresh();
+                            }
+
+                            return;
+                        }
+    
+                        if (message.type === 'event') {
+                            if (message.event === 'stopped' || message.event === 'terminated') {
+                                /* Hit breakpoint - show variables */
+                                varsView.refresh();
+                                watchView.refresh();
+                            }
+                        }
+                    },
+    
+                    onWillStopSession() {
+                        /* Debug session terminates - clear */
+                        varsView.refresh();
+                        watchView.refresh();
+                    },
+                };
+            },
+        });
+        context.subscriptions.push(disposable);
+    }
+
+    return [varsView, watchView];
 }
 
 export function setupExtension(context: vscode.ExtensionContext) {    
@@ -399,7 +456,7 @@ export function setupExtension(context: vscode.ExtensionContext) {
     const config = setupConfiguration(context);
 
     /* Variables view */
-    const pgvars = setupPgVariablesView(context, config);
+    const views = setupPgVariablesView(context, config);
 
     /* Formatter */
     const formatter = setupFormatting(context, config);
@@ -408,15 +465,12 @@ export function setupExtension(context: vscode.ExtensionContext) {
     setupPgConfSupport(context);
 
     /* Miscellaneous (remaining) commands */
-    registerCommands(context, pgvars, formatter, config);
+    registerCommands(context, views, formatter, config);
 }
 
 function setupPgVariablesView(context: vscode.ExtensionContext,
-                              config: Configuration) {
-    const pgvars = createPgVariablesView(context, config);
-    
-    /* Setup debugger specific function */
-    dbg.setupDebugger(context, pgvars);
+                              config: Configuration): [PgVariablesViewProvider, PgWatchViewProvider] {
+    const [pgvars, watch] = createPgViews(context, config);
 
     /*
      * On start try to detect new NodeTags and if they exists, add to NodeVars
@@ -440,7 +494,7 @@ function setupPgVariablesView(context: vscode.ExtensionContext,
         });
     }
 
-    return pgvars;
+    return [pgvars, watch] as [PgVariablesViewProvider, PgWatchViewProvider];
 }
 
 async function findAllFilesWithNodeTags(folders: readonly vscode.WorkspaceFolder[],
@@ -559,7 +613,7 @@ async function searchNodeTagsWorker(config: Configuration,
 }
 
 function registerCommands(context: vscode.ExtensionContext,
-                          pgvars: PgVariablesViewProvider,
+                          views: [PgVariablesViewProvider, PgWatchViewProvider],
                           fmt: PgindentDocumentFormatterProvider,
                           config: Configuration) {
     const registerCommand = <T>(name: string, command: (...args: unknown[]) => T | Thenable<T>) => {
@@ -591,19 +645,33 @@ function registerCommands(context: vscode.ExtensionContext,
                     formatter.findCustomTypedefsListCommand);
 
     /* Variables */
+    const [varsView, watchView] = views;
     registerCommand(Commands.DumpNodeToLog, 
-                    async (...args: unknown[]) => await dumpNodeVariableToLogCommand(pgvars, ...args));
+                    async (...args: unknown[]) => await dumpNodeVariableToLogCommand(varsView, ...args));
     registerCommand(Commands.DumpNodeToDoc, 
-                    async (...args: unknown[]) => await dumpNodeVariableToDocumentCommand(pgvars, ...args));
-    registerCommand(Commands.RefreshVariables,
-                    () => pgvars.refresh());
+                    async (...args: unknown[]) => await dumpNodeVariableToDocumentCommand(varsView, ...args));
+    registerCommand(Commands.RefreshVariables, () => varsView.refresh());
     registerCommand(Commands.AddToWatchView, addVariableToWatchCommand);
+
+    /* Watch */
+    registerCommand(Commands.DebugVariableToPgWatch,
+                    async (...args: unknown[]) => await addVariableToPgWatch(watchView, ...args));
+    registerCommand(Commands.RefreshWatch,
+                    () => watchView.refresh());
+    registerCommand(Commands.RemovePgWatchEntry,
+                    async (...args: unknown[]) => await removePgWatchEntry(watchView, ...args));
+    registerCommand(Commands.EditPgWatchEntry,
+                    async (...args: unknown[]) => await editPgWatchEntry(watchView, ...args));
+    registerCommand(Commands.AddPgWatchEntry,
+                    async () => await addPgWatchEntry(watchView));
+    registerCommand(Commands.RemoveAllPgWatchEntries,
+                    async () => await removeAllPgWatchEntries(watchView));
 
     /* Miscellaneous */
     registerCommand(Commands.BootstrapExtension, bootstrapExtensionCommand);
     
     if (context.extensionMode === vscode.ExtensionMode.Test) {
-        registerCommand(Commands.GetVariables, async () => await pgvars.getChildren());
-        registerCommand(Commands.GetTreeViewProvider, async () => pgvars);
+        registerCommand(Commands.GetVariables, async () => await varsView.getChildren());
+        registerCommand(Commands.GetTreeViewProvider, async () => varsView);
     }
 }
