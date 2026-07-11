@@ -4110,6 +4110,19 @@ class ListElementsMember extends Variable {
         return !this.listParent.isEmpty();
     }
 
+    override async getTreeItem() {
+        const item = await super.getTreeItem();
+        if (!this.listParent.isEmpty()) {
+            /*
+             * If you expand List, then you want to see it's elements, not
+             * fields like 'length' or 'capacity'.
+             */
+            item.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+        }
+
+        return item;
+    }
+
     async getPointerElements() {
         const length = await this.listParent.getListLength();
         if (!length) {
@@ -4200,6 +4213,19 @@ class LinkedListElementsMember extends Variable {
         this.listParent = listParent;
         this.cellValue = cellValue;
         this.realType = realType;
+    }
+
+    override async getTreeItem() {
+        const item = await super.getTreeItem();
+        if (!this.listParent.isEmpty()) {
+            /*
+             * If you expand List, then you want to see it's elements, not
+             * fields like 'length' or 'capacity'.
+             */
+            item.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+        }
+
+        return item;
     }
 
     async getLinkedListElements() {
