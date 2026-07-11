@@ -5,6 +5,16 @@ All notable changes to the "PostgreSQL Hacker Helper" extension will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.0]
+
+### Added
+
+PG Watch view which allows to write custom expressions and evaluate with the same rules and variables in PG Variables - Node variable handling and other staff.
+
+### Changed
+
+When opening List automatically open it's `$elements$` without extra clicking.
+
 ## [1.17.1]
 
 ### Changed

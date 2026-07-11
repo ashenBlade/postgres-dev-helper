@@ -20,8 +20,9 @@ Extension provides assistance with postgres variables:
 - Render `Expr` nodes by the original expression
 - Display integer enums as enum values, not integers
 - Show attribute values for `TupleTableSlot`
+- Add custom expressions to PG Watch
 
-Extension creates separate view in debug section - `PG Variables`. It contains postgres variables - extended with knowledge of source code.
+Extension creates separate view in debug section - `PG Variables`. It contains postgres variables - extended with knowledge of source code. You also can write your own expressions in `PG Watch` which will be evaluated with postgres rules applied - `Node *` variable casting, container types expansion and so on.
 
 ![Overview of extension](./img/overview.gif)
 
