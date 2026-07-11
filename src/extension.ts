@@ -672,6 +672,8 @@ function registerCommands(context: vscode.ExtensionContext,
     
     if (context.extensionMode === vscode.ExtensionMode.Test) {
         registerCommand(Commands.GetVariables, async () => await varsView.getChildren());
+        /* TODO: delete GetTreeViewProvider - unused */
         registerCommand(Commands.GetTreeViewProvider, async () => varsView);
+        registerCommand(Commands.GetPgWatchViewProvider, async () => watchView);
     }
 }

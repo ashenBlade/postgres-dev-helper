@@ -7,6 +7,7 @@ import * as pg from 'pg';
 
 import { Commands } from '../../configuration';
 import * as vars from '../../variables';
+import * as view from '../../view';
 import { unnullify } from '../../error';
 
 import {getTestEnv, TestEnv} from './env';
@@ -64,6 +65,12 @@ function getDebugConfiguration(env: TestEnv, pid: number) {
             processId: pid,
             program: '${workspaceFolder}/src/backend/postgres',
             setupCommands: [
+                /* 
+                 * gdb can attempt to download debug symbols, but I test/develop
+                 * on ubuntu and debuginfod.ubuntu.com can be down sometimes.
+                 * In such case debugger just stuck and do nothing just waiting
+                 * to connect to down server.
+                 */
                 {
                     "description": "Disable debuginfod",
                     "text": "-gdb-set debuginfod enabled off",
@@ -83,6 +90,7 @@ function getDebugConfiguration(env: TestEnv, pid: number) {
             type: 'lldb',
             pid: pid,
             program: '${workspaceFolder}/src/backend/postgres',
+            expressions: 'native',
         };
     }
 
@@ -137,6 +145,16 @@ const execGetVariables = async () => {
         Commands.GetVariables);
 };
 
+const execGetWatchView = async () => {
+    const result = await vscode.commands.executeCommand<view.PgWatchViewProvider | undefined>(
+        Commands.GetPgWatchViewProvider);
+    if (!(result && result instanceof view.PgWatchViewProvider)) {
+        throw new Error('failed to get PG Watch View Provider');
+    }
+
+    return result;
+};
+
 suite('Variables', async function () {
     /*
      * Store predicate and query together, so we can fast reflect any
@@ -157,12 +175,19 @@ suite('Variables', async function () {
     const query = `SELECT *
                    FROM t1 JOIN t2 ON t1.x = t2.x
                    WHERE t1.y > power(10, random()) AND t2.x = t1.y;`;
+    const watchExpressions = [
+        'i',
+        'i + 1',
+        'pointer_struct',
+        '(Node *) int_list',
+    ];
 
     let variables: vars.Variable[] | undefined;
+    let watchEntries: view.WatchEntry[] | undefined;
     let env: TestEnv;
     let client: pg.Client;
     let workspace: vscode.WorkspaceFolder;
-
+    let watchView: view.PgWatchViewProvider;
 
     suiteSetup('Stop at breakpoint and get variables', async () => {
         env = getTestEnv();
@@ -191,11 +216,15 @@ suite('Variables', async function () {
             throw new Error('Failed to obtain PID from backend');
         }
 
-        /* Run debug session */
+        /* Prepare for run */
         vscode.debug.addBreakpoints([
             new vscode.SourceBreakpoint(await searchBreakpointLocation(), true),
         ]);
 
+        watchView = await execGetWatchView();
+        watchExpressions.forEach(e => watchView?.addExpression(e));
+
+        /* Run debug session */
         if (!await vscode.debug.startDebugging(workspace, getDebugConfiguration(env, pid))) {
             throw new Error('Failed to start debug session');
         }
@@ -214,8 +243,26 @@ suite('Variables', async function () {
         while (attempt < maxAttempt) {
             await sleep(timeout);
             try {
-                variables = await execGetVariables();
-                if (variables && 0 < variables.length) {
+                if (!variables) {
+                    variables = await execGetVariables();
+                }
+
+                if (!watchEntries) {
+                    const items = await watchView.getChildren();
+                    if (items && 0 < items.length) {
+                        watchEntries = [];
+                        for (const item of items) {
+                            if (item instanceof view.WatchEntry) {
+                                watchEntries.push(item);
+                            } else {
+                                throw new Error(`Return child of PG Watch is not WatchEntry - ${item.constructor.name}`);
+                            }
+                        }
+                    }
+                }
+
+                if (variables && 0 < variables.length &&
+                    watchEntries && 0 < watchEntries.length) {
                     break;
                 }
             } catch {
@@ -227,6 +274,10 @@ suite('Variables', async function () {
 
         if (!variables?.length) {
             throw new Error('failed to obtain postgres variables');
+        }
+
+        if (!watchEntries?.length) {
+            throw new Error('failed to obtain watch entries');
         }
     });
 
@@ -296,6 +347,11 @@ suite('Variables', async function () {
                      `${who} must be expandable`);
     };
 
+    const assertNotExpandable = (x: TreeItemWrapper, who: string) => {
+        assert.equal(x.collapsibleState, CollapsibleState.None,
+                     `${who} must not be expandable`);
+    };
+
     /* #define ARRAY_SIZE 16  */
     const defaultArraySize = 16;
 
@@ -310,11 +366,6 @@ suite('Variables', async function () {
 
     /* Tests for handling types of variables */
     suite('Variable handling', async () => {
-        const assertNotExpandable = (x: TreeItemWrapper, who: string) => {
-            assert.equal(x.collapsibleState, CollapsibleState.None,
-                         `${who} must not be expandable`);
-        };
-
         /* Scalar variable is not expandable */
         test('Scalar', async () => {
             const {item} = await getVarItem('i');
@@ -706,6 +757,70 @@ suite('Variables', async function () {
                     {key: '20', value: '8'},
                 ]),
                 'Shown elements of simplehash are not ones that stored');
+        });
+    });
+
+    suite('Watch', async () => {
+        /* These tests must mirror 'watchExpressions' array */
+        const getEntry = async (i: number): Promise<[vars.Variable, TreeItemWrapper]> => {
+            assert.ok(watchEntries, 'Watch entries are not ready yet');
+            const e = watchEntries[i];
+            
+            /*
+             * Invoke getTreeItem to evaluate expression and create Variable
+             * (must be saved/cached in 'variable').
+             */
+            const item = await watchView.getTreeItem(e);
+            const v = e.variable;
+            assert.ok(v, `Could not obtain Variable object from WatchEntry`);
+            return [v, new TreeItemWrapper(item)];
+        };
+
+        /* i */
+        test('Scalar', async () => {
+            const arr = await getEntry(0);
+            const item = arr[1];
+            assert.match(item.description, intRegexp(1),
+                         'Scalar variable "i" must be equal to 1');
+            assertNotExpandable(item, 'scalar variable');
+        });
+
+        /* i + 1 */
+        test('Scalar expression', async () => {
+            const arr = await getEntry(1);
+            const item = arr[1];
+            assert.match(item.description, intRegexp(2), 'i + 1 must be equal to 2');
+            assertNotExpandable(item, 'scalar variable expression');
+        });
+
+        /* pointer_struct */
+        test('Pointer', async () => {
+            const arr = await getEntry(2);
+            const item = arr[1];
+            assertExpandable(item, 'Pointer');
+
+            const v = arr[0];
+            const valueVar = await getMemberOf(v, 'value');
+            assert.match(valueVar.item.description, intRegexp(1),
+                         'Displayed value of "value" member is not valid');
+            assertNotExpandable(valueVar.item, 'Scalar members');
+        });
+
+        /* (Node *) int_list */
+        test('Node *', async () => {
+            const arr = await getEntry(3);
+            const item = arr[1];
+            assertExpandable(item, 'Node variable');
+
+            const v = arr[0];
+            const elementsMember = await getMemberOf(v, '$elements$');
+            const listElements = await expand(elementsMember);
+            assert.equal(listElements.length, 4,
+                         '$elements$ does not contains all list members');
+
+            const elementsValues = listElements.map(x => x.item.description);
+            assert.deepEqual(elementsValues, ['1', '2', '4', '8'],
+                             'values of IntList are not valid');
         });
     });
 });

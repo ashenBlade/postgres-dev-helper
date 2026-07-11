@@ -107,3 +107,11 @@ Commit `8d8423a4ac36d1fa1ece8b6833e82564e9c4c99a` did exactly that, but after st
 This error comes from VS Code internals and is not my error, but because of it tests does not pass.
 
 Why this error happened I still don't know, but such split does not cause much inconvenience.
+
+### Spurious fails
+
+Sometimes tests can fail for no reason - if you rerun same tests they will pass.
+
+In most cases this happens with pseudo-members especially `$expr$` and `$elements$`, i.e. simple hash or expr.
+
+Also note that some variables are pointers to another structures which are also tested, so if primary test fails then secondary will too. Often this is noticed for Alias, because sometimes Expr test fails.

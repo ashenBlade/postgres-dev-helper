@@ -670,7 +670,7 @@ export async function addVariableToWatchCommand(...args: unknown[]) {
     });
 }
 
-class WatchEntry {
+export class WatchEntry {
     /* 
      * User-defined expression for entry
      */

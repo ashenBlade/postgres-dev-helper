@@ -888,6 +888,7 @@ export class Commands {
     static AddToWatchView = `${ExtensionId}.addVariableToWatch`;
     static GetVariables = `${ExtensionId}.getVariables`;
     static GetTreeViewProvider = `${ExtensionId}.getTreeViewProvider`;
+    static GetPgWatchViewProvider = `${ExtensionId}.getPgWatchView`;
     static FindCustomTypedefsLists = `${ExtensionId}.formatterFindTypedefsList`;
 }
 
