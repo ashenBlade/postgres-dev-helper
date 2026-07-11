@@ -6,6 +6,7 @@ import { ExecContext, HashTableTypes, NodeVariable, NodeVarRegistry, SpecialMemb
 import {Configuration, getWorkspaceFolder, getWorkspacePgSrcFile} from './configuration';
 import { unnullify } from "./error";
 import { DebugVariable } from "./dap";
+import { isSpace } from "./utils";
 
 interface ExecContextData {
     hashTables: HashTableTypes;
@@ -39,27 +40,12 @@ export class DebuggingContext {
     cachedTypes?: [ExecContextData, number];
 };
 
-/* TODO: remove unnecessary enum - can use boolean */
-/**
- * Which executable we are debugging
- */
-enum ExecutableType {
-    /* Main 'postgres' executable */
-    Server,
-    /* Frontend utils: pg_ctl, pg_waldump, initdb, etc... */
-    Frontend,
-};
-
 function pgVersionIsValid(version: number) {
     /*
      * PG_VERSION_NUM is a 6 digit number in form: MAJOR_MINOR_PATCH,
      * so perform not only Integer check, but also a value range.
      */
     return Number.isInteger(version) && 1_00_00 < version && version < 99_99_99;
-}
-
-function isSpace(char: string) {
-    return char === ' ' || char === '\t' || char === '\n';
 }
 
 /* 
@@ -203,8 +189,7 @@ export abstract class BasePgViewProvider<T> implements vscode.TreeDataProvider<T
             }
         }
 
-        const exeType = isServer ? ExecutableType.Server : ExecutableType.Frontend;
-        const context = new ExecContext(debug, data, pgversion, exeType);
+        const context = new ExecContext(debug, data, pgversion, isServer);
         if (pgversion) {
             context.adjustProperties(pgversion);
         }

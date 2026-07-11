@@ -201,15 +201,12 @@ async function bootstrapExtensionCommand() {
     ]);
 
     if (flags.c) {
-        /* TODO: remove #ifdef */
         await bootstrapFile(`${name}.c`, [
             '#include "postgres.h"',
             '#include "fmgr.h"',
             '#include "utils/builtins.h"',
             '',
-            '#ifdef PG_MODULE_MAGIC',
             'PG_MODULE_MAGIC;',
-            '#endif',
             '',
             'void _PG_init(void);',
             'void _PG_fini(void);',
@@ -351,8 +348,7 @@ export function createPgViews(context: vscode.ExtensionContext, config: Configur
     const watchView = new PgWatchViewProvider(config, debugContext);
 
     const d1 = vscode.window.registerTreeDataProvider(
-        /* TODO: pg-variables-view */
-        `${ExtensionId}.node-tree-view`, varsView);
+        `${ExtensionId}.pg-variables-view`, varsView);
     const d2 = vscode.window.registerTreeDataProvider(
         `${ExtensionId}.pg-watch-view`, watchView);
     context.subscriptions.push(
@@ -548,6 +544,59 @@ async function findAllFilesWithNodeTags(folders: readonly vscode.WorkspaceFolder
     return paths;
 }
 
+function isIdentifierChar(char: string) {
+    return    ('a' <= char && char <= 'z') || ('A' <= char && char <= 'Z')
+           || char === '_' /* put it here, because underscore is more common, than digit */
+           || ('0' <= char && char <= '9');
+}
+
+async function parseNodeTagsFile(file: vscode.Uri) {
+    let content;
+    try {
+        logger.debug('opening NodeTag file', file.fsPath);
+        const document = await vscode.workspace.openTextDocument(file);
+        content = document.getText();
+    } catch (error) {
+        logger.error(error, 'could not open NodeTags file', file.fsPath);
+        return;
+    }
+
+    logger.debug('parsing contents of NodeTag file', file.fsPath);
+    const nodeTags: string[] = [];
+    let prefixIndex = undefined;
+    while ((prefixIndex = content.indexOf('T_', prefixIndex)) !== -1) {
+        /* Check this is start of identifier (not false positive) */
+        if (prefixIndex > 0 && !utils.isSpace(content[prefixIndex - 1])) {
+            prefixIndex += 2;
+            continue;
+        }
+
+        /* Search for end of identifier */
+        let endOfIdent = prefixIndex + 2;
+        while (endOfIdent < content.length && isIdentifierChar(content[endOfIdent])) {
+            endOfIdent++;
+        }
+
+        /* End of file - should not happen */
+        if (content.length <= endOfIdent) {
+            break;
+        }
+
+        const tag = content.substring(prefixIndex + 2, endOfIdent);
+        if (tag.length > 0) {
+            /*
+             * I have encountered case, then empty string was added after parsing,
+             * but I am too lazy to debug this, so just add empty string check.
+             */
+            nodeTags.push(tag);
+        }
+        prefixIndex = endOfIdent + 1;
+    }
+    
+    return new Set(nodeTags);
+}
+
+
 /*
  * Run Worker that will traverse all NodeTag containing files,
  * parse NodeTags and find which are missing - if find something,
@@ -576,7 +625,7 @@ async function searchNodeTagsWorker(config: Configuration,
     /* Run worker and collect result */
     const newNodeTags = new Set<string>();
     for (const path of paths) {
-        const tags = await vars.parseNodeTagsFile(path);
+        const tags = await parseNodeTagsFile(path);
         if (!tags?.size) {
             continue;
         }
@@ -672,8 +721,6 @@ function registerCommands(context: vscode.ExtensionContext,
     
     if (context.extensionMode === vscode.ExtensionMode.Test) {
         registerCommand(Commands.GetVariables, async () => await varsView.getChildren());
-        /* TODO: delete GetTreeViewProvider - unused */
-        registerCommand(Commands.GetTreeViewProvider, async () => varsView);
         registerCommand(Commands.GetPgWatchViewProvider, async () => watchView);
     }
 }

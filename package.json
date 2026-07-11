@@ -141,14 +141,14 @@
             },
             {
                 "command": "postgresql-hacker-helper.getVariables",
-                "title": "Get all variables currently shown in PostgreSQL variables view",
-                "shortTitle": "Get Postgres variables",
+                "title": "Get all variables currently shown in PostgreSQL variables view (testing only)",
+                "shortTitle": "Get Postgres variables (testing only)",
                 "category": "PGHH"
             },
             {
-                "command": "postgresql-hacker-helper.getTreeViewProvider",
-                "title": "Get TreeViewProvider object that manages Postgres variables view",
-                "shortTitle": "Get TreeViewProvider",
+                "command": "postgresql-hacker-helper.getPgWatchView",
+                "title": "Get PG Watch Tree Provider (testing only)",
+                "shortTitle": "Get PG Watch Tree Provider",
                 "category": "PGHH"
             }
         ],
@@ -171,7 +171,7 @@
                 {
                     "command": "postgresql-hacker-helper.refreshPostgresVariablesView",
                     "group": "navigation",
-                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated && view == postgresql-hacker-helper.node-tree-view"
+                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated && view == postgresql-hacker-helper.pg-variables-view"
                 },
                 {
                     "command": "postgresql-hacker-helper.refreshPostgresWatchView",
@@ -198,15 +198,15 @@
             "view/item/context": [
                 {
                     "command": "postgresql-hacker-helper.addVariableToWatch",
-                    "when": "inDebugMode && view == postgresql-hacker-helper.node-tree-view"
+                    "when": "inDebugMode && view == postgresql-hacker-helper.pg-variables-view"
                 },
                 {
                     "command": "postgresql-hacker-helper.dumpNodeToDoc",
-                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated && view == postgresql-hacker-helper.node-tree-view"
+                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated && view == postgresql-hacker-helper.pg-variables-view"
                 },
                 {
                     "command": "postgresql-hacker-helper.addVariableToPgWatch",
-                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated && view == postgresql-hacker-helper.node-tree-view"
+                    "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated && view == postgresql-hacker-helper.pg-variables-view"
                 },
                 {
                     "command": "postgresql-hacker-helper.removePgWatchEntry",
@@ -235,10 +235,6 @@
                     "when": "false"
                 },
                 {
-                    "command": "postgresql-hacker-helper.getTreeViewProvider",
-                    "when": "false"
-                },
-                {
                     "command": "postgresql-hacker-helper.refreshPostgresVariablesView",
                     "group": "navigation",
                     "when": "inDebugMode && debugState == stopped && postgresql-hacker-helper:activated"
@@ -253,7 +249,7 @@
         "views": {
             "debug": [
                 {
-                    "id": "postgresql-hacker-helper.node-tree-view",
+                    "id": "postgresql-hacker-helper.pg-variables-view",
                     "name": "pg variables",
                     "type": "tree",
                     "visibility": "visible",

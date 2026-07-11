@@ -887,7 +887,6 @@ export class Commands {
     static BootstrapExtension = `${ExtensionId}.bootstrapExtension`;
     static AddToWatchView = `${ExtensionId}.addVariableToWatch`;
     static GetVariables = `${ExtensionId}.getVariables`;
-    static GetTreeViewProvider = `${ExtensionId}.getTreeViewProvider`;
     static GetPgWatchViewProvider = `${ExtensionId}.getPgWatchView`;
     static FindCustomTypedefsLists = `${ExtensionId}.formatterFindTypedefsList`;
 }

@@ -59,3 +59,7 @@ export function writeFile(path: vscode.Uri, data: string): Thenable<void> {
 export function getFileName(file: vscode.Uri) {
     return path.basename(file.fsPath);
 }
+
+export function isSpace(char: string) {
+    return char === ' ' || char === '\t' || char === '\n';
+}
